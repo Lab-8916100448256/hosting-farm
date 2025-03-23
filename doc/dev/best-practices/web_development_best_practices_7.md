@@ -7,7 +7,7 @@ Organize the article by areas of the software development (Project Management, f
 ```
 Then : 
 ```
-expand the article to more areas of areas of the software development process
+expand the article to more areas of the software development process
 ```
 The `Pro` query options was selected
 `Web` source was selected
