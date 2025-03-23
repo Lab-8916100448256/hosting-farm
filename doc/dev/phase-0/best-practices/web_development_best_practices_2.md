@@ -1,4 +1,6 @@
-# Web Application Development and Design Best Practices 2025
+# Web Application Development and Design Best Practices - version 2
+Research made with [Manus AI](https://manus.ai), using the prompt: `Search the web for best practice in web application development and design`
+
 
 ## Introduction
 

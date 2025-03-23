@@ -1,5 +1,7 @@
-# Web Development and Design Best Practices - Final Version
-
+# Web Development and Design Best Practices - version 3
+Research made with [Manus AI](https://manus.ai), using the prompt: `First, seach the web for best practice in web application development and design.`
+The web browser language was set to French. And even thoug the prompt was in English, manus searched the web in french and produces a result in french. Below is a translation of the result,also performed with [Manus AI](https://manus.ai).
+ 
 ## Introduction
 
 In an ever-evolving digital world, the quality of a web application or website is no longer measured solely by its visual appearance or features. Users have become more demanding, technologies more complex, and business and security stakes higher. In this context, adopting best practices in web development and design has become not just an option, but an absolute necessity.

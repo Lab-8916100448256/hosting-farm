@@ -223,10 +223,11 @@ hosting_farm/
 
 
 ## Best practices
-Best practices in software development are essential for creating applications that are efficient, user-friendly, secure, and scalable. The sub-folder `best-practices` that is next to this document contains 3 overviews of the most important web application development and design best practices, as documented by various sources on internet.
+Best practices in software development are essential for creating applications that are efficient, user-friendly, secure, and scalable. 
+The sub-folder `best-practices` that is next to this document contains several overviews of the most important web application development and design best practices, as documented by various sources on internet. (A.I. generated)
 
 The best practices most relevant for the Server Farm project should be extracted from these overviews and listed in a specification document.
-Links to detailed informations and resources about each practices should be included for those that are not familiar with them.
+Links to detailed informations and resources about each practices should be included.
 
 Example to complete :
 ### Best practices to apply

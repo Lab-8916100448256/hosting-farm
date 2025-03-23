@@ -1,4 +1,11 @@
 # Web research on web application development and design - version 1 
+Research made with [Mistral Le Chat](https://chat.mistral.ai), using the prompt: `Search the web for best practice in web application development and design`
+
+Then: `Please elaborate a longer and more detailed answers`
+
+And again: `Please elaborate an even longer and more detailed answer, something of encyclopedic quality.`
+
+### Introduction
 Best practices in web application development and design are essential for creating applications that are efficient, user-friendly, secure, and scalable. Here’s a detailed look at some of the most important practices:
 This overview will cover essential practices, technologies, and methodologies that contribute to building robust, scalable, and user-friendly web applications from planning and design to deployment and maintenance.
 
