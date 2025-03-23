@@ -312,18 +312,16 @@ async fn invite(
         team_id: team.id,
         email: params.email,
         role: params.role,
-        invited_by_id: user.id,
+        invited_by: user.id,
     };
     
     let invitation = team_invitations::Model::create(&ctx.db, &invite_params).await?;
-    
-    // TODO: Send invitation email
     
     format::json(TeamInvitationResponse {
         pid: invitation.pid.to_string(),
         email: invitation.email.clone(),
         role: invitation.role.clone(),
-        status: "pending".to_string(),
+        status: invitation.status.clone(),
         created_at: invitation.created_at.to_string(),
     })
 }
@@ -348,26 +346,16 @@ async fn invitations(
     
     let invitations = team_invitations::Model::find_by_team(&ctx.db, team.id).await?;
     
-    let mut response = Vec::new();
-    for invitation in invitations {
-        let status = if invitation.accepted_at.is_some() {
-            "accepted"
-        } else if invitation.rejected_at.is_some() {
-            "rejected"
-        } else if invitation.is_expired().await {
-            "expired"
-        } else {
-            "pending"
-        };
-        
-        response.push(TeamInvitationResponse {
+    let response: Vec<TeamInvitationResponse> = invitations
+        .iter()
+        .map(|invitation| TeamInvitationResponse {
             pid: invitation.pid.to_string(),
             email: invitation.email.clone(),
             role: invitation.role.clone(),
-            status: status.to_string(),
+            status: invitation.status.clone(),
             created_at: invitation.created_at.to_string(),
-        });
-    }
+        })
+        .collect();
     
     format::json(response)
 }
@@ -379,12 +367,12 @@ async fn user_invitations(
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    let invitations = team_invitations::Model::find_pending_by_email(&ctx.db, &user.email).await?;
+    let invitations = team_invitations::Model::find_by_email(&ctx.db, &user.email).await?;
     
     let mut response = Vec::new();
     for invitation in invitations {
         let team = teams::Model::find_by_id(&ctx.db, invitation.team_id).await?;
-        let inviter = users::Model::find_by_id(&ctx.db, invitation.invited_by_id).await?;
+        let invited_by = users::Model::find_by_id(&ctx.db, invitation.invited_by).await?;
         
         response.push(serde_json::json!({
             "pid": invitation.pid.to_string(),
@@ -394,54 +382,14 @@ async fn user_invitations(
             },
             "role": invitation.role,
             "invited_by": {
-                "name": inviter.name,
-                "email": inviter.email,
+                "name": invited_by.name,
+                "email": invited_by.email,
             },
             "created_at": invitation.created_at.to_string(),
         }));
     }
     
     format::json(response)
-}
-
-#[debug_handler]
-async fn accept_invitation(
-    auth: auth::JWT,
-    Path(invitation_pid): Path<String>,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let invitation = team_invitations::Model::find_by_pid(&ctx.db, &invitation_pid).await?;
-    
-    // Check if invitation is for this user
-    if invitation.email != user.email {
-        return format::unauthorized("This invitation is not for you");
-    }
-    
-    // Accept invitation
-    invitation.accept(&ctx.db, user.id).await?;
-    
-    format::empty_json()
-}
-
-#[debug_handler]
-async fn reject_invitation(
-    auth: auth::JWT,
-    Path(invitation_pid): Path<String>,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let invitation = team_invitations::Model::find_by_pid(&ctx.db, &invitation_pid).await?;
-    
-    // Check if invitation is for this user
-    if invitation.email != user.email {
-        return format::unauthorized("This invitation is not for you");
-    }
-    
-    // Reject invitation
-    invitation.reject(&ctx.db).await?;
-    
-    format::empty_json()
 }
 
 pub fn routes() -> Routes {
@@ -458,6 +406,4 @@ pub fn routes() -> Routes {
         .add("/:team_pid/invite", post(invite))
         .add("/:team_pid/invitations", get(invitations))
         .add("/invitations", get(user_invitations))
-        .add("/invitations/:invitation_pid/accept", post(accept_invitation))
-        .add("/invitations/:invitation_pid/reject", post(reject_invitation))
 }
