@@ -74,6 +74,28 @@ Refer to the design documents of the previous iterations. Take special attention
   - Best practices
 
 
+## Technology Stack
+As defined in the inception phase, the technology stack used to develop the project is:
+### Backend
+- **Programming Language**: Rust
+- **Web Framework**: loco-rs (Rust on Rails inspired framework)
+- **Database**: SeaORM for ORM with PostgreSQL for production environment and SQLite for development environment
+- **Authentication**: JWT-based authentication provided by loco-rs
+- **Email Service**: SMTP integration for verification emails and notifications
+
+### Frontend
+- **UI Approach**: Server-side rendering with HTMX
+- **CSS Framework**: TailwindCSS for styling
+- **JavaScript**: Minimal usage, primarily for enhancing HTMX functionality
+- **Template Engine**: Tera templates for HTML generation
+
+### Development Tools
+- **Version Control**: Git
+- **Build System**: Cargo (Rust's package manager)
+- **Testing Framework**: Rust's built-in testing framework
+- **CI/CD**: GitHub Actions or similar
+
+
 ## User Account Features
 
 Some parts of the user account features are already implemented in the skeleton application created from the loco-rs template. These should be re-used and adapted to meet the requirements detailed in this document. 
