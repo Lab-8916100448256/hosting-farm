@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold">Invite Member to {{ team.name }}</h1>
+  </div>
+
+  <div class="bg-white shadow-md rounded-lg overflow-hidden">
+    <form action="/teams/{{ team.id }}/invite" method="post" class="px-6 py-4">
+      <div class="mb-4">
+        <label for="email" class="block text-gray-700 text-sm font-bold mb-2">Email Address</label>
+        <input type="email" id="email" name="email" required
+          class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+      </div>
+      
+      <div class="mb-4">
+        <label for="role" class="block text-gray-700 text-sm font-bold mb-2">Role</label>
+        <select id="role" name="role" required
+          class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+          {% if team.user_role == "Owner" %}
+            <option value="Administrator">Administrator</option>
+          {% endif %}
+          <option value="Developer">Developer</option>
+          <option value="Observer" selected>Observer</option>
+        </select>
+        <p class="text-gray-600 text-xs italic mt-1">Observer is the default role for new members.</p>
+      </div>
+      
+      <div class="flex items-center justify-between">
+        <button type="submit" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+          Send Invitation
+        </button>
+        <a href="/teams/{{ team.id }}/members" class="inline-block align-baseline font-bold text-sm text-blue-500 hover:text-blue-800">
+          Cancel
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
