@@ -54,6 +54,25 @@ impl Model {
         membership.ok_or_else(|| ModelError::EntityNotFound)
     }
 
+    /// Finds a membership by team and user IDs
+    ///
+    /// # Errors
+    ///
+    /// When could not find membership or DB query error
+    pub async fn find_by_team_and_user(db: &DatabaseConnection, team_id: i32, user_id: i32) -> ModelResult<Self> {
+        let membership = Entity::find()
+            .filter(
+                model::query::condition()
+                    .eq(team_memberships::Column::TeamId, team_id)
+                    .eq(team_memberships::Column::UserId, user_id)
+                    .eq(team_memberships::Column::Pending, false)
+                    .build(),
+            )
+            .one(db)
+            .await?;
+        membership.ok_or_else(|| ModelError::EntityNotFound)
+    }
+
     /// Creates an invitation to join a team
     ///
     /// # Errors

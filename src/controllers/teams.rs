@@ -1,18 +1,19 @@
 use axum::debug_handler;
 use loco_rs::prelude::*;
 use sea_orm::{PaginatorTrait, ColumnTrait, EntityTrait};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     mailers::team::TeamMailer,
     models::{
         _entities::{
-            team_memberships::{self, Column as TeamMembershipColumn, Entity as TeamMembershipEntity},
-            teams::{self, Entity as TeamEntity},
-            users::{self, Entity as UserEntity},
+            team_memberships::{self, Column as TeamMembershipColumn, Entity as TeamMembershipEntity, Model as TeamMembershipModel},
+            teams::{self, Entity as TeamEntity, Model as TeamModel},
+            users::{Entity as UserEntity, Model as UserModel},
         },
-        team_memberships::{self as team_memberships_model, UpdateRoleParams, VALID_ROLES, InviteMemberParams},
-        teams::{self as teams_model, CreateTeamParams, UpdateTeamParams},
+        team_memberships::{UpdateRoleParams, VALID_ROLES, InviteMemberParams},
+        teams::{CreateTeamParams, UpdateTeamParams},
+        users,
     },
     views::teams::{TeamResponse, MemberResponse},
 };
@@ -25,17 +26,19 @@ async fn create_team(
     State(ctx): State<AppContext>,
     Json(params): Json<CreateTeamParams>,
 ) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    let team = crate::models::teams::Model::create_team(&ctx.db, user.id, &params).await?;
+    // Create a new team
+    let team = TeamModel::create_team(&ctx.db, user.id, &params).await?;
     
     format::json(TeamResponse::from(&team))
 }
 
 #[debug_handler]
 async fn list_teams(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
+    // Get all teams where the user is a member
     let teams = TeamEntity::find()
         .find_with_related(TeamMembershipEntity)
         .all(&ctx.db)
@@ -60,8 +63,8 @@ async fn get_team(
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = crate::models::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
     
     // Check if user is a member of this team
     let has_access = team.has_role(&ctx.db, user.id, "Observer").await?;
@@ -79,8 +82,8 @@ async fn update_team(
     Path(team_pid): Path<String>,
     Json(params): Json<UpdateTeamParams>,
 ) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = crate::models::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
     
     // Check if user is an owner of this team
     let is_owner = team.has_role(&ctx.db, user.id, "Owner").await?;
@@ -99,8 +102,8 @@ async fn delete_team(
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = crate::models::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
     
     // Check if user is an owner of this team
     let is_owner = team.has_role(&ctx.db, user.id, "Owner").await?;
@@ -109,7 +112,7 @@ async fn delete_team(
     }
     
     // Delete the team
-    team.remove(&ctx.db).await?;
+    team.delete(&ctx.db).await?;
     
     format::empty_json()
 }
@@ -120,8 +123,8 @@ async fn list_members(
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = crate::models::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
     
     // Check if user is a member of this team
     let has_access = team.has_role(&ctx.db, user.id, "Observer").await?;
@@ -160,17 +163,17 @@ async fn invite_member(
     Path(team_pid): Path<String>,
     Json(params): Json<InviteMemberParams>,
 ) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = crate::models::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
     
     // Check if user is an admin of this team
-    let is_admin = team.has_role(&ctx.db, user.id, "Admin").await?;
+    let is_admin = team.has_role(&ctx.db, user.id, "Administrator").await?;
     if !is_admin {
-        return unauthorized("Only team admins can invite members");
+        return unauthorized("Only team administrators can invite members");
     }
     
     // Create invitation
-    let invitation = crate::models::team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await?;
+    let invitation = team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await?;
     
     // Send invitation email
     TeamMailer::send_invitation(&ctx, &user, &team, &invitation).await?;
@@ -184,7 +187,7 @@ async fn accept_invitation(
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
 ) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
     let invitation = team_memberships::Model::find_by_invitation_token(&ctx.db, &token).await?;
     if invitation.user_id != user.id {
@@ -192,7 +195,7 @@ async fn accept_invitation(
     }
     
     // Accept invitation
-    invitation.accept(&ctx.db).await?;
+    invitation.accept_invitation(&ctx.db).await?;
     
     format::empty_json()
 }
@@ -203,7 +206,7 @@ async fn decline_invitation(
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
 ) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
     let invitation = team_memberships::Model::find_by_invitation_token(&ctx.db, &token).await?;
     if invitation.user_id != user.id {
@@ -211,7 +214,7 @@ async fn decline_invitation(
     }
     
     // Decline invitation
-    invitation.decline(&ctx.db).await?;
+    invitation.decline_invitation(&ctx.db).await?;
     
     format::empty_json()
 }
@@ -223,9 +226,9 @@ async fn update_member_role(
     Path((team_pid, user_pid)): Path<(String, String)>,
     Json(params): Json<UpdateRoleParams>,
 ) -> Result<Response> {
-    let current_user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = crate::models::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
-    let target_user = crate::models::users::Model::find_by_pid(&ctx.db, &user_pid).await?;
+    let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
     
     // Validate role
     if !VALID_ROLES.contains(&params.role.as_str()) {
@@ -239,11 +242,11 @@ async fn update_member_role(
     }
     
     // Get membership
-    let membership = team_memberships::Model::find_by_team_and_user(&ctx.db, team.id, target_user.id).await?;
+    let membership = TeamMembershipModel::find_by_team_and_user(&ctx.db, team.id, target_user.id).await?;
     
     // Cannot change owner's role if there's only one owner
     if membership.role == "Owner" && params.role != "Owner" {
-        let owners_count = team_memberships::Entity::find()
+        let owners_count = TeamMembershipEntity::find()
             .filter(TeamMembershipColumn::TeamId.eq(team.id))
             .filter(TeamMembershipColumn::Role.eq("Owner"))
             .count(&ctx.db)
@@ -255,20 +258,20 @@ async fn update_member_role(
     }
     
     // Update role
-    membership.update_role(&ctx.db, &params).await?;
+    membership.update_role(&ctx.db, &params.role).await?;
     
     format::empty_json()
 }
 
 #[debug_handler]
 async fn remove_member(
-    auth: auth::JWT,
+    auth: JWT,
     State(ctx): State<AppContext>,
     Path((team_pid, user_pid)): Path<(String, String)>,
 ) -> Result<Response> {
-    let current_user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = crate::models::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
-    let target_user = crate::models::users::Model::find_by_pid(&ctx.db, &user_pid).await?;
+    let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
     
     // Cannot remove yourself - use leave_team for that
     if current_user.id == target_user.id {
@@ -276,14 +279,10 @@ async fn remove_member(
     }
     
     // Get target user's membership
-    let target_membership = team_memberships::Entity::find()
-        .filter(
-            model::query::condition()
-                .eq(team_memberships::Column::TeamId, team.id)
-                .eq(team_memberships::Column::UserId, target_user.id)
-                .eq(team_memberships::Column::Pending, false)
-                .build(),
-        )
+    let target_membership = TeamMembershipEntity::find()
+        .filter(TeamMembershipColumn::TeamId.eq(team.id))
+        .filter(TeamMembershipColumn::UserId.eq(target_user.id))
+        .filter(TeamMembershipColumn::Pending.eq(false))
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ModelError::msg("User is not a member of this team"))?;
@@ -310,14 +309,10 @@ async fn remove_member(
     // Special case: Prevent removing the last owner
     if target_membership.role == "Owner" {
         // Count owners
-        let owner_count = team_memberships::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(team_memberships::Column::TeamId, team.id)
-                    .eq(team_memberships::Column::Role, "Owner")
-                    .eq(team_memberships::Column::Pending, false)
-                    .build(),
-            )
+        let owner_count = TeamMembershipEntity::find()
+            .filter(TeamMembershipColumn::TeamId.eq(team.id))
+            .filter(TeamMembershipColumn::Role.eq("Owner"))
+            .filter(TeamMembershipColumn::Pending.eq(false))
             .count(&ctx.db)
             .await?;
         
@@ -334,22 +329,18 @@ async fn remove_member(
 
 #[debug_handler]
 async fn leave_team(
-    auth: auth::JWT,
+    auth: JWT,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = crate::models::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
     
     // Get the user's membership
-    let membership = team_memberships::Entity::find()
-        .filter(
-            model::query::condition()
-                .eq(team_memberships::Column::TeamId, team.id)
-                .eq(team_memberships::Column::UserId, user.id)
-                .eq(team_memberships::Column::Pending, false)
-                .build(),
-        )
+    let membership = TeamMembershipEntity::find()
+        .filter(TeamMembershipColumn::TeamId.eq(team.id))
+        .filter(TeamMembershipColumn::UserId.eq(user.id))
+        .filter(TeamMembershipColumn::Pending.eq(false))
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ModelError::msg("You are not a member of this team"))?;
@@ -357,14 +348,10 @@ async fn leave_team(
     // If user is an owner, check if they're the last owner
     if membership.role == "Owner" {
         // Count owners
-        let owner_count = team_memberships::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(team_memberships::Column::TeamId, team.id)
-                    .eq(team_memberships::Column::Role, "Owner")
-                    .eq(team_memberships::Column::Pending, false)
-                    .build(),
-            )
+        let owner_count = TeamMembershipEntity::find()
+            .filter(TeamMembershipColumn::TeamId.eq(team.id))
+            .filter(TeamMembershipColumn::Role.eq("Owner"))
+            .filter(TeamMembershipColumn::Pending.eq(false))
             .count(&ctx.db)
             .await?;
         
@@ -380,8 +367,8 @@ async fn leave_team(
 }
 
 #[debug_handler]
-async fn list_invitations(auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+async fn list_invitations(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
     let invitations = team_memberships::Model::get_user_invitations(&ctx.db, user.id).await?;
     
@@ -405,18 +392,18 @@ async fn list_invitations(auth: auth::JWT, State(ctx): State<AppContext>) -> Res
 
 pub fn routes() -> Routes {
     Routes::new()
-        .prefix("api")
-        .add("/teams", post(create_team))
+        .prefix("/api")
         .add("/teams", get(list_teams))
-        .add("/teams/:team_pid", get(get_team))
-        .add("/teams/:team_pid", put(update_team))
-        .add("/teams/:team_pid", delete(delete_team))
-        .add("/teams/:team_pid/members", get(list_members))
-        .add("/teams/:team_pid/invitations", post(invite_member))
-        .add("/teams/invitations/:token/accept", post(accept_invitation))
-        .add("/teams/invitations/:token/decline", post(decline_invitation))
-        .add("/teams/:team_pid/members/:user_pid/role", put(update_member_role))
-        .add("/teams/:team_pid/members/:user_pid", delete(remove_member))
-        .add("/teams/:team_pid/leave", post(leave_team))
+        .add("/teams", post(create_team))
+        .add("/teams/{team_pid}", get(get_team))
+        .add("/teams/{team_pid}", put(update_team))
+        .add("/teams/{team_pid}", delete(delete_team))
+        .add("/teams/{team_pid}/members", get(list_members))
+        .add("/teams/{team_pid}/invitations", post(invite_member))
+        .add("/teams/invitations/{token}/accept", post(accept_invitation))
+        .add("/teams/invitations/{token}/decline", post(decline_invitation))
+        .add("/teams/{team_pid}/members/{user_pid}/role", put(update_member_role))
+        .add("/teams/{team_pid}/members/{user_pid}", delete(remove_member))
+        .add("/teams/{team_pid}/leave", post(leave_team))
         .add("/teams/invitations", get(list_invitations))
 } 
