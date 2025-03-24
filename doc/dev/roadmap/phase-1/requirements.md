@@ -8,17 +8,18 @@
 
 ## Table of Contents
 1. [Introduction](#introduction)
-2. [User Account Features](#user-account-features)
-3. [Team Management Features](#team-management-features)
-4. [Access Control System](#access-control-system)
-5. [Model](#database-schema)
-6. [API Endpoints](#api-endpoints)
-7. [UI Components and Pages](#ui-components-and-pages)
-8. [Security Considerations](#security-considerations)
-9. [Testing Strategy](#testing-strategy)
-10. [Implementation Timeline](#implementation-timeline)
-11. [Future Enhancements](#future-enhancements)
-12. [Appendices](#appendices)
+2. [Technology Stack](#technology-stack)
+3. [User Account Features](#user-account-features)
+4. [Team Management Features](#team-management-features)
+5. [Access Control System](#access-control-system)
+6. [Model](#database-schema)
+7. [API Endpoints](#api-endpoints)
+8. [UI Components and Pages](#ui-components-and-pages)
+9. [Security Considerations](#security-considerations)
+10. [Testing Strategy](#testing-strategy)
+11. [Implementation Timeline](#implementation-timeline)
+12. [Future Enhancements](#future-enhancements)
+13. [Appendices](#appendices)
 
 
 ## Introduction
@@ -75,7 +76,7 @@ Refer to the design documents of the previous iterations. Take special attention
 
 
 ## Technology Stack
-As defined in the inception phase, the technology stack used to develop the project is:
+As defined during the inception phase, the technology stack used to develop the project is:
 ### Backend
 - **Programming Language**: Rust
 - **Web Framework**: loco-rs (Rust on Rails inspired framework)
@@ -98,7 +99,7 @@ As defined in the inception phase, the technology stack used to develop the proj
 
 ## User Account Features
 
-Some parts of the user account features are already implemented in the skeleton application created from the loco-rs template. These should be re-used and adapted to meet the requirements detailed in this document. 
+Some parts of the user account features have already been implemented in the skeleton application created from the loco-rs template during phase 0. These should be re-used and adapted to meet the requirements detailed in this document. 
 
 ### User Registration
 
