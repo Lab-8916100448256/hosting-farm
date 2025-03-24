@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold">My Teams</h1>
+    <a href="/teams/new" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+      Create New Team
+    </a>
+  </div>
+
+  {% if teams|length == 0 %}
+    <div class="bg-gray-100 p-6 rounded-lg text-center">
+      <p class="text-gray-700">You don't have any teams yet.</p>
+      <p class="text-gray-700 mt-2">Create a new team to get started.</p>
+    </div>
+  {% else %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {% for team in teams %}
+        <div class="bg-white shadow-md rounded-lg overflow-hidden">
+          <div class="px-6 py-4">
+            <div class="font-bold text-xl mb-2">{{ team.name }}</div>
+            <p class="text-gray-700 text-base">
+              {% if team.description %}
+                {{ team.description }}
+              {% else %}
+                No description provided.
+              {% endif %}
+            </p>
+          </div>
+          <div class="px-6 py-4 bg-gray-50">
+            <span class="inline-block bg-gray-200 rounded-full px-3 py-1 text-sm font-semibold text-gray-700 mr-2">
+              {{ team.user_role }}
+            </span>
+          </div>
+          <div class="px-6 py-4 flex justify-end">
+            <a href="/teams/{{ team.id }}" class="text-blue-500 hover:text-blue-700 mr-4">View Details</a>
+            <a href="/teams/{{ team.id }}/members" class="text-blue-500 hover:text-blue-700">Members</a>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

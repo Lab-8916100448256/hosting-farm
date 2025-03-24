@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold">{{ team.name }}</h1>
+    {% if team.description %}
+      <p class="text-gray-700 mt-2">{{ team.description }}</p>
+    {% endif %}
+  </div>
+
+  <div class="bg-white shadow-md rounded-lg overflow-hidden mb-6">
+    <div class="px-6 py-4">
+      <h2 class="font-bold text-xl mb-2">Team Details</h2>
+      <p class="text-gray-700 mb-2"><span class="font-semibold">Team ID:</span> {{ team.id }}</p>
+      <p class="text-gray-700 mb-2"><span class="font-semibold">Slug:</span> {{ team.slug }}</p>
+      <p class="text-gray-700 mb-2"><span class="font-semibold">Your Role:</span> {{ team.user_role }}</p>
+    </div>
+    
+    <div class="px-6 py-4 bg-gray-50 flex flex-wrap">
+      <a href="/teams/{{ team.id }}/members" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2 mb-2">
+        View Members
+      </a>
+      
+      {% if team.user_role == "Owner" or team.user_role == "Administrator" %}
+        <a href="/teams/{{ team.id }}/invite" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mr-2 mb-2">
+          Invite Members
+        </a>
+      {% endif %}
+      
+      {% if team.user_role == "Owner" %}
+        <a href="/teams/{{ team.id }}/edit" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded mr-2 mb-2">
+          Edit Team
+        </a>
+        
+        <form action="/teams/{{ team.id }}/delete" method="post" class="inline-block">
+          <button type="submit" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded mb-2"
+                  onclick="return confirm('Are you sure you want to delete this team? This action cannot be undone.')">
+            Delete Team
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+  
+  <div class="flex justify-end">
+    <a href="/teams" class="text-blue-500 hover:text-blue-700">Back to Teams</a>
+  </div>
+</div>
+{% endblock %}

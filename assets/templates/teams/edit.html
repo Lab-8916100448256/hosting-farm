@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold">Edit Team: {{ team.name }}</h1>
+  </div>
+
+  <div class="bg-white shadow-md rounded-lg overflow-hidden">
+    <form action="/teams/{{ team.id }}" method="post" class="px-6 py-4">
+      <div class="mb-4">
+        <label for="name" class="block text-gray-700 text-sm font-bold mb-2">Team Name</label>
+        <input type="text" id="name" name="name" value="{{ team.name }}" required
+          class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+      </div>
+      
+      <div class="mb-4">
+        <label for="description" class="block text-gray-700 text-sm font-bold mb-2">Description (Optional)</label>
+        <textarea id="description" name="description" rows="4"
+          class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">{{ team.description }}</textarea>
+      </div>
+      
+      <div class="flex items-center justify-between">
+        <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+          Update Team
+        </button>
+        <a href="/teams/{{ team.id }}" class="inline-block align-baseline font-bold text-sm text-blue-500 hover:text-blue-800">
+          Cancel
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
