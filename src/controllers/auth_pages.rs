@@ -186,6 +186,39 @@ async fn reset_password(
     render_template(&ctx, "auth/reset-password.html.tera", context)
 }
 
+/// Renders the email verification page
+#[debug_handler]
+async fn verify_email(
+    State(ctx): State<AppContext>,
+    Path(token): Path<String>,
+) -> Result<Response> {
+    let user_result = users::Model::find_by_verification_token(&ctx.db, &token).await;
+    
+    let mut context = tera::Context::new();
+    
+    match user_result {
+        Ok(user) => {
+            if user.email_verified_at.is_some() {
+                tracing::info!(pid = user.pid.to_string(), "user already verified");
+                context.insert("success", &true);
+                context.insert("error_message", "Your email is already verified.");
+            } else {
+                let active_model = user.into_active_model();
+                let _user = active_model.verified(&ctx.db).await?;
+                tracing::info!(pid = _user.pid.to_string(), "user verified");
+                context.insert("success", &true);
+                context.insert("error_message", "");
+            }
+        }
+        Err(_) => {
+            context.insert("success", &false);
+            context.insert("error_message", "Invalid or expired verification token.");
+        }
+    }
+    
+    render_template(&ctx, "auth/verify.html.tera", context)
+}
+
 /// Authentication page routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -195,5 +228,6 @@ pub fn routes() -> Routes {
         .add("/login", get(login))
         .add("/login", post(handle_login))
         .add("/forgot-password", get(forgot_password))
-        .add("/reset-password/{token}", get(reset_password))
+        .add("/reset-password", get(reset_password))
+        .add("/verify/{token}", get(verify_email))
 } 
