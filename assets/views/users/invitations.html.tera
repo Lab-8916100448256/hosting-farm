@@ -18,7 +18,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-lg leading-6 font-medium text-gray-900">{{ invitation.team_name }}</h3>
-                    <p class="mt-1 max-w-2xl text-sm text-gray-500">{{ invitation.team_description if invitation.team_description else "No description" }}</p>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">{% if invitation.team_description %}{{ invitation.team_description }}{% else %}No description{% endif %}</p>
                     <p class="mt-1 text-sm text-gray-500">Invited {{ invitation.sent_at | date(format="%B %d, %Y") }}</p>
                 </div>
                 <div class="flex space-x-3">
