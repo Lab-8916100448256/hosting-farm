@@ -172,7 +172,7 @@ async fn team_details(
 }
 
 /// Render the edit team form
-#[debug_handler]
+#[axum::debug_handler]
 async fn edit_team_form(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
