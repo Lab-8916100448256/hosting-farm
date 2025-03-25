@@ -126,7 +126,7 @@ async fn list_teams(
 }
 
 /// Get details of a specific team
-#[debug_handler]
+#[axum::debug_handler]
 async fn get_team(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
