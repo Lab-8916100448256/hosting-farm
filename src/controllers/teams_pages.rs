@@ -1,36 +1,42 @@
 use axum::debug_handler;
 use loco_rs::prelude::*;
-use sea_orm::{EntityTrait, ColumnTrait, QueryFilter};
+use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
 use crate::models::{users, _entities};
-use crate::models::_entities::{teams, team_memberships};
 use serde_json::json;
-use tera;
-use crate::utils::{template::render_template, middleware};
+use uuid::Uuid;
+use crate::utils::template::render_template;
 
 type JWT = loco_rs::controller::middleware::auth::JWT;
 
-/// Renders the teams list page
+/// List teams page
 #[debug_handler]
-async fn index(
+async fn list_teams(
     auth: JWT,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
     // Get all teams where the user is a member
-    let teams_result = teams::Entity::find()
-        .find_with_related(team_memberships::Entity)
+    let teams_result = _entities::teams::Entity::find()
+        .find_with_related(_entities::team_memberships::Entity)
         .all(&ctx.db)
         .await?
         .into_iter()
         .filter_map(|(team, memberships)| {
             let is_member = memberships.iter().any(|m| m.user_id == user.id && !m.pending);
             if is_member {
-                Some(tera::Context::from_serialize(json!({
+                // Find user's role in this team
+                let role = memberships.iter()
+                    .find(|m| m.user_id == user.id && !m.pending)
+                    .map(|m| m.role.clone())
+                    .unwrap_or_else(|| "Unknown".to_string());
+                
+                Some(json!({
                     "pid": team.pid.to_string(),
                     "name": team.name,
-                    "description": team.description
-                })).unwrap())
+                    "description": team.description,
+                    "role": role
+                }))
             } else {
                 None
             }
@@ -42,192 +48,194 @@ async fn index(
     context.insert("teams", &teams_result);
     context.insert("active_page", "teams");
     
-    render_template(&ctx, "teams/index.html.tera", context)
+    render_template(&ctx, "teams/list.html.tera", context)
 }
 
-/// Renders the new team page
+/// Team details page
 #[debug_handler]
-async fn new(
-    auth: JWT,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    
-    render_template(&ctx, "teams/new.html.tera", context)
-}
-
-/// Renders the team details page
-#[debug_handler]
-async fn show(
+async fn team_details(
     auth: JWT,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    // Find team by pid
-    let parse_uuid = uuid::Uuid::parse_str(&team_pid)
-        .map_err(|e| Error::msg(format!("Invalid UUID: {}", e)))?;
+    // Parse and validate PID
+    let _pid = Uuid::parse_str(&team_pid)
+        .map_err(|e| loco_rs::Error::string(&format!("Invalid UUID: {}", e)))?;
     
-    let team = teams::Entity::find()
-        .filter(teams::Column::Pid.eq(parse_uuid))
+    // Find team
+    let team = _entities::teams::Entity::find()
+        .filter(_entities::teams::Column::Pid.eq(team_pid.clone()))
         .one(&ctx.db)
         .await?
-        .ok_or_else(|| Error::msg("Team not found"))?;
+        .ok_or_else(|| loco_rs::Error::string("Team not found"))?;
     
     // Check if user is a member of this team
-    let membership = team_memberships::Entity::find()
-        .filter(team_memberships::Column::TeamId.eq(team.id))
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(false))
+    let membership = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
         .await?;
     
-    let has_access = membership.is_some();
-    if !has_access {
+    if membership.is_none() {
         return unauthorized("You are not a member of this team");
     }
     
-    // Check if user is an admin or owner
-    let is_admin = membership.map(|m| {
-        m.role == "Owner" || m.role == "Administrator"
-    }).unwrap_or(false);
-    
     // Get team members
-    let memberships = team_memberships::Entity::find()
-        .filter(team_memberships::Column::TeamId.eq(team.id))
-        .filter(team_memberships::Column::Pending.eq(false))
-        .find_with_related(users::Entity)
+    let memberships = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
         .all(&ctx.db)
         .await?;
     
-    let members = memberships
-        .into_iter()
-        .filter_map(|(membership, users)| {
-            if let Some(user) = users.first() {
-                Some(tera::Context::from_serialize(json!({
-                    "user_pid": user.pid.to_string(),
-                    "name": user.name,
-                    "email": user.email,
-                    "role": membership.role
-                })).unwrap())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut members = Vec::new();
+    for membership in memberships {
+        let member = _entities::users::Entity::find_by_id(membership.user_id)
+            .one(&ctx.db)
+            .await?;
+        
+        if let Some(member) = member {
+            members.push(json!({
+                "id": member.id,
+                "name": member.name,
+                "email": member.email,
+                "role": membership.role
+            }));
+        }
+    }
     
     let mut context = tera::Context::new();
     context.insert("user", &user);
-    context.insert("team", &tera::Context::from_serialize(json!({
+    context.insert("team", &json!({
         "pid": team.pid.to_string(),
         "name": team.name,
         "description": team.description
-    })).unwrap());
+    }));
     context.insert("members", &members);
-    context.insert("is_admin", &is_admin);
     context.insert("active_page", "teams");
     
-    render_template(&ctx, "teams/show.html.tera", context)
+    render_template(&ctx, "teams/details.html.tera", context)
 }
 
-/// Renders the edit team page
+/// Invite member page
 #[debug_handler]
-async fn edit(
+async fn invite_member_page(
     auth: JWT,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    // Find team by pid
-    let parse_uuid = uuid::Uuid::parse_str(&team_pid)
-        .map_err(|e| Error::msg(format!("Invalid UUID: {}", e)))?;
+    // Parse and validate PID
+    let _pid = Uuid::parse_str(&team_pid)
+        .map_err(|e| loco_rs::Error::string(&format!("Invalid UUID: {}", e)))?;
     
-    let team = teams::Entity::find()
-        .filter(teams::Column::Pid.eq(parse_uuid))
+    // Find team
+    let team = _entities::teams::Entity::find()
+        .filter(_entities::teams::Column::Pid.eq(team_pid.clone()))
         .one(&ctx.db)
         .await?
-        .ok_or_else(|| Error::msg("Team not found"))?;
+        .ok_or_else(|| loco_rs::Error::string("Team not found"))?;
     
-    // Check if user is an owner of this team
-    let is_owner = team_memberships::Entity::find()
-        .filter(team_memberships::Column::TeamId.eq(team.id))
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Role.eq("Owner"))
-        .filter(team_memberships::Column::Pending.eq(false))
+    // Check if user is an administrator of this team
+    let membership = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?
-        .is_some();
+        .await?;
     
-    if !is_owner {
-        return unauthorized("Only team owners can edit team details");
+    if let Some(membership) = membership {
+        if membership.role != "Owner" && membership.role != "Administrator" {
+            return unauthorized("Only team administrators can invite members");
+        }
+    } else {
+        return unauthorized("You are not a member of this team");
     }
     
     let mut context = tera::Context::new();
     context.insert("user", &user);
-    context.insert("team", &tera::Context::from_serialize(json!({
-        "pid": team.pid.to_string(),
-        "name": team.name,
-        "description": team.description
-    })).unwrap());
-    
-    render_template(&ctx, "teams/edit.html.tera", context)
-}
-
-/// Renders the invite team member page
-#[debug_handler]
-async fn invite(
-    auth: JWT,
-    State(ctx): State<AppContext>,
-    Path(team_pid): Path<String>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
-    // Find team by pid
-    let parse_uuid = uuid::Uuid::parse_str(&team_pid)
-        .map_err(|e| Error::msg(format!("Invalid UUID: {}", e)))?;
-    
-    let team = teams::Entity::find()
-        .filter(teams::Column::Pid.eq(parse_uuid))
-        .one(&ctx.db)
-        .await?
-        .ok_or_else(|| Error::msg("Team not found"))?;
-    
-    // Check if user is an admin of this team
-    let is_admin = team_memberships::Entity::find()
-        .filter(team_memberships::Column::TeamId.eq(team.id))
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(false))
-        .one(&ctx.db)
-        .await?
-        .map(|m| m.role == "Owner" || m.role == "Administrator")
-        .unwrap_or(false);
-    
-    if !is_admin {
-        return unauthorized("Only team administrators can invite members");
-    }
-    
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert("team", &tera::Context::from_serialize(json!({
+    context.insert("team", &json!({
         "pid": team.pid.to_string(),
         "name": team.name
-    })).unwrap());
+    }));
+    context.insert("active_page", "teams");
     
     render_template(&ctx, "teams/invite.html.tera", context)
 }
 
-/// Team page routes
+/// Edit team page
+#[debug_handler]
+async fn edit_team_page(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path(team_pid): Path<String>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    // Parse and validate PID
+    let _pid = Uuid::parse_str(&team_pid)
+        .map_err(|e| loco_rs::Error::string(&format!("Invalid UUID: {}", e)))?;
+    
+    // Find team
+    let team = _entities::teams::Entity::find()
+        .filter(_entities::teams::Column::Pid.eq(team_pid.clone()))
+        .one(&ctx.db)
+        .await?
+        .ok_or_else(|| loco_rs::Error::string("Team not found"))?;
+    
+    // Check if user is an owner of this team
+    let membership = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
+        .one(&ctx.db)
+        .await?;
+    
+    if let Some(membership) = membership {
+        if membership.role != "Owner" {
+            return unauthorized("Only team owners can edit team details");
+        }
+    } else {
+        return unauthorized("You are not a member of this team");
+    }
+    
+    let mut context = tera::Context::new();
+    context.insert("user", &user);
+    context.insert("team", &json!({
+        "pid": team.pid.to_string(),
+        "name": team.name,
+        "description": team.description
+    }));
+    context.insert("active_page", "teams");
+    
+    render_template(&ctx, "teams/edit.html.tera", context)
+}
+
+/// Create team page
+#[debug_handler]
+async fn create_team_page(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    let mut context = tera::Context::new();
+    context.insert("user", &user);
+    context.insert("active_page", "teams");
+    
+    render_template(&ctx, "teams/create.html.tera", context)
+}
+
+/// Team routes
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/teams")
-        .add("/", get(index).layer(middleware::auth()))
-        .add("/new", get(new).layer(middleware::auth()))
-        .add("/:team_pid", get(show).layer(middleware::auth()))
-        .add("/:team_pid/edit", get(edit).layer(middleware::auth()))
-        .add("/:team_pid/invite", get(invite).layer(middleware::auth()))
+        .add("/", get(list_teams))
+        .add("/create", get(create_team_page))
+        .add("/:team_pid", get(team_details))
+        .add("/:team_pid/edit", get(edit_team_page))
+        .add("/:team_pid/invite", get(invite_member_page))
 } 

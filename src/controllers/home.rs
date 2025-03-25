@@ -5,19 +5,23 @@ use serde_json::json;
 use tera;
 use crate::utils::template::render_template;
 
-/// Renders the home page
+/// Renders the home page for non-authenticated users
 #[debug_handler]
-async fn index(
+async fn index(State(ctx): State<AppContext>) -> Result<Response> {
+    let context = tera::Context::new();
+    render_template(&ctx, "home/index.html.tera", context)
+}
+
+/// Renders the home page for authenticated users
+#[debug_handler]
+async fn authenticated_index(
+    auth: auth::JWT,
     State(ctx): State<AppContext>,
-    auth: Option<auth::JWT>,
 ) -> Result<Response> {
-    let mut context = tera::Context::new();
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    // If user is logged in, add user information to the context
-    if let Some(jwt) = auth {
-        let user = users::Model::find_by_pid(&ctx.db, &jwt.claims.pid).await?;
-        context.insert("user", &user);
-    }
+    let mut context = tera::Context::new();
+    context.insert("user", &user);
     
     render_template(&ctx, "home/index.html.tera", context)
 }
@@ -26,4 +30,5 @@ async fn index(
 pub fn routes() -> Routes {
     Routes::new()
         .add("/", get(index))
+        .add("/home", get(authenticated_index))
 } 
