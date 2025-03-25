@@ -82,10 +82,12 @@ impl Model {
     ) -> ModelResult<Self> {
         let txn = db.begin().await?;
 
-        // Create team
+        // Create team with explicit pid
+        let team_pid = Uuid::new_v4();
         let team = teams::ActiveModel {
             name: ActiveValue::set(params.name.to_string()),
             description: ActiveValue::set(params.description.clone()),
+            pid: ActiveValue::set(team_pid),
             ..Default::default()
         }
         .insert(&txn)
