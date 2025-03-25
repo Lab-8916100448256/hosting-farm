@@ -15,14 +15,12 @@ async fn index(State(ctx): State<AppContext>) -> Result<Response> {
 #[debug_handler]
 async fn authenticated_index(
     State(ctx): State<AppContext>,
-    auth: Option<auth::JWT>,
+    auth: auth::JWT,
 ) -> Result<Response> {
     let mut context = tera::Context::new();
     
-    if let Some(auth) = auth {
-        if let Ok(user) = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
-            context.insert("user", &user);
-        }
+    if let Ok(user) = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
+        context.insert("user", &user);
     }
     
     render_template(&ctx, "home/index.html.tera", context)
