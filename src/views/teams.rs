@@ -142,7 +142,7 @@ async fn create_team(
 }
 
 /// Render the team details page
-#[debug_handler]
+#[axum::debug_handler]
 async fn team_details(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
