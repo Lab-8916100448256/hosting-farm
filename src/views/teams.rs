@@ -372,7 +372,7 @@ async fn accept_invitation(
 }
 
 /// Handle the update member role form submission
-#[debug_handler]
+#[axum::debug_handler]
 async fn update_member_role(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
