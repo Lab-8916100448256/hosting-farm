@@ -5,12 +5,14 @@ use crate::{
         users::{LoginParams, RegisterParams},
     },
     views::auth::{CurrentResponse, LoginResponse},
+    utils::template::render_template,
 };
 use axum::debug_handler;
 use loco_rs::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
+use tera::Context;
 
 pub static EMAIL_DOMAIN_RE: OnceLock<Regex> = OnceLock::new();
 
@@ -71,17 +73,31 @@ async fn register(
 /// the system.
 #[debug_handler]
 async fn verify(State(ctx): State<AppContext>, Path(token): Path<String>) -> Result<Response> {
-    let user = users::Model::find_by_verification_token(&ctx.db, &token).await?;
-
-    if user.email_verified_at.is_some() {
-        tracing::info!(pid = user.pid.to_string(), "user already verified");
-    } else {
-        let active_model = user.into_active_model();
-        let user = active_model.verified(&ctx.db).await?;
-        tracing::info!(pid = user.pid.to_string(), "user verified");
+    let user_result = users::Model::find_by_verification_token(&ctx.db, &token).await;
+    
+    let mut context = Context::new();
+    
+    match user_result {
+        Ok(user) => {
+            if user.email_verified_at.is_some() {
+                tracing::info!(pid = user.pid.to_string(), "user already verified");
+                context.insert("success", &true);
+                context.insert("error_message", "Your email is already verified.");
+            } else {
+                let active_model = user.into_active_model();
+                let _user = active_model.verified(&ctx.db).await?;
+                tracing::info!(pid = _user.pid.to_string(), "user verified");
+                context.insert("success", &true);
+                context.insert("error_message", "");
+            }
+        }
+        Err(_) => {
+            context.insert("success", &false);
+            context.insert("error_message", "Invalid or expired verification token.");
+        }
     }
-
-    format::json(())
+    
+    render_template(&ctx, "auth/verify.html.tera", context)
 }
 
 /// In case the user forgot his password  this endpoints generate a forgot token
