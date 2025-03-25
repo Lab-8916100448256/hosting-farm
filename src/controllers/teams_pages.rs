@@ -235,7 +235,7 @@ pub fn routes() -> Routes {
         .prefix("/teams")
         .add("/", get(list_teams))
         .add("/create", get(create_team_page))
-        .add("/:team_pid", get(team_details))
-        .add("/:team_pid/edit", get(edit_team_page))
-        .add("/:team_pid/invite", get(invite_member_page))
+        .add("/{team_pid}", get(team_details))
+        .add("/{team_pid}/edit", get(edit_team_page))
+        .add("/{team_pid}/invite", get(invite_member_page))
 } 

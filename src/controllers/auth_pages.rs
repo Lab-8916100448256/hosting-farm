@@ -48,5 +48,5 @@ pub fn routes() -> Routes {
         .add("/register", get(register))
         .add("/login", get(login))
         .add("/forgot-password", get(forgot_password))
-        .add("/reset-password/:token", get(reset_password))
+        .add("/reset-password/{token}", get(reset_password))
 } 

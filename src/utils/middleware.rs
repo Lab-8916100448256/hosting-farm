@@ -2,11 +2,14 @@
 /// 
 /// For authentication, use the JWT parameter directly in your handlers:
 /// 
-/// ```rust
+/// ```
+/// # use axum::extract::State;
+/// # use loco_rs::prelude::*;
 /// async fn my_handler(
 ///    auth: loco_rs::controller::middleware::auth::JWT,
 ///    State(ctx): State<AppContext>,
 /// ) -> Result<Response> {
+///    # Ok(Response::builder().body(axum::body::Body::empty()).unwrap())
 ///    // Your authenticated handler code here
 /// }
 /// ```
