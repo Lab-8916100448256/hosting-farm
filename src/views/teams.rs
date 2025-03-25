@@ -120,7 +120,7 @@ async fn new_team_form(
 }
 
 /// Handle the new team form submission
-#[debug_handler]
+#[axum::debug_handler]
 async fn create_team(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
