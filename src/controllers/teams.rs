@@ -246,7 +246,7 @@ async fn accept_invitation(
 }
 
 /// Update a team member's role
-#[debug_handler]
+#[axum::debug_handler]
 async fn update_member_role(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
