@@ -4,6 +4,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
     Form, Router,
+    handler::Handler,
 };
 use loco_rs::{
     auth,
