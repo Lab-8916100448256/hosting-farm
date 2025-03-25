@@ -45,7 +45,9 @@
                         </span>
                         {% endif %}
                     </a>
+
                     <div class="ml-3 relative">
+                        <!-- user menu button -->
                         <div>
                             <button type="button" class="max-w-xs bg-white flex items-center text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" id="user-menu-button">
                                 <span class="sr-only">Open user menu</span>
@@ -54,10 +56,11 @@
                                 </span>
                             </button>
                         </div>
-                        <!-- Dropdown menu -->
+                        <!-- user menu dropdown items -->
                         <div class="hidden origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none" role="menu" id="user-menu">
                             <a href="/users/profile" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">Your Profile</a>
-                            <button onclick="window.logout()" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer" role="menuitem">Sign out</button>
+                            <a href="/auth/logout" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">Logout</a>
+                            <a href="/test/dummy" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="test">Dummy</a>
                         </div>
                     </div>
                     {% else %}
@@ -103,6 +106,11 @@
                 }
             });
         }
+
+        // Initialize HTMX
+        document.addEventListener('DOMContentLoaded', function() {
+            htmx.logAll(); // Enable HTMX logging for debugging
+        });
     </script>
 </body>
 </html> 
