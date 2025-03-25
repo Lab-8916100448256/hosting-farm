@@ -1,15 +1,14 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
 # Technical stack
 
-
----
-Description: Technical stack guidelines
-Globs: src/**/*.rs, src/**/*.terra, src/**/.html; src/**/.js
----
-
-# Introduction
+## Introduction
 This rule file provides guidelines for technical stack used in the project
 
-# Guidelines
+## Guidelines
 
 1. **UI Flow**
    - When implmenting user interfaces always use server-side rendering with HTMX
@@ -22,8 +21,8 @@ This rule file provides guidelines for technical stack used in the project
 3. **Styling**:
    - Use Tailwind CSS for styling.
 
-# References
+## References
 @file:doc/dev/roadmap/phase-0/requirements.md
 
-# Additional Instructions
+## Additional Instructions
 When generating code, prioritize readability and maintainability. Use clear and descriptive variable names, and avoid complex logic without proper documentation.
