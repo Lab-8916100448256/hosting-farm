@@ -22,20 +22,22 @@ impl AuthMailer {
     ///
     /// When email sending is failed
     pub async fn send_welcome(ctx: &AppContext, user: &users::Model) -> Result<()> {
-        Self::mail_template(
-            ctx,
-            &welcome,
-            mailer::Args {
-                to: user.email.to_string(),
-                locals: json!({
-                  "name": user.name,
-                  "verifyToken": user.email_verification_token,
-                  "domain": ctx.config.server.full_url()
-                }),
-                ..Default::default()
-            },
-        )
-        .await?;
+        let mut args = mailer::Args {
+            to: user.email.to_string(),
+            locals: json!({
+              "name": user.name,
+              "verifyToken": user.email_verification_token,
+              "domain": ctx.config.server.full_url()
+            }),
+            ..Default::default()
+        };
+        
+        // Set the from email to match the SMTP username
+        if let Some(_mailer_config) = &ctx.config.mailer {
+            args.from = Some("distrilab@distrilab.org".into());
+        }
+        
+        Self::mail_template(ctx, &welcome, args).await?;
 
         Ok(())
     }
@@ -46,20 +48,22 @@ impl AuthMailer {
     ///
     /// When email sending is failed
     pub async fn forgot_password(ctx: &AppContext, user: &users::Model) -> Result<()> {
-        Self::mail_template(
-            ctx,
-            &forgot,
-            mailer::Args {
-                to: user.email.to_string(),
-                locals: json!({
-                  "name": user.name,
-                  "resetToken": user.reset_token,
-                  "domain": ctx.config.server.full_url()
-                }),
-                ..Default::default()
-            },
-        )
-        .await?;
+        let mut args = mailer::Args {
+            to: user.email.to_string(),
+            locals: json!({
+              "name": user.name,
+              "resetToken": user.reset_token,
+              "domain": ctx.config.server.full_url()
+            }),
+            ..Default::default()
+        };
+        
+        // Set the from email to match the SMTP username
+        if let Some(_mailer_config) = &ctx.config.mailer {
+            args.from = Some("distrilab@distrilab.org".into());
+        }
+        
+        Self::mail_template(ctx, &forgot, args).await?;
 
         Ok(())
     }
@@ -70,22 +74,24 @@ impl AuthMailer {
     ///
     /// When email sending is failed
     pub async fn send_magic_link(ctx: &AppContext, user: &users::Model) -> Result<()> {
-        Self::mail_template(
-            ctx,
-            &magic_link,
-            mailer::Args {
-                to: user.email.to_string(),
-                locals: json!({
-                  "name": user.name,
-                  "token": user.magic_link_token.clone().ok_or_else(|| Error::string(
-                            "the user model not contains magic link token",
-                    ))?,
-                  "host": ctx.config.server.full_url()
-                }),
-                ..Default::default()
-            },
-        )
-        .await?;
+        let mut args = mailer::Args {
+            to: user.email.to_string(),
+            locals: json!({
+              "name": user.name,
+              "token": user.magic_link_token.clone().ok_or_else(|| Error::string(
+                        "the user model not contains magic link token",
+                ))?,
+              "host": ctx.config.server.full_url()
+            }),
+            ..Default::default()
+        };
+        
+        // Set the from email to match the SMTP username
+        if let Some(_mailer_config) = &ctx.config.mailer {
+            args.from = Some("distrilab@distrilab.org".into());
+        }
+        
+        Self::mail_template(ctx, &magic_link, args).await?;
 
         Ok(())
     }
