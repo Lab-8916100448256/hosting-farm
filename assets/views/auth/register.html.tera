@@ -6,18 +6,24 @@
 <div class="max-w-md mx-auto">
     <h2 class="text-2xl font-bold text-gray-900 mb-6">Create your account</h2>
     
-    <form action="/api/auth/register" method="POST" class="space-y-6" hx-post="/api/auth/register" hx-swap="outerHTML" hx-target="this" hx-on::after-request="if(event.detail.successful) { window.location.href = '/auth/login?registered=true'; }">
+    <form action="/auth/register" method="POST" class="space-y-6" hx-post="/auth/register" hx-swap="outerHTML">
+        {% if error %}
+        <div class="p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg">
+            {{ error }}
+        </div>
+        {% endif %}
+        
         <div>
             <label for="name" class="block text-sm font-medium text-gray-700">Full name</label>
             <div class="mt-1">
-                <input id="name" name="name" type="text" required class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                <input id="name" name="name" type="text" required class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" value="{{ name | default(value="") }}">
             </div>
         </div>
 
         <div>
             <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
             <div class="mt-1">
-                <input id="email" name="email" type="email" required class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                <input id="email" name="email" type="email" required class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" value="{{ email | default(value="") }}">
             </div>
         </div>
 
@@ -40,8 +46,6 @@
                 Create account
             </button>
         </div>
-        
-        <div id="register-error" class="text-red-600 text-sm hidden"></div>
     </form>
 
     <div class="mt-6">
