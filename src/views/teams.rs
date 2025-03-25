@@ -111,7 +111,7 @@ async fn teams_list(
 }
 
 /// Render the new team form
-#[debug_handler]
+#[axum::debug_handler]
 async fn new_team_form(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
