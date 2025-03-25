@@ -285,7 +285,7 @@ async fn update_member_role(
 }
 
 /// Remove a member from a team
-#[debug_handler]
+#[axum::debug_handler]
 async fn remove_member(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
