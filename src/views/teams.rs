@@ -199,7 +199,7 @@ async fn edit_team_form(
 }
 
 /// Handle the edit team form submission
-#[debug_handler]
+#[axum::debug_handler]
 async fn update_team(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
