@@ -1,6 +1,6 @@
 //! Team views for HTML rendering
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, Extension},
     response::IntoResponse,
     routing::{get, post},
     Form, Router,
