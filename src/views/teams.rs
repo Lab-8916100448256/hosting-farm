@@ -319,7 +319,7 @@ async fn invite_member_form(
 }
 
 /// Handle the invite member form submission
-#[debug_handler]
+#[axum::debug_handler]
 async fn invite_member(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
