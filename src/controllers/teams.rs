@@ -194,7 +194,7 @@ async fn delete_team(
 }
 
 /// Invite a user to a team
-#[debug_handler]
+#[axum::debug_handler]
 async fn invite_member(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
