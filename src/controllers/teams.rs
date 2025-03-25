@@ -173,7 +173,7 @@ async fn update_team(
 }
 
 /// Delete a team
-#[debug_handler]
+#[axum::debug_handler]
 async fn delete_team(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
