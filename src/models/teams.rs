@@ -58,16 +58,33 @@ impl Model {
     ///
     /// When could not find team or DB query error
     pub async fn find_by_pid(db: &DatabaseConnection, pid: &str) -> ModelResult<Self> {
-        let parse_uuid = Uuid::parse_str(pid).map_err(|e| ModelError::Any(e.into()))?;
+        tracing::debug!("Finding team by pid: {}", pid);
+        
+        // Parse UUID
+        let parse_uuid = match Uuid::parse_str(pid) {
+            Ok(uuid) => uuid,
+            Err(e) => {
+                tracing::error!("Failed to parse UUID '{}': {}", pid, e);
+                return Err(ModelError::Any(e.into()));
+            }
+        };
+        
+        // Find team
         let team = teams::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(teams::Column::Pid, parse_uuid)
-                    .build(),
-            )
+            .filter(teams::Column::Pid.eq(parse_uuid))
             .one(db)
             .await?;
-        team.ok_or_else(|| ModelError::EntityNotFound)
+        
+        match team {
+            Some(team) => {
+                tracing::debug!("Found team with pid: {}, id: {}", team.pid, team.id);
+                Ok(team)
+            },
+            None => {
+                tracing::error!("Team not found with pid: {}", pid);
+                Err(ModelError::EntityNotFound)
+            }
+        }
     }
 
     /// Creates a new team and adds the creator as the Owner
@@ -81,6 +98,8 @@ impl Model {
         params: &CreateTeamParams,
     ) -> ModelResult<Self> {
         let txn = db.begin().await?;
+        
+        tracing::info!("Creating team with name: {}", params.name);
 
         // Create team with explicit pid
         let team_pid = Uuid::new_v4();
@@ -93,8 +112,10 @@ impl Model {
         .insert(&txn)
         .await?;
 
+        tracing::info!("Team created with id: {}, pid: {}", team.id, team.pid);
+
         // Add creator as owner
-        let _membership = team_memberships::ActiveModel {
+        let membership = team_memberships::ActiveModel {
             team_id: ActiveValue::set(team.id),
             user_id: ActiveValue::set(user_id),
             role: ActiveValue::set("Owner".to_string()),
@@ -104,7 +125,11 @@ impl Model {
         .insert(&txn)
         .await?;
 
+        tracing::info!("Team membership created with id: {}", membership.id);
+
         txn.commit().await?;
+        tracing::info!("Transaction committed successfully");
+        
         Ok(team)
     }
 

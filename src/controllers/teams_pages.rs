@@ -85,16 +85,27 @@ async fn team_details(
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    // Parse and validate PID
-    let _pid = Uuid::parse_str(&team_pid)
-        .map_err(|e| loco_rs::Error::string(&format!("Invalid UUID: {}", e)))?;
+    tracing::info!("Accessing team details for pid: {}", team_pid);
     
-    // Find team
-    let team = _entities::teams::Entity::find()
-        .filter(_entities::teams::Column::Pid.eq(team_pid.clone()))
-        .one(&ctx.db)
-        .await?
-        .ok_or_else(|| loco_rs::Error::string("Team not found"))?;
+    // Parse and validate PID
+    let _pid = match Uuid::parse_str(&team_pid) {
+        Ok(uuid) => uuid,
+        Err(e) => {
+            tracing::error!("Invalid UUID format for team_pid: {}, error: {}", team_pid, e);
+            return Err(Error::string(&format!("Invalid UUID: {}", e)));
+        }
+    };
+    
+    // Find team - Use the Model::find_by_pid method which has improved error handling
+    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
+            return Err(Error::string("Team not found"));
+        }
+    };
+    
+    tracing::info!("Found team: {}, id: {}, pid: {}", team.name, team.id, team.pid);
     
     // Check if user is a member of this team
     let membership = _entities::team_memberships::Entity::find()
@@ -153,16 +164,16 @@ async fn invite_member_page(
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    // Parse and validate PID
-    let _pid = Uuid::parse_str(&team_pid)
-        .map_err(|e| loco_rs::Error::string(&format!("Invalid UUID: {}", e)))?;
+    tracing::info!("Accessing invite member page for team pid: {}", team_pid);
     
     // Find team
-    let team = _entities::teams::Entity::find()
-        .filter(_entities::teams::Column::Pid.eq(team_pid.clone()))
-        .one(&ctx.db)
-        .await?
-        .ok_or_else(|| loco_rs::Error::string("Team not found"))?;
+    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
+            return Err(Error::string("Team not found"));
+        }
+    };
     
     // Check if user is an administrator of this team
     let membership = _entities::team_memberships::Entity::find()
@@ -200,16 +211,16 @@ async fn edit_team_page(
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    // Parse and validate PID
-    let _pid = Uuid::parse_str(&team_pid)
-        .map_err(|e| loco_rs::Error::string(&format!("Invalid UUID: {}", e)))?;
+    tracing::info!("Accessing edit team page for team pid: {}", team_pid);
     
     // Find team
-    let team = _entities::teams::Entity::find()
-        .filter(_entities::teams::Column::Pid.eq(team_pid.clone()))
-        .one(&ctx.db)
-        .await?
-        .ok_or_else(|| loco_rs::Error::string("Team not found"))?;
+    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
+            return Err(Error::string("Team not found"));
+        }
+    };
     
     // Check if user is an owner of this team
     let membership = _entities::team_memberships::Entity::find()
@@ -248,11 +259,34 @@ async fn create_team_handler(
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    // Create the team
-    let team = _entities::teams::Model::create_team(&ctx.db, user.id, &params).await?;
+    tracing::info!("Creating team with name: {}", params.name);
     
-    // Redirect to the team details page
-    format::redirect(&format!("/teams/{}", team.pid))
+    // Create the team
+    let team = match _entities::teams::Model::create_team(&ctx.db, user.id, &params).await {
+        Ok(team) => {
+            tracing::info!("Team created successfully with id: {}, pid: {}", team.id, team.pid);
+            team
+        },
+        Err(e) => {
+            tracing::error!("Failed to create team: {:?}", e);
+            return Err(Error::string(&format!("Failed to create team: {}", e)));
+        }
+    };
+    
+    // Verify team exists in database using find_by_pid for consistency
+    match _entities::teams::Model::find_by_pid(&ctx.db, &team.pid.to_string()).await {
+        Ok(_) => {
+            tracing::info!("Team verification successful: {}", team.pid);
+        },
+        Err(e) => {
+            tracing::error!("Team verification failed after creation: {:?}", e);
+        }
+    }
+    
+    // Redirect to the team details page with explicit .to_string() to ensure proper conversion
+    let redirect_url = format!("/teams/{}", team.pid.to_string());
+    tracing::info!("Redirecting to: {}", redirect_url);
+    format::redirect(&redirect_url)
 }
 
 /// Team routes
