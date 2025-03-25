@@ -77,7 +77,7 @@ pub struct MemberData {
 }
 
 /// Render the teams list page
-#[debug_handler]
+#[axum::debug_handler]
 async fn teams_list(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
