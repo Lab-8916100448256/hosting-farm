@@ -33,8 +33,12 @@ impl AuthMailer {
         };
         
         // Set the from email to match the SMTP username
-        if let Some(_mailer_config) = &ctx.config.mailer {
-            args.from = Some("distrilab@distrilab.org".into());
+        if let Some(mailer_config) = &ctx.config.mailer {
+            if let Some(smtp_config) = &mailer_config.smtp {
+                if let Some(auth) = &smtp_config.auth {
+                    args.from = Some(auth.user.clone());
+                }
+            }
         }
         
         Self::mail_template(ctx, &welcome, args).await?;
@@ -59,8 +63,12 @@ impl AuthMailer {
         };
         
         // Set the from email to match the SMTP username
-        if let Some(_mailer_config) = &ctx.config.mailer {
-            args.from = Some("distrilab@distrilab.org".into());
+        if let Some(mailer_config) = &ctx.config.mailer {
+            if let Some(smtp_config) = &mailer_config.smtp {
+                if let Some(auth) = &smtp_config.auth {
+                    args.from = Some(auth.user.clone());
+                }
+            }
         }
         
         Self::mail_template(ctx, &forgot, args).await?;
@@ -87,8 +95,12 @@ impl AuthMailer {
         };
         
         // Set the from email to match the SMTP username
-        if let Some(_mailer_config) = &ctx.config.mailer {
-            args.from = Some("distrilab@distrilab.org".into());
+        if let Some(mailer_config) = &ctx.config.mailer {
+            if let Some(smtp_config) = &mailer_config.smtp {
+                if let Some(auth) = &smtp_config.auth {
+                    args.from = Some(auth.user.clone());
+                }
+            }
         }
         
         Self::mail_template(ctx, &magic_link, args).await?;
