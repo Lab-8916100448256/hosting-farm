@@ -29,10 +29,11 @@ impl AuthMailer {
               "verifyToken": user.email_verification_token,
               "domain": ctx.config.server.full_url()
             }),
+            from: Some("test@example.com".to_string()),
             ..Default::default()
         };
         
-        // Set the from email to match the SMTP username
+        // Set the from email to match the SMTP username if available
         if let Some(mailer_config) = &ctx.config.mailer {
             if let Some(smtp_config) = &mailer_config.smtp {
                 if let Some(auth) = &smtp_config.auth {
@@ -59,10 +60,11 @@ impl AuthMailer {
               "resetToken": user.reset_token,
               "domain": ctx.config.server.full_url()
             }),
+            from: Some("test@example.com".to_string()),
             ..Default::default()
         };
         
-        // Set the from email to match the SMTP username
+        // Set the from email to match the SMTP username if available
         if let Some(mailer_config) = &ctx.config.mailer {
             if let Some(smtp_config) = &mailer_config.smtp {
                 if let Some(auth) = &smtp_config.auth {
@@ -91,10 +93,11 @@ impl AuthMailer {
                 ))?,
               "host": ctx.config.server.full_url()
             }),
+            from: Some("test@example.com".to_string()),
             ..Default::default()
         };
         
-        // Set the from email to match the SMTP username
+        // Set the from email to match the SMTP username if available
         if let Some(mailer_config) = &ctx.config.mailer {
             if let Some(smtp_config) = &mailer_config.smtp {
                 if let Some(auth) = &smtp_config.auth {

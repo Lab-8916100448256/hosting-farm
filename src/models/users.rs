@@ -48,8 +48,12 @@ impl ActiveModelBehavior for super::_entities::users::ActiveModel {
         self.validate()?;
         if insert {
             let mut this = self;
-            this.pid = ActiveValue::Set(Uuid::new_v4());
-            this.api_key = ActiveValue::Set(format!("lo-{}", Uuid::new_v4()));
+            if matches!(this.pid, ActiveValue::NotSet) {
+                this.pid = ActiveValue::Set(Uuid::new_v4());
+            }
+            if matches!(this.api_key, ActiveValue::NotSet) {
+                this.api_key = ActiveValue::Set(format!("lo-{}", Uuid::new_v4()));
+            }
             Ok(this)
         } else {
             Ok(self)
