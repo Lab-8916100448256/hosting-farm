@@ -5,11 +5,7 @@ use axum::{
     routing::{get, post},
     Form, Router,
 };
-use loco_rs::{
-    auth,
-    controller::prelude::*,
-    view::render_template,
-};
+use loco_rs::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
