@@ -152,7 +152,7 @@ async fn team_details(
     context.insert("members", &members);
     context.insert("active_page", "teams");
     
-    render_template(&ctx, "teams/details.html.tera", context)
+    render_template(&ctx, "teams/show.html.tera", context)
 }
 
 /// Invite member page
