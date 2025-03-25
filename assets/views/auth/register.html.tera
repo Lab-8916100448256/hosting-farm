@@ -6,7 +6,7 @@
 <div class="max-w-md mx-auto">
     <h2 class="text-2xl font-bold text-gray-900 mb-6">Create your account</h2>
     
-    <form action="/api/auth/register" method="POST" class="space-y-6" hx-post="/api/auth/register" hx-swap="outerHTML" hx-target="this" hx-on::after-request="if(event.detail.successful) { window.location.href = '/auth/login?registered=true'; }">
+    <form id="register-form" action="/api/auth/register" method="POST" class="space-y-6">
         <div>
             <label for="name" class="block text-sm font-medium text-gray-700">Full name</label>
             <div class="mt-1">
@@ -63,4 +63,55 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.getElementById('register-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Get form values
+        const name = document.getElementById('name').value;
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const passwordConfirmation = document.getElementById('password_confirmation').value;
+        
+        // Validate password match
+        if (password !== passwordConfirmation) {
+            const errorDiv = document.getElementById('register-error');
+            errorDiv.textContent = 'Passwords do not match';
+            errorDiv.classList.remove('hidden');
+            return;
+        }
+        
+        // Prepare JSON data
+        const jsonData = {
+            name: name,
+            email: email,
+            password: password
+        };
+        
+        // Send the request using fetch with proper headers
+        fetch('/api/auth/register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(jsonData)
+        })
+        .then(response => {
+            if (response.ok) {
+                // Redirect to login page with success message
+                window.location.href = '/auth/login?registered=true';
+            } else {
+                return response.json().then(data => {
+                    throw new Error(data.message || 'Registration failed');
+                });
+            }
+        })
+        .catch(error => {
+            const errorDiv = document.getElementById('register-error');
+            errorDiv.textContent = error.message || 'An error occurred during registration';
+            errorDiv.classList.remove('hidden');
+        });
+    });
+</script>
 {% endblock %} 
