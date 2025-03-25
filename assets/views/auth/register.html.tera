@@ -6,7 +6,7 @@
 <div class="max-w-md mx-auto">
     <h2 class="text-2xl font-bold text-gray-900 mb-6">Create your account</h2>
     
-    <form action="/api/auth/register" method="POST" class="space-y-6" hx-post="/api/auth/register" hx-swap="outerHTML" hx-target="this">
+    <form action="/api/auth/register" method="POST" class="space-y-6" hx-post="/api/auth/register" hx-swap="outerHTML" hx-target="this" hx-on::after-request="if(event.detail.successful) { window.location.href = '/auth/login?registered=true'; }">
         <div>
             <label for="name" class="block text-sm font-medium text-gray-700">Full name</label>
             <div class="mt-1">
@@ -40,6 +40,8 @@
                 Create account
             </button>
         </div>
+        
+        <div id="register-error" class="text-red-600 text-sm hidden"></div>
     </form>
 
     <div class="mt-6">
