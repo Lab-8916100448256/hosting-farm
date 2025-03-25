@@ -108,7 +108,7 @@ async fn create_team(
 }
 
 /// Get a list of teams the current user is a member of
-#[debug_handler]
+#[axum::debug_handler]
 async fn list_teams(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
