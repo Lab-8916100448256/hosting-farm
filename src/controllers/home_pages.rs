@@ -7,7 +7,9 @@ use crate::utils::template::render_template;
 /// Renders the home page for non-authenticated users
 #[debug_handler]
 async fn index(State(ctx): State<AppContext>) -> Result<Response> {
-    let context = tera::Context::new();
+    let mut context = tera::Context::new();
+    context.insert("active_page", "home");
+    context.insert("invitation_count", &0);
     render_template(&ctx, "home/index.html.tera", context)
 }
 
@@ -21,6 +23,8 @@ async fn authenticated_index(
     
     if let Ok(user) = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
         context.insert("user", &user);
+        context.insert("active_page", "home");
+        context.insert("invitation_count", &0); // TODO: Get actual invitation count
     }
     
     render_template(&ctx, "home/index.html.tera", context)

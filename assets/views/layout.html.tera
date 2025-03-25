@@ -57,9 +57,7 @@
                         <!-- Dropdown menu -->
                         <div class="hidden origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none" role="menu" id="user-menu">
                             <a href="/users/profile" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">Your Profile</a>
-                            <form method="POST" action="/api/auth/logout">
-                                <button type="submit" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">Sign out</button>
-                            </form>
+                            <button onclick="window.logout()" class="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">Sign out</button>
                         </div>
                     </div>
                     {% else %}
