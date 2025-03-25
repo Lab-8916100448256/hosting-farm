@@ -1,5 +1,7 @@
 use axum::debug_handler;
 use loco_rs::prelude::*;
+use tera;
+use crate::utils::template::render_template;
 
 /// Renders the registration page
 #[debug_handler]
@@ -7,7 +9,7 @@ async fn register(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let context = tera::Context::new();
-    format::render_template(&ctx, "auth/register.html.tera", context)
+    render_template(&ctx, "auth/register.html.tera", context)
 }
 
 /// Renders the login page
@@ -16,7 +18,7 @@ async fn login(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let context = tera::Context::new();
-    format::render_template(&ctx, "auth/login.html.tera", context)
+    render_template(&ctx, "auth/login.html.tera", context)
 }
 
 /// Renders the forgot password page
@@ -25,7 +27,7 @@ async fn forgot_password(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let context = tera::Context::new();
-    format::render_template(&ctx, "auth/forgot-password.html.tera", context)
+    render_template(&ctx, "auth/forgot-password.html.tera", context)
 }
 
 /// Renders the reset password page
@@ -36,7 +38,7 @@ async fn reset_password(
 ) -> Result<Response> {
     let mut context = tera::Context::new();
     context.insert("token", &token);
-    format::render_template(&ctx, "auth/reset-password.html.tera", context)
+    render_template(&ctx, "auth/reset-password.html.tera", context)
 }
 
 /// Authentication page routes

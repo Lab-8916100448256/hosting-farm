@@ -1,6 +1,9 @@
 use axum::debug_handler;
 use loco_rs::prelude::*;
-use crate::models::{users, team_memberships, teams};
+use crate::models::{users, _entities::team_memberships, _entities::teams};
+use serde_json::json;
+use tera;
+use crate::utils::{template::render_template, middleware};
 
 type JWT = loco_rs::controller::middleware::auth::JWT;
 
@@ -43,7 +46,7 @@ async fn profile(
     context.insert("teams", &teams);
     context.insert("active_page", "profile");
     
-    format::render_template(&ctx, "users/profile.html.tera", context)
+    render_template(&ctx, "users/profile.html.tera", context)
 }
 
 /// Renders the user invitations page
@@ -71,13 +74,13 @@ async fn invitations(
     context.insert("user", &user);
     context.insert("invitations", &invitations);
     
-    format::render_template(&ctx, "users/invitations.html.tera", context)
+    render_template(&ctx, "users/invitations.html.tera", context)
 }
 
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/users")
-        .add("/profile", get(profile).middleware(auth::middleware::auth()))
-        .add("/invitations", get(invitations).middleware(auth::middleware::auth()))
+        .add("/profile", get(profile).layer(middleware::auth()))
+        .add("/invitations", get(invitations).layer(middleware::auth()))
 } 
