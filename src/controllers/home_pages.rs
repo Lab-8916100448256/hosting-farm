@@ -14,13 +14,16 @@ async fn index(State(ctx): State<AppContext>) -> Result<Response> {
 /// Renders the home page for authenticated users
 #[debug_handler]
 async fn authenticated_index(
-    auth: auth::JWT,
     State(ctx): State<AppContext>,
+    auth: Option<auth::JWT>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
     let mut context = tera::Context::new();
-    context.insert("user", &user);
+    
+    if let Some(auth) = auth {
+        if let Ok(user) = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
+            context.insert("user", &user);
+        }
+    }
     
     render_template(&ctx, "home/index.html.tera", context)
 }
