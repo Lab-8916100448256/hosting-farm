@@ -53,27 +53,27 @@ impl Hooks for App {
         AppRoutes::with_default_routes() // controller routes below
             .add_route(controllers::auth::routes())
             .add_route(controllers::teams::routes())
-            .add_route(controllers::home::routes())
+            .add_route(controllers::home_pages::routes())
             .add_route(controllers::users::routes())
             .add_route(controllers::auth_pages::routes())
             .add_route(controllers::teams_pages::routes())
     }
+
+    fn register_tasks(tasks: &mut Tasks) {
+        // tasks-inject (do not remove)
+    }
+
     async fn connect_workers(ctx: &AppContext, queue: &Queue) -> Result<()> {
         queue.register(DownloadWorker::build(ctx)).await?;
         Ok(())
     }
 
-    #[allow(unused_variables)]
-    fn register_tasks(tasks: &mut Tasks) {
-        // tasks-inject (do not remove)
-    }
     async fn truncate(ctx: &AppContext) -> Result<()> {
         truncate_table(&ctx.db, users::Entity).await?;
         Ok(())
     }
-    async fn seed(ctx: &AppContext, base: &Path) -> Result<()> {
-        db::seed::<users::ActiveModel>(&ctx.db, &base.join("users.yaml").display().to_string())
-            .await?;
+
+    async fn seed(ctx: &AppContext, _base: &Path) -> Result<()> {
         Ok(())
     }
 }
