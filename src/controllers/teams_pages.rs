@@ -119,6 +119,13 @@ async fn team_details(
         return unauthorized("You are not a member of this team");
     }
     
+    // Check if user is an admin or owner
+    let is_admin = if let Some(membership) = &membership {
+        membership.role == "Owner" || membership.role == "Administrator" 
+    } else {
+        false
+    };
+    
     // Get team members
     let memberships = _entities::team_memberships::Entity::find()
         .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
@@ -135,6 +142,7 @@ async fn team_details(
         if let Some(member) = member {
             members.push(json!({
                 "id": member.id,
+                "user_pid": member.pid.to_string(),
                 "name": member.name,
                 "email": member.email,
                 "role": membership.role
@@ -151,6 +159,7 @@ async fn team_details(
     }));
     context.insert("members", &members);
     context.insert("active_page", "teams");
+    context.insert("is_admin", &is_admin);
     
     render_template(&ctx, "teams/show.html.tera", context)
 }
