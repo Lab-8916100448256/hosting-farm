@@ -227,7 +227,7 @@ async fn update_team(
 }
 
 /// Handle the delete team form submission
-#[debug_handler]
+#[axum::debug_handler]
 async fn delete_team(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
