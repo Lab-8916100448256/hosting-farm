@@ -12,7 +12,8 @@ use crate::{
 };
 use serde::Deserialize;
 use axum::response::Redirect;
-use axum::extract::Form;
+use axum::extract::{Form, Query};
+use std::collections::HashMap;
 
 /// Form data for user registration
 #[derive(Debug, Deserialize)]
@@ -97,14 +98,13 @@ async fn handle_register(
 #[debug_handler]
 async fn login(
     State(ctx): State<AppContext>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Response> {
     let mut context = tera::Context::new();
     
     // Check if coming from registration success
-    if let Some(query) = ctx.request.uri().query() {
-        if query.contains("registered=true") {
-            context.insert("registered", &true);
-        }
+    if params.get("registered") == Some(&"true".to_string()) {
+        context.insert("registered", &true);
     }
     
     render_template(&ctx, "auth/login.html.tera", context)
@@ -138,14 +138,15 @@ async fn handle_login(
             
             let jwt_secret = ctx.config.get_jwt_config()?;
             
-            let token = user
-                .generate_jwt(&jwt_secret.secret, &jwt_secret.expiration)
-                .or_else(|_| {
+            let token = match user.generate_jwt(&jwt_secret.secret, &jwt_secret.expiration) {
+                Ok(token) => token,
+                Err(_) => {
                     let mut context = tera::Context::new();
                     context.insert("error", "Authentication error");
                     context.insert("email", &params.email);
-                    render_template(&ctx, "auth/login.html.tera", context)
-                })?;
+                    return render_template(&ctx, "auth/login.html.tera", context);
+                }
+            };
             
             // Set token in session and redirect to home
             // For HTMX, we'll use a special response with HX-Redirect header
