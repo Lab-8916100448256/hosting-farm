@@ -292,7 +292,7 @@ async fn team_members(
 }
 
 /// Render the invite member form
-#[debug_handler]
+#[axum::debug_handler]
 async fn invite_member_form(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
