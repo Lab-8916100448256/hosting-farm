@@ -353,7 +353,7 @@ async fn invite_member(
 }
 
 /// Handle the accept invitation form submission
-#[debug_handler]
+#[axum::debug_handler]
 async fn accept_invitation(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
