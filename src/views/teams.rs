@@ -6,6 +6,7 @@ use axum::{
     Form, Router,
 };
 use loco_rs::prelude::*;
+use loco_rs::view::render_template;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
