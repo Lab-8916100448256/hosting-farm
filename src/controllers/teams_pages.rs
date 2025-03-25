@@ -239,12 +239,29 @@ async fn edit_team_page(
     render_template(&ctx, "teams/edit.html.tera", context)
 }
 
+/// Handle team creation form submission
+#[debug_handler]
+async fn create_team_handler(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Form(params): Form<crate::models::teams::CreateTeamParams>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    // Create the team
+    let team = _entities::teams::Model::create_team(&ctx.db, user.id, &params).await?;
+    
+    // Redirect to the team details page
+    format::redirect(&format!("/teams/{}", team.pid))
+}
+
 /// Team routes
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/teams")
         .add("/", get(list_teams))
         .add("/new", get(create_team_page))
+        .add("/new", post(create_team_handler))
         .add("/{team_pid}", get(team_details))
         .add("/{team_pid}/edit", get(edit_team_page))
         .add("/{team_pid}/invite", get(invite_member_page))
