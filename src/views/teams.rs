@@ -248,7 +248,7 @@ async fn delete_team(
 }
 
 /// Render the team members page
-#[debug_handler]
+#[axum::debug_handler]
 async fn team_members(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
