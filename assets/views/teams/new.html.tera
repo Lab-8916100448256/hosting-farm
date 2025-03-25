@@ -13,7 +13,7 @@
         </div>
     </div>
     <div class="mt-5 md:mt-0 md:col-span-2">
-        <form action="/api/teams" method="POST" hx-post="/api/teams" hx-swap="outerHTML">
+        <form action="/api/teams" method="POST" hx-post="/api/teams" hx-swap="outerHTML" hx-push-url="true">
             <div class="shadow sm:rounded-md sm:overflow-hidden">
                 <div class="px-4 py-5 bg-white space-y-6 sm:p-6">
                     <div>
@@ -21,7 +21,7 @@
                             Team Name
                         </label>
                         <div class="mt-1">
-                            <input type="text" name="name" id="name" class="focus:ring-indigo-500 focus:border-indigo-500 flex-1 block w-full rounded-md sm:text-sm border-gray-300" placeholder="My Team">
+                            <input type="text" name="name" id="name" required class="focus:ring-indigo-500 focus:border-indigo-500 flex-1 block w-full rounded-md sm:text-sm border-gray-300" placeholder="My Team">
                         </div>
                         <p class="mt-2 text-sm text-gray-500">
                             Your team name will be visible to all team members.

@@ -41,10 +41,20 @@ async fn profile(
         })
         .collect::<Vec<_>>();
     
+    // Get pending invitations count
+    let invitations = team_memberships::Entity::find()
+        .find_with_related(teams::Entity)
+        .all(&ctx.db)
+        .await?
+        .into_iter()
+        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+        .count();
+    
     let mut context = tera::Context::new();
     context.insert("user", &user);
     context.insert("teams", &teams);
     context.insert("active_page", "profile");
+    context.insert("invitation_count", &invitations);
     
     render_template(&ctx, "users/profile.html.tera", context)
 }
