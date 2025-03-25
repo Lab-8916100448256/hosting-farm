@@ -228,7 +228,7 @@ async fn invite_member(
 }
 
 /// Accept a team invitation
-#[debug_handler]
+#[axum::debug_handler]
 async fn accept_invitation(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
