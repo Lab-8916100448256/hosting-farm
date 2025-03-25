@@ -8,6 +8,31 @@ use crate::utils::template::render_template;
 
 type JWT = loco_rs::controller::middleware::auth::JWT;
 
+/// Create team page
+#[debug_handler]
+async fn create_team_page(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    // Get pending invitations count
+    let invitations = _entities::team_memberships::Entity::find()
+        .find_with_related(_entities::teams::Entity)
+        .all(&ctx.db)
+        .await?
+        .into_iter()
+        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+        .count();
+    
+    let mut context = tera::Context::new();
+    context.insert("user", &user);
+    context.insert("active_page", "teams");
+    context.insert("invitation_count", &invitations);
+    
+    render_template(&ctx, "teams/new.html.tera", context)
+}
+
 /// List teams page
 #[debug_handler]
 async fn list_teams(
@@ -214,27 +239,12 @@ async fn edit_team_page(
     render_template(&ctx, "teams/edit.html.tera", context)
 }
 
-/// Create team page
-#[debug_handler]
-async fn create_team_page(
-    auth: JWT,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert("active_page", "teams");
-    
-    render_template(&ctx, "teams/create.html.tera", context)
-}
-
 /// Team routes
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/teams")
         .add("/", get(list_teams))
-        .add("/create", get(create_team_page))
+        .add("/new", get(create_team_page))
         .add("/{team_pid}", get(team_details))
         .add("/{team_pid}/edit", get(edit_team_page))
         .add("/{team_pid}/invite", get(invite_member_page))
