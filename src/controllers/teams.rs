@@ -87,7 +87,7 @@ impl From<&teams::Model> for TeamResponse {
 }
 
 /// Create a new team
-#[debug_handler]
+#[axum::debug_handler]
 async fn create_team(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
