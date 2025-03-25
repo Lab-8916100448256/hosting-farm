@@ -145,7 +145,7 @@ async fn get_team(
 }
 
 /// Update a team
-#[debug_handler]
+#[axum::debug_handler]
 async fn update_team(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
