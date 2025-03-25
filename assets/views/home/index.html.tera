@@ -1,0 +1,113 @@
+{% extends "layout.html.tera" %}
+
+{% block title %}Welcome - Hosting Farm{% endblock %}
+
+{% block content %}
+<div class="relative">
+    <div class="sm:text-center lg:text-left">
+        <h1 class="text-4xl tracking-tight font-extrabold text-gray-900 sm:text-5xl md:text-6xl">
+            <span class="block">Manage your hosting</span>
+            <span class="block text-indigo-600">collaboratively</span>
+        </h1>
+        <p class="mt-3 text-base text-gray-500 sm:mt-5 sm:text-lg sm:max-w-xl sm:mx-auto md:mt-5 md:text-xl lg:mx-0">
+            Hosting Farm helps you manage hosting infrastructure across your teams. Collaborate with team members, manage resources, and scale effortlessly.
+        </p>
+        <div class="mt-5 sm:mt-8 sm:flex sm:justify-center lg:justify-start">
+            {% if user %}
+            <div class="rounded-md shadow">
+                <a href="/teams" class="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 md:py-4 md:text-lg md:px-10">
+                    View your teams
+                </a>
+            </div>
+            {% else %}
+            <div class="rounded-md shadow">
+                <a href="/auth/register" class="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 md:py-4 md:text-lg md:px-10">
+                    Get started
+                </a>
+            </div>
+            <div class="mt-3 sm:mt-0 sm:ml-3">
+                <a href="/auth/login" class="w-full flex items-center justify-center px-8 py-3 border border-gray-300 rounded-md shadow-sm text-base font-medium text-indigo-600 bg-white hover:bg-gray-50 md:py-4 md:text-lg md:px-10">
+                    Log in
+                </a>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% if not user %}
+<div class="py-12 bg-white">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="lg:text-center">
+            <h2 class="text-base text-indigo-600 font-semibold tracking-wide uppercase">Features</h2>
+            <p class="mt-2 text-3xl leading-8 font-extrabold tracking-tight text-gray-900 sm:text-4xl">
+                Everything you need for team collaboration
+            </p>
+            <p class="mt-4 max-w-2xl text-xl text-gray-500 lg:mx-auto">
+                Hosting Farm provides a centralized platform for managing your hosting resources across multiple teams.
+            </p>
+        </div>
+
+        <div class="mt-10">
+            <dl class="space-y-10 md:space-y-0 md:grid md:grid-cols-2 md:gap-x-8 md:gap-y-10">
+                <div class="relative">
+                    <dt>
+                        <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-indigo-500 text-white">
+                            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                        </div>
+                        <p class="ml-16 text-lg leading-6 font-medium text-gray-900">Team Management</p>
+                    </dt>
+                    <dd class="mt-2 ml-16 text-base text-gray-500">
+                        Create and manage teams with different roles and permissions for members.
+                    </dd>
+                </div>
+
+                <div class="relative">
+                    <dt>
+                        <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-indigo-500 text-white">
+                            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                            </svg>
+                        </div>
+                        <p class="ml-16 text-lg leading-6 font-medium text-gray-900">Resource Management</p>
+                    </dt>
+                    <dd class="mt-2 ml-16 text-base text-gray-500">
+                        Efficiently manage your hosting resources across different environments.
+                    </dd>
+                </div>
+
+                <div class="relative">
+                    <dt>
+                        <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-indigo-500 text-white">
+                            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                        </div>
+                        <p class="ml-16 text-lg leading-6 font-medium text-gray-900">Resource Templates</p>
+                    </dt>
+                    <dd class="mt-2 ml-16 text-base text-gray-500">
+                        Use predefined templates to quickly provision new resources with best practices.
+                    </dd>
+                </div>
+
+                <div class="relative">
+                    <dt>
+                        <div class="absolute flex items-center justify-center h-12 w-12 rounded-md bg-indigo-500 text-white">
+                            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                            </svg>
+                        </div>
+                        <p class="ml-16 text-lg leading-6 font-medium text-gray-900">Monitoring & Alerts</p>
+                    </dt>
+                    <dd class="mt-2 ml-16 text-base text-gray-500">
+                        Get real-time alerts about your infrastructure and stay informed about potential issues.
+                    </dd>
+                </div>
+            </dl>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %} 

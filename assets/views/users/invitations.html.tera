@@ -1,0 +1,51 @@
+{% extends "layout.html.tera" %}
+
+{% block title %}Team Invitations - Hosting Farm{% endblock %}
+
+{% block content %}
+<div class="sm:flex sm:items-center mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-900">Team Invitations</h1>
+        <p class="mt-2 text-sm text-gray-700">Manage invitations to join teams.</p>
+    </div>
+</div>
+
+{% if invitations and invitations|length > 0 %}
+<div class="bg-white shadow overflow-hidden sm:rounded-lg">
+    <ul class="divide-y divide-gray-200">
+        {% for invitation in invitations %}
+        <li class="px-4 py-4 sm:px-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">{{ invitation.team_name }}</h3>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">{{ invitation.team_description if invitation.team_description else "No description" }}</p>
+                    <p class="mt-1 text-sm text-gray-500">Invited {{ invitation.sent_at | date(format="%B %d, %Y") }}</p>
+                </div>
+                <div class="flex space-x-3">
+                    <form action="/api/teams/invitations/{{ invitation.token }}/decline" method="POST" hx-post="/api/teams/invitations/{{ invitation.token }}/decline" hx-swap="outerHTML" hx-target="closest li">
+                        <button type="submit" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                            Decline
+                        </button>
+                    </form>
+                    <form action="/api/teams/invitations/{{ invitation.token }}/accept" method="POST" hx-post="/api/teams/invitations/{{ invitation.token }}/accept" hx-swap="outerHTML" hx-target="closest li">
+                        <button type="submit" class="inline-flex items-center px-3 py-2 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                            Accept
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% else %}
+<div class="bg-white shadow overflow-hidden sm:rounded-lg p-6 text-center">
+    <div class="text-sm text-gray-500 mb-4">
+        <p>You don't have any pending team invitations.</p>
+    </div>
+    <a href="/teams" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+        View your teams
+    </a>
+</div>
+{% endif %}
+{% endblock %} 
