@@ -5,7 +5,17 @@ alwaysApply: true
 ---
 # Rust Developement Rules
 
-## Testing
+## Introduction
+This rule file provides guidelines for software development in Rust
+## Guidelines
+
+1. **Testing and commit after rust code modifications**
+- Always run `cargo check` and `cargo test` after modifying or adding Rust code to check for errors and unit test failures. Fix any compilation error and unit test failure that are generated. Then test again. Iterate until there are no more error or unit test failure.
 - Always run `unset ARGV0` before running `cargo` to avoid proxy errors
-- Always run `cargo check` and `cargo test` after modifying *.rs files to check for errors and unit test failures. Fix any compilation error and unit test failure that are generated. Then test again. Iterate until there are no more error or unit test failure.
-- After generating code, commit the changes if there is no error or unit test failure remaining 
+- If there is no error or unit test failure remaining at the end, commit the changes to git. 
+
+## References
+
+
+## Additional Instructions
+
