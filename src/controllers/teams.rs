@@ -318,7 +318,7 @@ async fn remove_member(
 }
 
 /// Get a list of team members
-#[debug_handler]
+#[axum::debug_handler]
 async fn list_members(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
