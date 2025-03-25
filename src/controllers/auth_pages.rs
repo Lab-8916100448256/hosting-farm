@@ -219,6 +219,16 @@ async fn verify_email(
     render_template(&ctx, "auth/verify.html.tera", context)
 }
 
+/// Handles user logout by clearing the auth token cookie
+#[debug_handler]
+async fn handle_logout() -> Result<Response> {
+    let response = Response::builder()
+        .header("Set-Cookie", "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+        .header("HX-Redirect", "/auth/login")
+        .body(axum::body::Body::empty())?;
+    Ok(response)
+}
+
 /// Authentication page routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -230,4 +240,5 @@ pub fn routes() -> Routes {
         .add("/forgot-password", get(forgot_password))
         .add("/reset-password", get(reset_password))
         .add("/verify/{token}", get(verify_email))
+        .add("/logout", post(handle_logout))
 } 

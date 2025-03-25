@@ -51,9 +51,27 @@ export function logout() {
 // Make logout available globally
 window.logout = logout;
 
+// Handle authentication errors
+export function handleAuthError(error) {
+    console.error('Authentication error:', error);
+    window.location.href = '/auth/login';
+}
+
 // Intercept fetch requests to add auth header
 const originalFetch = window.fetch;
 window.fetch = function(url, options = {}) {
     options.headers = addAuthHeader(options.headers);
-    return originalFetch(url, options);
+    return originalFetch(url, options)
+        .then(response => {
+            if (response.status === 401) {
+                handleAuthError('Unauthorized');
+            }
+            return response;
+        })
+        .catch(error => {
+            if (error.message.includes('401')) {
+                handleAuthError(error);
+            }
+            throw error;
+        });
 }; 

@@ -3,6 +3,7 @@ use loco_rs::prelude::*;
 use crate::models::users;
 use tera;
 use crate::utils::template::render_template;
+use axum::response::Redirect;
 
 /// Renders the home page for non-authenticated users
 #[debug_handler]
@@ -21,13 +22,22 @@ async fn authenticated_index(
 ) -> Result<Response> {
     let mut context = tera::Context::new();
     
-    if let Ok(user) = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
-        context.insert("user", &user);
-        context.insert("active_page", "home");
-        context.insert("invitation_count", &0); // TODO: Get actual invitation count
+    match users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
+        Ok(user) => {
+            context.insert("user", &user);
+            context.insert("active_page", "home");
+            context.insert("invitation_count", &0); // TODO: Get actual invitation count
+            render_template(&ctx, "home/index.html.tera", context)
+        }
+        Err(err) => {
+            tracing::error!(
+                error = err.to_string(),
+                user_pid = auth.claims.pid,
+                "user not found during authentication"
+            );
+            Ok(Redirect::to("/auth/login").into_response())
+        }
     }
-    
-    render_template(&ctx, "home/index.html.tera", context)
 }
 
 /// Home page routes
