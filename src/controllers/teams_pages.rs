@@ -381,7 +381,11 @@ async fn update_team_handler(
     let updated_team = team.update(&ctx.db, &params).await?;
     
     // Redirect to the team details page
-    format::redirect(&format!("/teams/{}", updated_team.pid))
+    let response = Response::builder()
+        .header("HX-Redirect", format!("/teams/{}", updated_team.pid))
+        .body(axum::body::Body::empty())?;
+
+    Ok(response)
 }
 
 /// Accept a team invitation
