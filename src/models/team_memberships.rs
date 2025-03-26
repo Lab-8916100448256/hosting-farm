@@ -1,5 +1,5 @@
 //! Team membership model implementation
-use chrono::{DateTime, DateTimeWithTimeZone, Duration, Local, TimeZone, Utc};
+use chrono::{DateTime, DateTimeWithTimeZone, Duration, FixedOffset, Local, TimeZone, Utc};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, TransactionTrait};
 use uuid::Uuid;
 use loco_rs::prelude::*;
@@ -209,7 +209,7 @@ impl team_memberships::Model {
     ) -> ModelResult<Self> {
         // Check if invitation has expired
         if let Some(expires_at) = self.invitation_expires_at {
-            let now = Utc::now().into();
+            let now: DateTime<FixedOffset> = Utc::now().into();
             if expires_at < now {
                 return Err(ModelError::msg("Invitation has expired"));
             }
