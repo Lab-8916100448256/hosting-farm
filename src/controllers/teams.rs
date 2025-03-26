@@ -187,44 +187,6 @@ async fn invite_member(
 }
 
 #[debug_handler]
-async fn accept_invitation(
-    auth: JWT,
-    State(ctx): State<AppContext>,
-    Path(token): Path<String>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
-    let invitation = team_memberships::Model::find_by_invitation_token(&ctx.db, &token).await?;
-    if invitation.user_id != user.id {
-        return unauthorized("This invitation is not for you");
-    }
-    
-    // Accept invitation
-    invitation.accept_invitation(&ctx.db).await?;
-    
-    format::empty_json()
-}
-
-#[debug_handler]
-async fn decline_invitation(
-    auth: JWT,
-    State(ctx): State<AppContext>,
-    Path(token): Path<String>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
-    let invitation = team_memberships::Model::find_by_invitation_token(&ctx.db, &token).await?;
-    if invitation.user_id != user.id {
-        return unauthorized("This invitation is not for you");
-    }
-    
-    // Decline invitation
-    invitation.decline_invitation(&ctx.db).await?;
-    
-    format::empty_json()
-}
-
-#[debug_handler]
 async fn update_member_role(
     auth: JWT,
     State(ctx): State<AppContext>,
@@ -405,8 +367,6 @@ pub fn routes() -> Routes {
         .add("/teams/{team_pid}", delete(delete_team))
         .add("/teams/{team_pid}/members", get(list_members))
         .add("/teams/{team_pid}/invitations", post(invite_member))
-        .add("/teams/invitations/{token}/accept", post(accept_invitation))
-        .add("/teams/invitations/{token}/decline", post(decline_invitation))
         .add("/teams/{team_pid}/members/{user_pid}/role", put(update_member_role))
         .add("/teams/{team_pid}/members/{user_pid}", delete(remove_member))
         .add("/teams/{team_pid}/leave", post(leave_team))

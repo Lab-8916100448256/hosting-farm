@@ -1,10 +1,12 @@
 use axum::debug_handler;
 use loco_rs::prelude::*;
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
-use crate::models::{users, _entities};
+use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, PaginatorTrait};
+use crate::models::{users, _entities, team_memberships};
+use crate::models::_entities::teams::Model as TeamModel;
 use serde_json::json;
 use uuid::Uuid;
 use crate::utils::template::render_template;
+use axum::extract::Form;
 
 type JWT = loco_rs::controller::middleware::auth::JWT;
 
@@ -382,6 +384,248 @@ async fn update_team_handler(
     format::redirect(&format!("/teams/{}", updated_team.pid))
 }
 
+/// Accept a team invitation
+#[debug_handler]
+async fn accept_invitation(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path(token): Path<String>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    // Find invitation by token
+    let invitation = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::InvitationToken.eq(token.clone()))
+        .one(&ctx.db)
+        .await?
+        .ok_or_else(|| Error::string("Invitation not found"))?;
+    
+    if invitation.user_id != user.id {
+        return unauthorized("This invitation is not for you");
+    }
+    
+    // Accept invitation
+    let mut invitation_model: _entities::team_memberships::ActiveModel = invitation.into();
+    invitation_model.pending = sea_orm::ActiveValue::set(false);
+    invitation_model.update(&ctx.db).await?;
+    
+    // For HTMX, return a response that will replace the invitation item
+    let response = Response::builder()
+        .header("Content-Type", "text/html")
+        .body(axum::body::Body::from(
+            "<div class='px-4 py-4 sm:px-6 text-center text-sm text-green-600'>Invitation accepted successfully.</div>"
+        ))?;
+    
+    Ok(response)
+}
+
+/// Decline a team invitation
+#[debug_handler]
+async fn decline_invitation(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path(token): Path<String>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    // Find invitation by token
+    let invitation = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::InvitationToken.eq(token.clone()))
+        .one(&ctx.db)
+        .await?
+        .ok_or_else(|| Error::string("Invitation not found"))?;
+    
+    if invitation.user_id != user.id {
+        return unauthorized("This invitation is not for you");
+    }
+    
+    // Decline invitation - delete the invitation
+    let invitation_model: _entities::team_memberships::ActiveModel = invitation.into();
+    invitation_model.delete(&ctx.db).await?;
+    
+    // For HTMX, return a response that will replace the invitation item
+    let response = Response::builder()
+        .header("Content-Type", "text/html")
+        .body(axum::body::Body::from(
+            "<div class='px-4 py-4 sm:px-6 text-center text-sm text-gray-600'>Invitation declined.</div>"
+        ))?;
+    
+    Ok(response)
+}
+
+/// Update a team member's role
+#[debug_handler]
+async fn update_member_role(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path((team_pid, user_pid)): Path<(String, String)>,
+    Form(params): Form<crate::models::team_memberships::UpdateRoleParams>,
+) -> Result<Response> {
+    let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
+    
+    // Validate role
+    if !crate::models::team_memberships::VALID_ROLES.contains(&params.role.as_str()) {
+        return bad_request(&format!("Invalid role. Valid roles are: {:?}", crate::models::team_memberships::VALID_ROLES));
+    }
+    
+    // Check if current user is an owner of this team
+    let is_owner = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(current_user.id))
+        .filter(_entities::team_memberships::Column::Role.eq("Owner"))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
+        .one(&ctx.db)
+        .await?
+        .is_some();
+    
+    if !is_owner {
+        return unauthorized("Only team owners can update member roles");
+    }
+    
+    // Get membership
+    let membership = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(target_user.id))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
+        .one(&ctx.db)
+        .await?
+        .ok_or_else(|| Error::string("User is not a member of this team"))?;
+    
+    // Cannot change owner's role if there's only one owner
+    if membership.role == "Owner" && params.role != "Owner" {
+        let owners_count = _entities::team_memberships::Entity::find()
+            .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+            .filter(_entities::team_memberships::Column::Role.eq("Owner"))
+            .filter(_entities::team_memberships::Column::Pending.eq(false))
+            .count(&ctx.db)
+            .await?;
+        
+        if owners_count <= 1 {
+            return bad_request("Cannot change the role of the last owner");
+        }
+    }
+    
+    // Update role
+    let mut membership_model: _entities::team_memberships::ActiveModel = membership.into();
+    membership_model.role = sea_orm::ActiveValue::set(params.role);
+    membership_model.update(&ctx.db).await?;
+    
+    // Return a response that refreshes the page
+    let response = Response::builder()
+        .header("HX-Refresh", "true")
+        .body(axum::body::Body::empty())?;
+    
+    Ok(response)
+}
+
+/// Remove a team member
+#[debug_handler]
+async fn remove_member(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path((team_pid, user_pid)): Path<(String, String)>,
+) -> Result<Response> {
+    let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
+    
+    // Cannot remove yourself - use leave_team for that
+    if current_user.id == target_user.id {
+        return bad_request("Cannot remove yourself from a team. Use leave_team instead.");
+    }
+    
+    // Get target user's membership
+    let target_membership = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(target_user.id))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
+        .one(&ctx.db)
+        .await?
+        .ok_or_else(|| Error::string("User is not a member of this team"))?;
+    
+    // Check permissions
+    let current_user_membership = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(current_user.id))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
+        .one(&ctx.db)
+        .await?
+        .ok_or_else(|| Error::string("You are not a member of this team"))?;
+    
+    let current_user_is_owner = current_user_membership.role == "Owner";
+    let current_user_is_admin = current_user_membership.role == "Administrator" || current_user_is_owner;
+    
+    // Cannot remove an owner unless you're an owner
+    if target_membership.role == "Owner" && !current_user_is_owner {
+        return unauthorized("Only team owners can remove another owner");
+    }
+    
+    // Cannot remove an admin unless you're an owner
+    if target_membership.role == "Administrator" && !current_user_is_owner {
+        return unauthorized("Only team owners can remove an administrator");
+    }
+    
+    // Cannot remove a developer/observer unless you're an admin or owner
+    if !current_user_is_admin {
+        return unauthorized("Only team administrators and owners can remove members");
+    }
+    
+    // Special case: Prevent removing the last owner
+    if target_membership.role == "Owner" {
+        // Count owners
+        let owner_count = _entities::team_memberships::Entity::find()
+            .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+            .filter(_entities::team_memberships::Column::Role.eq("Owner"))
+            .filter(_entities::team_memberships::Column::Pending.eq(false))
+            .count(&ctx.db)
+            .await?;
+        
+        if owner_count <= 1 {
+            return bad_request("Cannot remove the last owner");
+        }
+    }
+    
+    // Remove the member
+    let target_membership_model: _entities::team_memberships::ActiveModel = target_membership.into();
+    target_membership_model.delete(&ctx.db).await?;
+    
+    // Return a response that refreshes the page
+    let response = Response::builder()
+        .header("HX-Refresh", "true")
+        .body(axum::body::Body::empty())?;
+    
+    Ok(response)
+}
+
+/// Delete a team
+#[debug_handler]
+async fn delete_team(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path(team_pid): Path<String>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    
+    // Check if user is an owner of this team
+    let is_owner = team.has_role(&ctx.db, user.id, "Owner").await?;
+    if !is_owner {
+        return unauthorized("Only team owners can delete a team");
+    }
+    
+    // Delete the team
+    team.delete(&ctx.db).await?;
+    
+    // Instead of returning empty JSON, send a redirect to the teams list page
+    let response = Response::builder()
+        .header("HX-Redirect", "/teams")
+        .body(axum::body::Body::empty())?;
+        
+    Ok(response)
+}
+
 /// Team routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -390,7 +634,12 @@ pub fn routes() -> Routes {
         .add("/new", get(create_team_page))
         .add("/new", post(create_team_handler))
         .add("/{team_pid}", get(team_details))
+        .add("/{team_pid}", delete(delete_team))
         .add("/{team_pid}/edit", get(edit_team_page))
         .add("/{team_pid}/update", post(update_team_handler))
         .add("/{team_pid}/invite", get(invite_member_page))
+        .add("/invitations/{token}/accept", post(accept_invitation))
+        .add("/invitations/{token}/decline", post(decline_invitation))
+        .add("/{team_pid}/members/{user_pid}/role", put(update_member_role))
+        .add("/{team_pid}/members/{user_pid}", delete(remove_member))
 } 
