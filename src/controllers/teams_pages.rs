@@ -663,14 +663,66 @@ async fn invite_member_handler(
         return unauthorized("Only team administrators can invite members");
     }
     
-    // Create invitation
+    // Find the user by email
+    let target_user = match users::Model::find_by_email(&ctx.db, &params.email).await {
+        Ok(user) => user,
+        Err(_) => {
+            // If user doesn't exist, proceed with invitation as normal
+            // Create invitation
+            let invitation = _entities::team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await?;
+            
+            // Find the invited user
+            let invited_user = users::Model::find_by_id(&ctx.db, invitation.user_id).await?;
+            
+            // Send invitation email using the TeamMailer
+            crate::mailers::team::TeamMailer::send_invitation(&ctx, &invited_user, &team, &invitation).await?;
+            
+            // Redirect back to the team page
+            let redirect_url = format!("/teams/{}", team_pid);
+            tracing::info!("Redirecting to: {}", redirect_url);
+            let response = Response::builder()
+                .header("HX-Redirect", redirect_url)
+                .body(axum::body::Body::empty())?;
+
+            return Ok(response);
+        }
+    };
+    
+    // Check if user is already a member or has a pending invitation
+    let existing_membership = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(target_user.id))
+        .one(&ctx.db)
+        .await?;
+    
+    if let Some(membership) = existing_membership {
+        // User already has a relationship with this team
+        let error_message = if membership.pending {
+            format!("User {} already has a pending invitation to this team", params.email)
+        } else {
+            format!("User {} is already a member of this team", params.email)
+        };
+        
+        // Return error message with HTMX
+        let html_response = format!(
+            "<div id='invitation-error' class='mt-2 text-sm text-red-600'>{}</div>",
+            error_message
+        );
+        
+        let response = Response::builder()
+            .header("Content-Type", "text/html")
+            .header("HX-Retarget", "#invitation-error-container")
+            .header("HX-Swap", "innerHTML")
+            .body(axum::body::Body::from(html_response))?;
+            
+        return Ok(response);
+    }
+    
+    // If we get here, the user exists but isn't a member, so create invitation
     let invitation = _entities::team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await?;
     
-    // Find the invited user
-    let invited_user = users::Model::find_by_id(&ctx.db, invitation.user_id).await?;
-    
     // Send invitation email using the TeamMailer
-    crate::mailers::team::TeamMailer::send_invitation(&ctx, &invited_user, &team, &invitation).await?;
+    crate::mailers::team::TeamMailer::send_invitation(&ctx, &target_user, &team, &invitation).await?;
     
     // Redirect back to the team page
     let redirect_url = format!("/teams/{}", team_pid);
