@@ -406,7 +406,8 @@ async fn remove_member(
 
 /// Register team routes
 pub fn routes() -> Router {
-    let router: Router = Router::new()
+    // Create a router with no state type
+    let router = Router::<()>::new()
         .route("/teams", get(teams_list))
         .route("/teams/new", get(new_team_form))
         .route("/teams", post(create_team))
