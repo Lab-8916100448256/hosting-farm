@@ -1,5 +1,5 @@
 //! Team membership model implementation
-use chrono::{Duration, Local};
+use chrono::{DateTime, Duration, Local};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, TransactionTrait};
 use uuid::Uuid;
 use loco_rs::prelude::*;
@@ -170,7 +170,7 @@ impl team_memberships::Model {
                 role: Set(params.role),
                 invitation_token: Set(Some(invitation_token)),
                 invitation_email: Set(None),
-                invitation_expires_at: Set(Some(expires_at.into())),
+                invitation_expires_at: Set(Some(expires_at.naive_utc())),
                 accepted_at: Set(None),
                 ..Default::default()
             }
@@ -185,7 +185,7 @@ impl team_memberships::Model {
                 role: Set(params.role),
                 invitation_token: Set(Some(invitation_token)),
                 invitation_email: Set(Some(params.email)),
-                invitation_expires_at: Set(Some(expires_at.into())),
+                invitation_expires_at: Set(Some(expires_at.naive_utc())),
                 accepted_at: Set(None),
                 ..Default::default()
             }
@@ -208,14 +208,15 @@ impl team_memberships::Model {
     ) -> ModelResult<Self> {
         // Check if invitation has expired
         if let Some(expires_at) = self.invitation_expires_at {
-            if expires_at < Local::now().into() {
+            let now = Local::now().naive_utc();
+            if expires_at < now {
                 return Err(ModelError::msg("Invitation has expired"));
             }
         }
         
         let mut membership: team_memberships::ActiveModel = self.clone().into();
         membership.user_id = Set(user_id);
-        membership.accepted_at = Set(Some(Local::now().into()));
+        membership.accepted_at = Set(Some(Local::now().naive_utc()));
         membership.invitation_token = Set(None);
         membership.invitation_expires_at = Set(None);
         
