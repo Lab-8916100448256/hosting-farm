@@ -1,3 +1,4 @@
+//! Team views for HTML rendering
 use axum::{
     extract::{Path, State, Extension},
     response::{IntoResponse, Redirect},
@@ -102,7 +103,10 @@ async fn teams_list(
         });
     }
     
-    view_engine.render("teams/list", &TeamListData { teams: teams_data })
+    view_engine.0.render(
+        "teams/list",
+        &TeamListData { teams: teams_data },
+    )
 }
 
 /// Render the new team form
@@ -112,7 +116,7 @@ async fn new_team_form(
     State(ctx): State<AppContext>,
     Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
 ) -> Result<impl IntoResponse> {
-    view_engine.render("teams/new", &())
+    view_engine.0.render("teams/new", &())
 }
 
 /// Handle the new team form submission
@@ -164,7 +168,7 @@ async fn team_details(
         user_role: role,
     };
     
-    view_engine.render("teams/details", &team_data)
+    view_engine.0.render("teams/details", &team_data)
 }
 
 /// Render the edit team form
@@ -191,7 +195,7 @@ async fn edit_team_form(
         user_role: Role::Owner,
     };
     
-    view_engine.render("teams/edit", &team_data)
+    view_engine.0.render("teams/edit", &team_data)
 }
 
 /// Handle the edit team form submission
@@ -277,7 +281,7 @@ async fn team_members(
     // This would need additional implementation to fetch user details
     let member_data = Vec::new(); // Placeholder
     
-    view_engine.render(
+    view_engine.0.render(
         "teams/members",
         &TeamMembersData {
             team: team_data,
@@ -311,7 +315,7 @@ async fn invite_member_form(
         user_role: role,
     };
     
-    view_engine.render("teams/invite", &team_data)
+    view_engine.0.render("teams/invite", &team_data)
 }
 
 /// Handle the invite member form submission
@@ -402,7 +406,7 @@ async fn remove_member(
 }
 
 /// Register all team-related routes
-pub fn routes() -> Router {
+pub fn routes() -> Router<AppContext> {
     Router::new()
         .route("/teams", get(teams_list))
         .route("/teams/new", get(new_team_form))
