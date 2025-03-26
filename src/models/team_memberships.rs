@@ -209,7 +209,7 @@ impl team_memberships::Model {
         // Check if invitation has expired
         if let Some(expires_at) = self.invitation_expires_at {
             if expires_at < Local::now().into() {
-                return Err(ModelError::InvalidOperation("Invitation has expired".to_string()));
+                return Err(ModelError::msg("Invitation has expired"));
             }
         }
         
