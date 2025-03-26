@@ -68,10 +68,20 @@ async fn list_teams(
         })
         .collect::<Vec<_>>();
     
+    // Get pending invitations count
+    let invitations = _entities::team_memberships::Entity::find()
+        .find_with_related(_entities::teams::Entity)
+        .all(&ctx.db)
+        .await?
+        .into_iter()
+        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+        .count();
+    
     let mut context = tera::Context::new();
     context.insert("user", &user);
     context.insert("teams", &teams_result);
     context.insert("active_page", "teams");
+    context.insert("invitation_count", &invitations);
     
     render_template(&ctx, "teams/list.html.tera", context)
 }
@@ -210,6 +220,15 @@ async fn invite_member_page(
         return unauthorized("You are not a member of this team");
     }
     
+    // Get pending invitations count
+    let invitations = _entities::team_memberships::Entity::find()
+        .find_with_related(_entities::teams::Entity)
+        .all(&ctx.db)
+        .await?
+        .into_iter()
+        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+        .count();
+    
     let mut context = tera::Context::new();
     context.insert("user", &user);
     context.insert("team", &json!({
@@ -217,6 +236,7 @@ async fn invite_member_page(
         "name": team.name
     }));
     context.insert("active_page", "teams");
+    context.insert("invitation_count", &invitations);
     
     render_template(&ctx, "teams/invite.html.tera", context)
 }

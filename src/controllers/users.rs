@@ -87,10 +87,14 @@ async fn invitations(
         })
         .collect::<Vec<_>>();
     
+    // Get pending invitations count (same as above but just the count)
+    let invitation_count = invitations.len();
+    
     let mut context = tera::Context::new();
     context.insert("user", &user);
     context.insert("invitations", &invitations);
     context.insert("active_page", "invitations");
+    context.insert("invitation_count", &invitation_count);
     
     render_template(&ctx, "users/invitations.html.tera", context)
 }
