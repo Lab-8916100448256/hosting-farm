@@ -1,7 +1,7 @@
 //! Team views for HTML rendering
 use axum::{
     extract::{Path, State, Extension},
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{get, post},
     Form, Router,
 };
@@ -406,7 +406,7 @@ async fn remove_member(
 
 /// Register team routes
 pub fn routes() -> Router {
-    Router::new()
+    let router: Router = Router::new()
         .route("/teams", get(teams_list))
         .route("/teams/new", get(new_team_form))
         .route("/teams", post(create_team))
@@ -418,5 +418,7 @@ pub fn routes() -> Router {
         .route("/teams/:team_id/invite", get(invite_member_form))
         .route("/teams/:team_id/invite", post(invite_member))
         .route("/teams/:team_id/members/:membership_id", post(update_member_role))
-        .route("/teams/:team_id/members/:membership_id/remove", post(remove_member))
+        .route("/teams/:team_id/members/:membership_id/remove", post(remove_member));
+    
+    router
 }
