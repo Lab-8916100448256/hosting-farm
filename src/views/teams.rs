@@ -79,7 +79,7 @@ pub struct MemberData {
 async fn teams_list(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
-    Extension(view_engine): Extension<ViewEngine>,
+    Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
@@ -112,7 +112,7 @@ async fn teams_list(
 async fn new_team_form(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
-    Extension(view_engine): Extension<ViewEngine>,
+    Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
 ) -> Result<impl IntoResponse> {
     render_template(&view_engine, "teams/new", &())
 }
@@ -144,7 +144,7 @@ async fn create_team(
 async fn team_details(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
-    Extension(view_engine): Extension<ViewEngine>,
+    Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
@@ -174,7 +174,7 @@ async fn team_details(
 async fn edit_team_form(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
-    Extension(view_engine): Extension<ViewEngine>,
+    Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
@@ -250,7 +250,7 @@ async fn delete_team(
 async fn team_members(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
-    Extension(view_engine): Extension<ViewEngine>,
+    Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
@@ -294,7 +294,7 @@ async fn team_members(
 async fn invite_member_form(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
-    Extension(view_engine): Extension<ViewEngine>,
+    Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
