@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::models::{teams, team_memberships, users};
 use crate::models::_entities::team_memberships::Role;
+use crate::models::_entities::team_memberships::Model as TeamMembershipModel;
 
 /// Form data for creating a new team
 #[derive(Debug, Deserialize)]
@@ -365,7 +366,7 @@ async fn update_member_role(
     }
     
     // Get the membership to update
-    let membership = team_memberships::Model::find_by_pid(&ctx.db, &membership_id).await?;
+    let membership = TeamMembershipModel::find_by_pid(&ctx.db, &membership_id).await?;
     
     // Update the role
     membership.update_role(
@@ -395,7 +396,7 @@ async fn remove_member(
     }
     
     // Get the membership to remove
-    let membership = team_memberships::Model::find_by_pid(&ctx.db, &membership_id).await?;
+    let membership = TeamMembershipModel::find_by_pid(&ctx.db, &membership_id).await?;
     
     // Remove the member
     membership.remove(&ctx.db).await?;
