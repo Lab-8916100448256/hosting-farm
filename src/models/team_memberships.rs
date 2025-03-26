@@ -73,6 +73,80 @@ impl team_memberships::Model {
         Ok(membership)
     }
 
+    /// Get the role of a user in a team
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the team membership is not found or if there's a database error
+    pub async fn get_role(
+        db: &DatabaseConnection,
+        team_id: i32,
+        user_id: i32,
+    ) -> ModelResult<Role> {
+        let membership = Self::find_by_team_and_user(db, team_id, user_id).await?;
+        Ok(membership.role)
+    }
+
+    /// Check if a user is a member of a team
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there's a database error
+    pub async fn is_member(
+        db: &DatabaseConnection,
+        team_id: i32,
+        user_id: i32,
+    ) -> ModelResult<bool> {
+        let membership = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(team_id))
+            .filter(team_memberships::Column::UserId.eq(user_id))
+            .one(db)
+            .await?;
+        
+        Ok(membership.is_some())
+    }
+
+    /// Check if a user has a specific role in a team
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there's a database error
+    pub async fn has_role(
+        db: &DatabaseConnection,
+        team_id: i32,
+        user_id: i32,
+        role: Role,
+    ) -> ModelResult<bool> {
+        let membership_result = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(team_id))
+            .filter(team_memberships::Column::UserId.eq(user_id))
+            .one(db)
+            .await?;
+        
+        if let Some(membership) = membership_result {
+            Ok(membership.role == role)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Get all members of a team
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there's a database error
+    pub async fn get_team_members(
+        db: &DatabaseConnection,
+        team_id: i32,
+    ) -> ModelResult<Vec<Self>> {
+        let memberships = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(team_id))
+            .all(db)
+            .await?;
+        
+        Ok(memberships)
+    }
+
     /// Invite a user to a team
     ///
     /// # Errors
