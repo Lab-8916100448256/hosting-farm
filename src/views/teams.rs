@@ -7,6 +7,7 @@ use axum::{
 };
 use loco_rs::prelude::*;
 use loco_rs::view::render_template;
+use loco_rs::controller::views::ViewEngine;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -78,17 +79,16 @@ pub struct MemberData {
 async fn teams_list(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
+    Extension(view_engine): Extension<ViewEngine>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
     // Get all teams the user is a member of
-    // This would need to be implemented in the users model
     let user_teams = user.get_teams(&ctx.db).await?;
     
     let mut teams_data = Vec::new();
     for team in user_teams {
         // Get the user's role in this team
-        // This would need to be implemented in the team_memberships model
         let role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
         
         teams_data.push(TeamData {
@@ -101,7 +101,7 @@ async fn teams_list(
     }
     
     render_template(
-        &ctx.view_engine,
+        &view_engine,
         "teams/list",
         &TeamListData { teams: teams_data },
     )
@@ -112,8 +112,9 @@ async fn teams_list(
 async fn new_team_form(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
+    Extension(view_engine): Extension<ViewEngine>,
 ) -> Result<impl IntoResponse> {
-    render_template(&ctx.view_engine, "teams/new", &())
+    render_template(&view_engine, "teams/new", &())
 }
 
 /// Handle the new team form submission
@@ -143,13 +144,13 @@ async fn create_team(
 async fn team_details(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
+    Extension(view_engine): Extension<ViewEngine>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is a member of the team
-    // This would need to be implemented in the team_memberships model
     if !team_memberships::Model::is_member(&ctx.db, team.id, user.id).await? {
         return unauthorized("You are not a member of this team");
     }
@@ -165,7 +166,7 @@ async fn team_details(
         user_role: role,
     };
     
-    render_template(&ctx.view_engine, "teams/details", &team_data)
+    render_template(&view_engine, "teams/details", &team_data)
 }
 
 /// Render the edit team form
@@ -173,13 +174,13 @@ async fn team_details(
 async fn edit_team_form(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
+    Extension(view_engine): Extension<ViewEngine>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
-    // This would need to be implemented in the team_memberships model
     if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
         return unauthorized("Only team owners can edit team details");
     }
@@ -192,7 +193,7 @@ async fn edit_team_form(
         user_role: Role::Owner,
     };
     
-    render_template(&ctx.view_engine, "teams/edit", &team_data)
+    render_template(&view_engine, "teams/edit", &team_data)
 }
 
 /// Handle the edit team form submission
@@ -249,6 +250,7 @@ async fn delete_team(
 async fn team_members(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
+    Extension(view_engine): Extension<ViewEngine>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
@@ -271,7 +273,6 @@ async fn team_members(
     };
     
     // Get all team members
-    // This would need to be implemented in the team_memberships model
     let memberships = team_memberships::Model::get_team_members(&ctx.db, team.id).await?;
     
     // Convert to template data format
@@ -279,7 +280,7 @@ async fn team_members(
     let member_data = Vec::new(); // Placeholder
     
     render_template(
-        &ctx.view_engine,
+        &view_engine,
         "teams/members",
         &TeamMembersData {
             team: team_data,
@@ -293,6 +294,7 @@ async fn team_members(
 async fn invite_member_form(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
+    Extension(view_engine): Extension<ViewEngine>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
@@ -312,7 +314,7 @@ async fn invite_member_form(
         user_role: role,
     };
     
-    render_template(&ctx.view_engine, "teams/invite", &team_data)
+    render_template(&view_engine, "teams/invite", &team_data)
 }
 
 /// Handle the invite member form submission
@@ -332,8 +334,8 @@ async fn invite_member(
         return unauthorized("Only team owners and administrators can invite members");
     }
     
-    // Create the invitation
-    let membership = team_memberships::Model::invite(
+    // Invite the user
+    team_memberships::Model::invite(
         &ctx.db,
         team_memberships::InviteParams {
             team_id: team.id,
@@ -342,57 +344,28 @@ async fn invite_member(
         },
     ).await?;
     
-    // Send invitation email (would be implemented in a mailer)
-    // TeamMailer::send_invitation(&ctx, &membership).await?;
-    
     // Redirect to the team members page
     Ok(Redirect::to(&format!("/teams/{}/members", team.pid)))
 }
 
-/// Handle the accept invitation form submission
-#[axum::debug_handler]
-async fn accept_invitation(
-    auth: auth::JWT,
-    State(ctx): State<AppContext>,
-    Path(token): Path<String>,
-) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
-    // Find the invitation by token
-    let membership = team_memberships::Model::find_by_invitation_token(&ctx.db, &token).await?;
-    
-    // Accept the invitation
-    membership.accept_invitation(&ctx.db, user.id).await?;
-    
-    // Redirect to the teams list page
-    Ok(Redirect::to("/teams"))
-}
-
-/// Handle the update member role form submission
+/// Handle updating a team member's role
 #[axum::debug_handler]
 async fn update_member_role(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
-    Path((team_id, member_id)): Path<(Uuid, Uuid)>,
+    Path((team_id, membership_id)): Path<(Uuid, Uuid)>,
     Form(form): Form<UpdateRoleForm>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
-    let membership = team_memberships::Model::find_by_pid(&ctx.db, &member_id).await?;
     
-    // Check if the membership belongs to the specified team
-    if membership.team_id != team.id {
-        return bad_request("Membership does not belong to the specified team");
+    // Check if user is an owner of the team
+    if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
+        return unauthorized("Only team owners can update member roles");
     }
     
-    // Check if user has permission to change roles
-    let user_role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
-    let target_user_role = membership.role.clone();
-    
-    // Implement role change permission logic based on the requirements
-    if !can_change_role(user_role, target_user_role, form.role.clone()) {
-        return unauthorized("You don't have permission to change this member's role");
-    }
+    // Get the membership to update
+    let membership = team_memberships::Model::find_by_pid(&ctx.db, &membership_id).await?;
     
     // Update the role
     membership.update_role(
@@ -406,30 +379,23 @@ async fn update_member_role(
     Ok(Redirect::to(&format!("/teams/{}/members", team.pid)))
 }
 
-/// Handle the remove member form submission
-#[debug_handler]
+/// Handle removing a team member
+#[axum::debug_handler]
 async fn remove_member(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
-    Path((team_id, member_id)): Path<(Uuid, Uuid)>,
+    Path((team_id, membership_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
-    let membership = team_memberships::Model::find_by_pid(&ctx.db, &member_id).await?;
     
-    // Check if the membership belongs to the specified team
-    if membership.team_id != team.id {
-        return bad_request("Membership does not belong to the specified team");
+    // Check if user is an owner of the team
+    if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
+        return unauthorized("Only team owners can remove members");
     }
     
-    // Check if user has permission to remove members
-    let user_role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
-    let target_user_role = membership.role.clone();
-    
-    // Implement member removal permission logic based on the requirements
-    if !can_remove_member(user_role, target_user_role) {
-        return unauthorized("You don't have permission to remove this member");
-    }
+    // Get the membership to remove
+    let membership = team_memberships::Model::find_by_pid(&ctx.db, &membership_id).await?;
     
     // Remove the member
     membership.remove(&ctx.db).await?;
@@ -438,51 +404,19 @@ async fn remove_member(
     Ok(Redirect::to(&format!("/teams/{}/members", team.pid)))
 }
 
-// Helper function to determine if a user can change another user's role
-fn can_change_role(user_role: Role, target_role: Role, new_role: Role) -> bool {
-    match user_role {
-        Role::Owner => {
-            // Owners can change roles of administrators, developers, and observers
-            target_role != Role::Owner
-        },
-        Role::Administrator => {
-            // Administrators can change roles of developers and observers
-            (target_role == Role::Developer || target_role == Role::Observer) &&
-            (new_role == Role::Developer || new_role == Role::Observer)
-        },
-        _ => false, // Developers and observers cannot change roles
-    }
-}
-
-// Helper function to determine if a user can remove another user
-fn can_remove_member(user_role: Role, target_role: Role) -> bool {
-    match user_role {
-        Role::Owner => {
-            // Owners can remove administrators, developers, and observers
-            target_role != Role::Owner
-        },
-        Role::Administrator => {
-            // Administrators can remove developers and observers
-            target_role == Role::Developer || target_role == Role::Observer
-        },
-        _ => false, // Developers and observers cannot remove members
-    }
-}
-
-pub fn routes() -> Routes {
-    Routes::new()
-        .prefix("/teams")
-        .add("/", get(teams_list))
-        .add("/new", get(new_team_form))
-        .add("/", post(create_team))
-        .add("/:id", get(team_details))
-        .add("/:id/edit", get(edit_team_form))
-        .add("/:id", post(update_team))
-        .add("/:id/delete", post(delete_team))
-        .add("/:id/members", get(team_members))
-        .add("/:id/invite", get(invite_member_form))
-        .add("/:id/invite", post(invite_member))
-        .add("/:id/members/:member_id/role", post(update_member_role))
-        .add("/:id/members/:member_id/remove", post(remove_member))
-        .add("/invitations/:token/accept", post(accept_invitation))
+/// Register team routes
+pub fn routes() -> Router {
+    Router::new()
+        .route("/teams", get(teams_list))
+        .route("/teams/new", get(new_team_form))
+        .route("/teams", post(create_team))
+        .route("/teams/:team_id", get(team_details))
+        .route("/teams/:team_id/edit", get(edit_team_form))
+        .route("/teams/:team_id", post(update_team))
+        .route("/teams/:team_id/delete", post(delete_team))
+        .route("/teams/:team_id/members", get(team_members))
+        .route("/teams/:team_id/invite", get(invite_member_form))
+        .route("/teams/:team_id/invite", post(invite_member))
+        .route("/teams/:team_id/members/:membership_id", post(update_member_role))
+        .route("/teams/:team_id/members/:membership_id/remove", post(remove_member))
 }
