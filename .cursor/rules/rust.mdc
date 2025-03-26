@@ -3,19 +3,46 @@ description:
 globs: 
 alwaysApply: true
 ---
-# Rust Developement Rules
+# Rust web application developement rules
 
 ## Introduction
-This rule file provides guidelines for software development in Rust
+This rule file provides guidelines for software development of web application in the Rust language with the loco-rs framework
+
 ## Guidelines
+1. **UI Flow**
+   - When implmenting user interfaces always use server-side rendering with HTMX
+   - Always prefer using HTMX over adding custom javascript to the fron-end
+   - Make minimal usage of javascript, primarily for enhancing HTMX functionality
 
-1. **Testing and commit after rust code modifications**
-- Always run `cargo check` and `cargo test` after modifying or adding Rust code to check for errors and unit test failures. Fix any compilation error and unit test failure that are generated. Then test again. Iterate until there are no more error or unit test failure.
-- Always run `unset ARGV0` before running `cargo` to avoid proxy errors
-- If there is no error or unit test failure remaining at the end, commit the changes to git. 
+2  **project structure**
+   - the project structure follows the classic loco-rs framework strucure
+   - The tera templates for the views are placed in assets/views/
 
-## References
+3. **HTML Pages generation**
+   - Always use Tera templates for producing HTML
+   - Use Tailwind CSS for styling.
 
+4. **general coding best practices** 
+   - When generating code, prioritize readability and maintainability. 
+   - Use clear and descriptive variable names, 
+   - avoid complex logic without proper documentation.
+   - commit your changes to git regularly
 
-## Additional Instructions
+5. **Test and commit after rust code modifications**
+   - Always run `cargo check` and `cargo test` after modifying or adding Rust code to check for compilation errors and unit test failures. Fix any compilation error and unit test failure that are generated. Then test again. Iterate until there are no more error or unit test failure.
+   - Always run `unset ARGV0` before running `cargo` to avoid proxy errors
+   - unless directly instructed to do so, do not commit the changes to git if there are any compilation error or unit test failure
 
+6. **Debuggin issues that require human interaction with the application**
+   - If testing by human interaction is needed to better understand an issue or to verify thata bug fix or new feature implementation works as expected, the way to run the application is to call `cargo loco start`
+
+7. **Use loco-rs generate features**
+   - To generate a new entity use `cargo generate model`
+   - To generate a new database migration use `cargo generate migration`
+   - To generate a new controller use `cargo generate controller`
+   - To generate a new task use `cargo generate task`
+   - To generate a new scheduler use `cargo generate scheduler`
+   - To generate a new worker use `cargo generate worker`
+   - To generate a new mailer use `cargo generate mailer`
+   - To generate a full CRUD scaffold with model, controller and API endpoints use `cargo generate scaffold`
+   

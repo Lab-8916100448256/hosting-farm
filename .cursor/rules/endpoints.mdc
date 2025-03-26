@@ -3,7 +3,10 @@ description:
 globs: 
 alwaysApply: true
 ---
-# Endpoint Naming and Structure Rules
+# Endpoints naming and structure rules
+
+## Introduction
+This rule file provides guidelines related to API endpoints and human-facing endpoints in web application developement
 
 ## API Endpoints
 - All API endpoints MUST be prefixed with `/api/`
