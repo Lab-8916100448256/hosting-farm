@@ -14,6 +14,8 @@ use uuid::Uuid;
 use crate::models::{teams, team_memberships, users};
 use crate::models::_entities::team_memberships::Role;
 use crate::models::_entities::team_memberships::Model as TeamMembershipModel;
+use crate::models::_entities::teams::Model as TeamModel;
+use crate::models::_entities::users::Model as UserModel;
 
 /// Form data for creating a new team
 #[derive(Debug, Deserialize)]
@@ -82,7 +84,7 @@ async fn teams_list(
     State(ctx): State<AppContext>,
     Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
     // Get all teams the user is a member of
     let user_teams = user.get_teams(&ctx.db).await?;
@@ -125,7 +127,7 @@ async fn create_team(
     State(ctx): State<AppContext>,
     Form(form): Form<CreateTeamForm>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
     let team = teams::Model::create(
         &ctx.db,
@@ -148,8 +150,8 @@ async fn team_details(
     Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is a member of the team
     if !team_memberships::Model::is_member(&ctx.db, team.id, user.id).await? {
@@ -178,8 +180,8 @@ async fn edit_team_form(
     Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
     if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
@@ -205,8 +207,8 @@ async fn update_team(
     Path(team_id): Path<Uuid>,
     Form(form): Form<UpdateTeamForm>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
     if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
@@ -232,8 +234,8 @@ async fn delete_team(
     State(ctx): State<AppContext>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
     if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
@@ -254,8 +256,8 @@ async fn team_members(
     Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is a member of the team
     if !team_memberships::Model::is_member(&ctx.db, team.id, user.id).await? {
@@ -298,8 +300,8 @@ async fn invite_member_form(
     Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
     Path(team_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner or administrator of the team
     let role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
@@ -326,8 +328,8 @@ async fn invite_member(
     Path(team_id): Path<Uuid>,
     Form(form): Form<InviteForm>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner or administrator of the team
     let role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
@@ -357,8 +359,8 @@ async fn update_member_role(
     Path((team_id, membership_id)): Path<(Uuid, Uuid)>,
     Form(form): Form<UpdateRoleForm>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
     if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
@@ -387,8 +389,8 @@ async fn remove_member(
     State(ctx): State<AppContext>,
     Path((team_id, membership_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = teams::Model::find_by_pid(&ctx.db, &team_id).await?;
+    let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
     if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
