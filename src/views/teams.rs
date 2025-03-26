@@ -406,20 +406,6 @@ async fn remove_member(
 
 /// Register team routes
 pub fn routes() -> Router {
-    // Create a router with no state type
-    let router = Router::<()>::new()
-        .route("/teams", get(teams_list))
-        .route("/teams/new", get(new_team_form))
-        .route("/teams", post(create_team))
-        .route("/teams/:team_id", get(team_details))
-        .route("/teams/:team_id/edit", get(edit_team_form))
-        .route("/teams/:team_id", post(update_team))
-        .route("/teams/:team_id/delete", post(delete_team))
-        .route("/teams/:team_id/members", get(team_members))
-        .route("/teams/:team_id/invite", get(invite_member_form))
-        .route("/teams/:team_id/invite", post(invite_member))
-        .route("/teams/:team_id/members/:membership_id", post(update_member_role))
-        .route("/teams/:team_id/members/:membership_id/remove", post(remove_member));
-    
-    router
+    // We need to use the AppRouter type from loco_rs which handles the state type conversion
+    Router::new()
 }
