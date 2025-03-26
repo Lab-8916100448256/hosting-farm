@@ -171,7 +171,7 @@ impl team_memberships::Model {
                 role: Set(params.role),
                 invitation_token: Set(Some(invitation_token)),
                 invitation_email: Set(None),
-                invitation_expires_at: Set(Some(expires_at)),
+                invitation_expires_at: Set(Some(expires_at.into())),
                 accepted_at: Set(None),
                 ..Default::default()
             }
@@ -186,7 +186,7 @@ impl team_memberships::Model {
                 role: Set(params.role),
                 invitation_token: Set(Some(invitation_token)),
                 invitation_email: Set(Some(params.email)),
-                invitation_expires_at: Set(Some(expires_at)),
+                invitation_expires_at: Set(Some(expires_at.into())),
                 accepted_at: Set(None),
                 ..Default::default()
             }
@@ -209,7 +209,7 @@ impl team_memberships::Model {
     ) -> ModelResult<Self> {
         // Check if invitation has expired
         if let Some(expires_at) = self.invitation_expires_at {
-            let now = Utc::now();
+            let now = Utc::now().into();
             if expires_at < now {
                 return Err(ModelError::msg("Invitation has expired"));
             }
@@ -217,7 +217,7 @@ impl team_memberships::Model {
         
         let mut membership: team_memberships::ActiveModel = self.clone().into();
         membership.user_id = Set(user_id);
-        membership.accepted_at = Set(Some(Utc::now()));
+        membership.accepted_at = Set(Some(Utc::now().into()));
         membership.invitation_token = Set(None);
         membership.invitation_expires_at = Set(None);
         
