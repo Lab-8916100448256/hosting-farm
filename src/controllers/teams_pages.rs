@@ -150,6 +150,15 @@ async fn team_details(
         }
     }
     
+    // Get pending invitations count
+    let invitations = _entities::team_memberships::Entity::find()
+        .find_with_related(_entities::teams::Entity)
+        .all(&ctx.db)
+        .await?
+        .into_iter()
+        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+        .count();
+    
     let mut context = tera::Context::new();
     context.insert("user", &user);
     context.insert("team", &json!({
@@ -160,6 +169,7 @@ async fn team_details(
     context.insert("members", &members);
     context.insert("active_page", "teams");
     context.insert("is_admin", &is_admin);
+    context.insert("invitation_count", &invitations);
     
     render_template(&ctx, "teams/show.html.tera", context)
 }
