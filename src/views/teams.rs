@@ -11,7 +11,7 @@ use loco_rs::controller::views::ViewEngine;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::models::{teams, team_memberships, users};
+use crate::models::{teams, team_memberships};
 use crate::models::_entities::team_memberships::Role;
 use crate::models::_entities::team_memberships::Model as TeamMembershipModel;
 use crate::models::_entities::teams::Model as TeamModel;
@@ -92,7 +92,7 @@ async fn teams_list(
     let mut teams_data = Vec::new();
     for team in user_teams {
         // Get the user's role in this team
-        let role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
+        let role = TeamMembershipModel::get_role(&ctx.db, team.id, user.id).await?;
         
         teams_data.push(TeamData {
             id: team.pid,
@@ -154,12 +154,12 @@ async fn team_details(
     let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is a member of the team
-    if !team_memberships::Model::is_member(&ctx.db, team.id, user.id).await? {
+    if !TeamMembershipModel::is_member(&ctx.db, team.id, user.id).await? {
         return unauthorized("You are not a member of this team");
     }
     
     // Get the user's role in this team
-    let role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
+    let role = TeamMembershipModel::get_role(&ctx.db, team.id, user.id).await?;
     
     let team_data = TeamData {
         id: team.pid,
@@ -184,7 +184,7 @@ async fn edit_team_form(
     let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
-    if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
+    if !TeamMembershipModel::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
         return unauthorized("Only team owners can edit team details");
     }
     
@@ -211,7 +211,7 @@ async fn update_team(
     let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
-    if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
+    if !TeamMembershipModel::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
         return unauthorized("Only team owners can update team details");
     }
     
@@ -238,7 +238,7 @@ async fn delete_team(
     let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
-    if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
+    if !TeamMembershipModel::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
         return unauthorized("Only team owners can delete teams");
     }
     
@@ -260,12 +260,12 @@ async fn team_members(
     let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is a member of the team
-    if !team_memberships::Model::is_member(&ctx.db, team.id, user.id).await? {
+    if !TeamMembershipModel::is_member(&ctx.db, team.id, user.id).await? {
         return unauthorized("You are not a member of this team");
     }
     
     // Get the user's role in this team
-    let role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
+    let role = TeamMembershipModel::get_role(&ctx.db, team.id, user.id).await?;
     
     let team_data = TeamData {
         id: team.pid,
@@ -276,7 +276,7 @@ async fn team_members(
     };
     
     // Get all team members
-    let memberships = team_memberships::Model::get_team_members(&ctx.db, team.id).await?;
+    let memberships = TeamMembershipModel::get_team_members(&ctx.db, team.id).await?;
     
     // Convert to template data format
     // This would need additional implementation to fetch user details
@@ -304,7 +304,7 @@ async fn invite_member_form(
     let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner or administrator of the team
-    let role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
+    let role = TeamMembershipModel::get_role(&ctx.db, team.id, user.id).await?;
     if role != Role::Owner && role != Role::Administrator {
         return unauthorized("Only team owners and administrators can invite members");
     }
@@ -332,13 +332,13 @@ async fn invite_member(
     let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner or administrator of the team
-    let role = team_memberships::Model::get_role(&ctx.db, team.id, user.id).await?;
+    let role = TeamMembershipModel::get_role(&ctx.db, team.id, user.id).await?;
     if role != Role::Owner && role != Role::Administrator {
         return unauthorized("Only team owners and administrators can invite members");
     }
     
     // Invite the user
-    team_memberships::Model::invite(
+    TeamMembershipModel::invite(
         &ctx.db,
         team_memberships::InviteParams {
             team_id: team.id,
@@ -363,7 +363,7 @@ async fn update_member_role(
     let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
-    if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
+    if !TeamMembershipModel::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
         return unauthorized("Only team owners can update member roles");
     }
     
@@ -393,7 +393,7 @@ async fn remove_member(
     let team = TeamModel::find_by_pid(&ctx.db, &team_id).await?;
     
     // Check if user is an owner of the team
-    if !team_memberships::Model::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
+    if !TeamMembershipModel::has_role(&ctx.db, team.id, user.id, Role::Owner).await? {
         return unauthorized("Only team owners can remove members");
     }
     
