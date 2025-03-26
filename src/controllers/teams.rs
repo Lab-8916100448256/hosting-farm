@@ -1,15 +1,14 @@
 use axum::debug_handler;
 use loco_rs::prelude::*;
 use sea_orm::{PaginatorTrait, ColumnTrait, EntityTrait};
-use serde::Serialize;
 
 use crate::{
     mailers::team::TeamMailer,
     models::{
         _entities::{
             team_memberships::{self, Column as TeamMembershipColumn, Entity as TeamMembershipEntity, Model as TeamMembershipModel},
-            teams::{self, Entity as TeamEntity, Model as TeamModel},
-            users::{Entity as UserEntity, Model as UserModel},
+            teams::{Entity as TeamEntity, Model as TeamModel},
+            users::{Entity as UserEntity},
         },
         team_memberships::{UpdateRoleParams, VALID_ROLES, InviteMemberParams},
         teams::{CreateTeamParams, UpdateTeamParams},

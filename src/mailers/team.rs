@@ -13,7 +13,7 @@ use crate::models::{
 };
 
 // Define the static template directory
-static invitation: Dir<'_> = include_dir!("src/mailers/team/invitation");
+static INVITATION: Dir<'_> = include_dir!("src/mailers/team/invitation");
 
 pub struct TeamMailer {}
 impl Mailer for TeamMailer {}
@@ -65,7 +65,7 @@ impl TeamMailer {
 
         match Self::mail_template(
             ctx, 
-            &invitation,
+            &INVITATION,
             args,
         ).await {
             Ok(_) => {

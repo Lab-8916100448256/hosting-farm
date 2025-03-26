@@ -1,12 +1,11 @@
-use async_trait::async_trait;
 use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
+use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait, ConnectionTrait, DbErr, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::_entities::teams::{self, ActiveModel, Entity, Model};
+use super::_entities::teams::{self, ActiveModel, Model};
 use super::_entities::team_memberships;
-use super::_entities::users;
+use super::_entities::users::{self, Model as UserModel};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTeamParams {
@@ -31,23 +30,6 @@ impl Validatable for ActiveModel {
         Box::new(Validator {
             name: self.name.as_ref().to_owned(),
         })
-    }
-}
-
-#[async_trait::async_trait]
-impl ActiveModelBehavior for super::_entities::teams::ActiveModel {
-    async fn before_save<C>(self, _db: &C, insert: bool) -> Result<Self, DbErr>
-    where
-        C: ConnectionTrait,
-    {
-        self.validate()?;
-        if insert {
-            let mut this = self;
-            this.pid = ActiveValue::Set(Uuid::new_v4());
-            Ok(this)
-        } else {
-            Ok(self)
-        }
     }
 }
 
@@ -151,7 +133,7 @@ impl Model {
     /// # Errors
     ///
     /// When DB query error
-    pub async fn get_members(&self, db: &DatabaseConnection) -> ModelResult<Vec<(users::Model, String)>> {
+    pub async fn get_members(&self, db: &DatabaseConnection) -> ModelResult<Vec<(UserModel, String)>> {
         let memberships = team_memberships::Entity::find()
             .filter(
                 model::query::condition()
@@ -227,5 +209,22 @@ impl Model {
             .await
             .map_err(|e| ModelError::Any(e.into()))?;
         Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl ActiveModelBehavior for super::_entities::teams::ActiveModel {
+    async fn before_save<C>(self, _db: &C, insert: bool) -> Result<Self, DbErr>
+    where
+        C: ConnectionTrait,
+    {
+        self.validate()?;
+        if insert {
+            let mut this = self;
+            this.pid = ActiveValue::Set(Uuid::new_v4());
+            Ok(this)
+        } else {
+            Ok(self)
+        }
     }
 }

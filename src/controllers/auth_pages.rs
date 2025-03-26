@@ -8,7 +8,6 @@ use crate::{
         users::{LoginParams, RegisterParams},
     },
     utils::template::render_template,
-    views::auth::LoginResponse,
 };
 use serde::Deserialize;
 use axum::response::Redirect;

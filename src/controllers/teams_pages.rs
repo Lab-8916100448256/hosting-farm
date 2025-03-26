@@ -1,7 +1,7 @@
 use axum::debug_handler;
 use loco_rs::prelude::*;
 use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, PaginatorTrait};
-use crate::models::{users, _entities, team_memberships};
+use crate::models::{users, _entities};
 use crate::models::_entities::teams::Model as TeamModel;
 use serde_json::json;
 use uuid::Uuid;
@@ -385,8 +385,10 @@ async fn update_team_handler(
     let updated_team = team.update(&ctx.db, &params).await?;
     
     // Redirect to the team details page
+    let redirect_url = format!("/teams/{}", updated_team.pid.to_string());
+    tracing::info!("Redirecting to: {}", redirect_url);
     let response = Response::builder()
-        .header("HX-Redirect", format!("/teams/{}", updated_team.pid))
+        .header("HX-Redirect", redirect_url)
         .body(axum::body::Body::empty())?;
 
     Ok(response)
@@ -627,8 +629,10 @@ async fn delete_team(
     team.delete(&ctx.db).await?;
     
     // Instead of returning empty JSON, send a redirect to the teams list page
+    let redirect_url = "/teams";
+    tracing::info!("Redirecting to: {}", redirect_url);
     let response = Response::builder()
-        .header("HX-Redirect", "/teams")
+        .header("HX-Redirect", redirect_url)
         .body(axum::body::Body::empty())?;
         
     Ok(response)
@@ -669,8 +673,10 @@ async fn invite_member_handler(
     crate::mailers::team::TeamMailer::send_invitation(&ctx, &invited_user, &team, &invitation).await?;
     
     // Redirect back to the team page
+    let redirect_url = format!("/teams/{}", team_pid);
+    tracing::info!("Redirecting to: {}", redirect_url);
     let response = Response::builder()
-        .header("HX-Redirect", format!("/teams/{}", team.pid))
+        .header("HX-Redirect", redirect_url)
         .body(axum::body::Body::empty())?;
 
     Ok(response)

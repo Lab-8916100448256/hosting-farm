@@ -5,20 +5,23 @@ use loco_rs::{
     boot::{create_app, BootResult, StartMode},
     config::Config,
     controller::AppRoutes,
-    db::{self, truncate_table},
+    db::truncate_table,
     environment::Environment,
     task::Tasks,
     Result,
 };
 use migration::Migrator;
 use std::path::Path;
-use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
-use std::sync::Arc;
+use sea_orm::{ActiveModelTrait, ActiveValue};
 use uuid;
 
 #[allow(unused_imports)]
 use crate::{
-    controllers, initializers, models::_entities::{users, teams, team_memberships}, tasks, workers::downloader::DownloadWorker,
+    controllers,
+    initializers,
+    models::_entities::{users, teams, team_memberships},
+    tasks,
+    workers::downloader::DownloadWorker,
 };
 
 pub struct App;
@@ -62,7 +65,7 @@ impl Hooks for App {
             .add_route(controllers::teams_pages::routes())
     }
 
-    fn register_tasks(tasks: &mut Tasks) {
+    fn register_tasks(_tasks: &mut Tasks) {
         // tasks-inject (do not remove)
     }
 
