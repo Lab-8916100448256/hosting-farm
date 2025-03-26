@@ -114,7 +114,12 @@ async fn delete_team(
     // Delete the team
     team.delete(&ctx.db).await?;
     
-    format::empty_json()
+    // Instead of returning empty JSON, send a redirect to the teams list page
+    let response = Response::builder()
+        .header("HX-Redirect", "/teams")
+        .body(axum::body::Body::empty())?;
+        
+    Ok(response)
 }
 
 #[debug_handler]
