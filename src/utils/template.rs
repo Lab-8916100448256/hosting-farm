@@ -66,7 +66,7 @@ pub fn render_template(_ctx: &AppContext, template_name: &str, context: Context)
     
     // Render the template
     let rendered = tera.render(template_name, &context)
-        .map_err(|e| loco_rs::Error::string(&format!("Failed to render template: {}", e)))?;
+        .map_err(|e| loco_rs::Error::string(&format!("Failed to render template: {:?}", e)))?;
     
     format::html(&rendered)
 }
