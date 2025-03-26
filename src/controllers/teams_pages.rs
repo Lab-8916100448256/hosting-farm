@@ -337,7 +337,11 @@ async fn create_team_handler(
     // Redirect to the team details page with explicit .to_string() to ensure proper conversion
     let redirect_url = format!("/teams/{}", team.pid.to_string());
     tracing::info!("Redirecting to: {}", redirect_url);
-    format::redirect(&redirect_url)
+    let response = Response::builder()
+        .header("HX-Redirect", redirect_url)
+        .body(axum::body::Body::empty())?;
+
+    Ok(response)
 }
 
 /// Handle team edit form submission
@@ -665,7 +669,11 @@ async fn invite_member_handler(
     crate::mailers::team::TeamMailer::send_invitation(&ctx, &invited_user, &team, &invitation).await?;
     
     // Redirect back to the team page
-    format::redirect(&format!("/teams/{}", team.pid))
+    let response = Response::builder()
+        .header("HX-Redirect", format!("/teams/{}", team.pid))
+        .body(axum::body::Body::empty())?;
+
+    Ok(response)
 }
 
 /// Team routes
