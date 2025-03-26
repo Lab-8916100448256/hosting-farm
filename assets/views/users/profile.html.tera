@@ -13,7 +13,7 @@
                 </p>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
-                <form action="/api/users/me" method="POST" hx-put="/api/users/me" hx-swap="outerHTML" hx-target="this">
+                <form action="/users/me" method="POST" hx-put="/users/me" hx-swap="outerHTML" hx-target="this" enctype="application/x-www-form-urlencoded">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
                             <label for="name" class="block text-sm font-medium text-gray-700">Name</label>
@@ -44,7 +44,7 @@
                 </p>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
-                <form action="/api/users/me/password" method="POST" hx-post="/api/users/me/password" hx-swap="outerHTML" hx-target="this">
+                <form action="/users/me/password" method="POST" hx-post="/users/me/password" hx-swap="outerHTML" hx-target="this" enctype="application/x-www-form-urlencoded">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
                             <label for="current_password" class="block text-sm font-medium text-gray-700">Current Password</label>
@@ -78,6 +78,11 @@
                 <p class="mt-1 text-sm text-gray-500">
                     Teams you are a member of.
                 </p>
+                <div class="mt-4">
+                    <a href="/teams/new" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Create a team
+                    </a>
+                </div>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
                 {% if teams and teams|length > 0 %}
@@ -97,9 +102,6 @@
                 {% else %}
                 <div class="text-center py-4">
                     <p class="text-sm text-gray-500">You are not a member of any teams.</p>
-                    <a href="/teams/new" class="mt-2 inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                        Create a team
-                    </a>
                 </div>
                 {% endif %}
             </div>

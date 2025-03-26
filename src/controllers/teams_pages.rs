@@ -338,6 +338,50 @@ async fn create_team_handler(
     format::redirect(&redirect_url)
 }
 
+/// Handle team edit form submission
+#[debug_handler]
+async fn update_team_handler(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path(team_pid): Path<String>,
+    Form(params): Form<crate::models::teams::UpdateTeamParams>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    tracing::info!("Updating team with pid: {}", team_pid);
+    
+    // Find team
+    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
+            return Err(Error::string("Team not found"));
+        }
+    };
+    
+    // Check if user is an owner of this team
+    let membership = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
+        .one(&ctx.db)
+        .await?;
+    
+    if let Some(membership) = membership {
+        if membership.role != "Owner" {
+            return unauthorized("Only team owners can edit team details");
+        }
+    } else {
+        return unauthorized("You are not a member of this team");
+    }
+    
+    // Update the team
+    let updated_team = team.update(&ctx.db, &params).await?;
+    
+    // Redirect to the team details page
+    format::redirect(&format!("/teams/{}", updated_team.pid))
+}
+
 /// Team routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -347,5 +391,6 @@ pub fn routes() -> Routes {
         .add("/new", post(create_team_handler))
         .add("/{team_pid}", get(team_details))
         .add("/{team_pid}/edit", get(edit_team_page))
+        .add("/{team_pid}/update", post(update_team_handler))
         .add("/{team_pid}/invite", get(invite_member_page))
 } 
