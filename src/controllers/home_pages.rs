@@ -24,9 +24,18 @@ async fn authenticated_index(
     
     match users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
         Ok(user) => {
+            // Get pending invitations count
+            let invitations = crate::models::_entities::team_memberships::Entity::find()
+                .find_with_related(crate::models::_entities::teams::Entity)
+                .all(&ctx.db)
+                .await?
+                .into_iter()
+                .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+                .count();
+                
             context.insert("user", &user);
             context.insert("active_page", "home");
-            context.insert("invitation_count", &0); // TODO: Get actual invitation count
+            context.insert("invitation_count", &invitations);
             render_template(&ctx, "home/index.html.tera", context)
         }
         Err(err) => {

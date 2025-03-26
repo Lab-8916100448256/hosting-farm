@@ -277,6 +277,15 @@ async fn edit_team_page(
         return unauthorized("You are not a member of this team");
     }
     
+    // Get pending invitations count
+    let invitations = _entities::team_memberships::Entity::find()
+        .find_with_related(_entities::teams::Entity)
+        .all(&ctx.db)
+        .await?
+        .into_iter()
+        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+        .count();
+    
     let mut context = tera::Context::new();
     context.insert("user", &user);
     context.insert("team", &json!({
@@ -285,6 +294,7 @@ async fn edit_team_page(
         "description": team.description
     }));
     context.insert("active_page", "teams");
+    context.insert("invitation_count", &invitations);
     
     render_template(&ctx, "teams/edit.html.tera", context)
 }
