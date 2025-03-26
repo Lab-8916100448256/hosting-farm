@@ -6,7 +6,6 @@ use axum::{
     Form, Router,
 };
 use loco_rs::prelude::*;
-use loco_rs::view::render_template;
 use loco_rs::controller::views::ViewEngine;
 use loco_rs::controller::views::engines;
 use serde::{Deserialize, Serialize};
@@ -104,8 +103,7 @@ async fn teams_list(
         });
     }
     
-    render_template(
-        &view_engine,
+    view_engine.render(
         "teams/list",
         &TeamListData { teams: teams_data },
     )
@@ -118,7 +116,7 @@ async fn new_team_form(
     State(ctx): State<AppContext>,
     Extension(view_engine): Extension<ViewEngine<engines::TeraView>>,
 ) -> Result<impl IntoResponse> {
-    render_template(&view_engine, "teams/new", &())
+    view_engine.render("teams/new", &())
 }
 
 /// Handle the new team form submission
@@ -170,7 +168,7 @@ async fn team_details(
         user_role: role,
     };
     
-    render_template(&view_engine, "teams/details", &team_data)
+    view_engine.render("teams/details", &team_data)
 }
 
 /// Render the edit team form
@@ -197,7 +195,7 @@ async fn edit_team_form(
         user_role: Role::Owner,
     };
     
-    render_template(&view_engine, "teams/edit", &team_data)
+    view_engine.render("teams/edit", &team_data)
 }
 
 /// Handle the edit team form submission
@@ -283,8 +281,7 @@ async fn team_members(
     // This would need additional implementation to fetch user details
     let member_data = Vec::new(); // Placeholder
     
-    render_template(
-        &view_engine,
+    view_engine.render(
         "teams/members",
         &TeamMembersData {
             team: team_data,
@@ -318,7 +315,7 @@ async fn invite_member_form(
         user_role: role,
     };
     
-    render_template(&view_engine, "teams/invite", &team_data)
+    view_engine.render("teams/invite", &team_data)
 }
 
 /// Handle the invite member form submission
@@ -352,9 +349,9 @@ async fn invite_member(
     Ok(Redirect::to(&format!("/teams/{}/members", team.pid)))
 }
 
-/// Handle updating a team member's role
+/// Handle the update role form submission
 #[axum::debug_handler]
-async fn update_member_role(
+async fn update_role(
     auth: auth::JWT,
     State(ctx): State<AppContext>,
     Path((team_id, membership_id)): Path<(Uuid, Uuid)>,
@@ -368,7 +365,7 @@ async fn update_member_role(
         return unauthorized("Only team owners can update member roles");
     }
     
-    // Get the membership to update
+    // Get the membership
     let membership = TeamMembershipModel::find_by_pid(&ctx.db, &membership_id).await?;
     
     // Update the role
@@ -383,7 +380,7 @@ async fn update_member_role(
     Ok(Redirect::to(&format!("/teams/{}/members", team.pid)))
 }
 
-/// Handle removing a team member
+/// Handle the remove member form submission
 #[axum::debug_handler]
 async fn remove_member(
     auth: auth::JWT,
@@ -398,7 +395,7 @@ async fn remove_member(
         return unauthorized("Only team owners can remove members");
     }
     
-    // Get the membership to remove
+    // Get the membership
     let membership = TeamMembershipModel::find_by_pid(&ctx.db, &membership_id).await?;
     
     // Remove the member
@@ -408,8 +405,19 @@ async fn remove_member(
     Ok(Redirect::to(&format!("/teams/{}/members", team.pid)))
 }
 
-/// Register team routes
+/// Register all team-related routes
 pub fn routes() -> Router {
-    // We need to use the AppRouter type from loco_rs which handles the state type conversion
     Router::new()
+        .route("/teams", get(teams_list))
+        .route("/teams/new", get(new_team_form))
+        .route("/teams", post(create_team))
+        .route("/teams/:team_id", get(team_details))
+        .route("/teams/:team_id/edit", get(edit_team_form))
+        .route("/teams/:team_id", post(update_team))
+        .route("/teams/:team_id/delete", post(delete_team))
+        .route("/teams/:team_id/members", get(team_members))
+        .route("/teams/:team_id/invite", get(invite_member_form))
+        .route("/teams/:team_id/invite", post(invite_member))
+        .route("/teams/:team_id/members/:membership_id/role", post(update_role))
+        .route("/teams/:team_id/members/:membership_id/remove", post(remove_member))
 }
