@@ -95,8 +95,10 @@ async fn invitations(
                 let team = teams.first()?;
                 Some(json!({
                     "team_name": team.name,
+                    "team_description": team.description.clone(),
                     "token": membership.invitation_token,
-                    "role": membership.role
+                    "role": membership.role,
+                    "sent_at": membership.created_at.format("%Y-%m-%d").to_string()
                 }))
             } else {
                 None

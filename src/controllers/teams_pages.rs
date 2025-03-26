@@ -626,6 +626,44 @@ async fn delete_team(
     Ok(response)
 }
 
+/// Handle team member invitation
+#[debug_handler]
+async fn invite_member_handler(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path(team_pid): Path<String>,
+    Form(params): Form<crate::models::team_memberships::InviteMemberParams>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    
+    // Check if user is an admin of this team
+    let is_admin = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
+        .filter(_entities::team_memberships::Column::Role.eq("Owner").or(_entities::team_memberships::Column::Role.eq("Administrator")))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
+        .one(&ctx.db)
+        .await?
+        .is_some();
+        
+    if !is_admin {
+        return unauthorized("Only team administrators can invite members");
+    }
+    
+    // Create invitation
+    let invitation = _entities::team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await?;
+    
+    // Find the invited user
+    let invited_user = users::Model::find_by_id(&ctx.db, invitation.user_id).await?;
+    
+    // Send invitation email using the TeamMailer
+    crate::mailers::team::TeamMailer::send_invitation(&ctx, &invited_user, &team, &invitation).await?;
+    
+    // Redirect back to the team page
+    format::redirect(&format!("/teams/{}", team.pid))
+}
+
 /// Team routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -638,6 +676,7 @@ pub fn routes() -> Routes {
         .add("/{team_pid}/edit", get(edit_team_page))
         .add("/{team_pid}/update", post(update_team_handler))
         .add("/{team_pid}/invite", get(invite_member_page))
+        .add("/{team_pid}/invite", post(invite_member_handler))
         .add("/invitations/{token}/accept", post(accept_invitation))
         .add("/invitations/{token}/decline", post(decline_invitation))
         .add("/{team_pid}/members/{user_pid}/role", put(update_member_role))

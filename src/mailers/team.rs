@@ -47,14 +47,26 @@ impl TeamMailer {
             return Ok(());
         }
 
+        let mut args = mailer::Args {
+            to: invited_email.clone(),
+            locals,
+            from: Some("test@example.com".to_string()),
+            ..Default::default()
+        };
+        
+        // Set the from email to match the SMTP username if available
+        if let Some(mailer_config) = &ctx.config.mailer {
+            if let Some(smtp_config) = &mailer_config.smtp {
+                if let Some(auth) = &smtp_config.auth {
+                    args.from = Some(auth.user.clone());
+                }
+            }
+        }
+
         match Self::mail_template(
             ctx, 
             &invitation,
-            mailer::Args {
-                to: invited_email.clone(),
-                locals,
-                ..Default::default()
-            },
+            args,
         ).await {
             Ok(_) => {
                 tracing::info!("Sent team invitation email to {}", invited_email);

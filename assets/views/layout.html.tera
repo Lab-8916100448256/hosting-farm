@@ -113,5 +113,7 @@
             htmx.logAll(); // Enable HTMX logging for debugging
         });
     </script>
+    
+    {% block script %}{% endblock %}
 </body>
 </html> 

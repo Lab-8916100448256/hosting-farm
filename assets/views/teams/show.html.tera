@@ -3,7 +3,6 @@
 {% block title %}{{ team.name }} - Hosting Farm{% endblock %}
 
 {% block head %}
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -60,29 +59,12 @@
                         </span>
                         
                         {% if is_admin and member.user_pid != user.pid %}
-                        <div class="ml-4 relative" x-data="{ open: false }">
-                            <button type="button" @click="open = !open" class="text-gray-500 hover:text-gray-700 focus:outline-none">
+                        <div class="ml-4 relative">
+                            <button type="button" onclick="toggleDropdown('dropdown-{{ member.user_pid }}', event)" class="text-gray-500 hover:text-gray-700 focus:outline-none">
                                 <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                     <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                                 </svg>
                             </button>
-                            <div x-show="open" @click.away="open = false" class="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none" style="display: none;">
-                                <form action="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" method="POST" hx-put="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" hx-swap="none" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                                    <input type="hidden" name="role" value="Administrator">
-                                    <button type="submit" class="w-full text-left">Make Administrator</button>
-                                </form>
-                                <form action="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" method="POST" hx-put="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" hx-swap="none" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                                    <input type="hidden" name="role" value="Developer">
-                                    <button type="submit" class="w-full text-left">Make Developer</button>
-                                </form>
-                                <form action="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" method="POST" hx-put="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" hx-swap="none" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                                    <input type="hidden" name="role" value="Observer">
-                                    <button type="submit" class="w-full text-left">Make Observer</button>
-                                </form>
-                                <form action="/teams/{{ team.pid }}/members/{{ member.user_pid }}" method="POST" hx-delete="/teams/{{ team.pid }}/members/{{ member.user_pid }}" hx-swap="none" hx-confirm="Are you sure you want to remove this member from the team?" class="block px-4 py-2 text-sm text-red-700 hover:bg-red-100">
-                                    <button type="submit" class="w-full text-left">Remove from team</button>
-                                </form>
-                            </div>
                         </div>
                         {% endif %}
                     </div>
@@ -96,4 +78,71 @@
         </ul>
     </div>
 </div>
+
+<!-- Dropdowns placed outside the list to avoid clipping -->
+{% if is_admin %}
+    {% for member in members %}
+        {% if member.user_pid != user.pid %}
+        <div id="dropdown-{{ member.user_pid }}" class="hidden fixed origin-top-right mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
+            <form action="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" method="POST" hx-put="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" hx-swap="none" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                <input type="hidden" name="role" value="Administrator">
+                <button type="submit" class="w-full text-left">Make Administrator</button>
+            </form>
+            <form action="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" method="POST" hx-put="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" hx-swap="none" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                <input type="hidden" name="role" value="Developer">
+                <button type="submit" class="w-full text-left">Make Developer</button>
+            </form>
+            <form action="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" method="POST" hx-put="/teams/{{ team.pid }}/members/{{ member.user_pid }}/role" hx-swap="none" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                <input type="hidden" name="role" value="Observer">
+                <button type="submit" class="w-full text-left">Make Observer</button>
+            </form>
+            <form action="/teams/{{ team.pid }}/members/{{ member.user_pid }}" method="POST" hx-delete="/teams/{{ team.pid }}/members/{{ member.user_pid }}" hx-swap="none" hx-confirm="Are you sure you want to remove this member from the team?" class="block px-4 py-2 text-sm text-red-700 hover:bg-red-100">
+                <button type="submit" class="w-full text-left">Remove from team</button>
+            </form>
+        </div>
+        {% endif %}
+    {% endfor %}
+{% endif %}
+{% endblock %}
+
+{% block script %}
+<script>
+    // Close all dropdowns when clicking outside
+    document.addEventListener('click', function(event) {
+        const dropdowns = document.querySelectorAll('[id^="dropdown-"]');
+        dropdowns.forEach(function(dropdown) {
+            if (!dropdown.contains(event.target) && !event.target.closest('button[onclick*="toggleDropdown"]')) {
+                dropdown.classList.add('hidden');
+            }
+        });
+    });
+
+    // Toggle dropdown visibility
+    function toggleDropdown(id, event) {
+        event = event || window.event;
+        const dropdown = document.getElementById(id);
+        const button = event.currentTarget;
+        const buttonRect = button.getBoundingClientRect();
+        const memberListWidth = document.querySelector('.sm\\:rounded-lg').offsetWidth;
+        const memberListRight = document.querySelector('.sm\\:rounded-lg').getBoundingClientRect().right;
+        
+        // Position the dropdown with its right edge aligned to the member list right edge
+        dropdown.style.position = 'fixed';
+        dropdown.style.top = (buttonRect.bottom + window.scrollY) + 'px';
+        dropdown.style.right = (window.innerWidth - memberListRight) + 'px';
+        dropdown.style.left = 'auto'; // Clear left positioning
+        
+        // Close all other dropdowns
+        const dropdowns = document.querySelectorAll('[id^="dropdown-"]');
+        dropdowns.forEach(function(item) {
+            if (item.id !== id) {
+                item.classList.add('hidden');
+            }
+        });
+        
+        // Toggle current dropdown
+        dropdown.classList.toggle('hidden');
+        event.stopPropagation();
+    }
+</script>
 {% endblock %} 

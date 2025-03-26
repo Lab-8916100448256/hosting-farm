@@ -34,7 +34,7 @@ This rule file provides guidelines for software development of web application i
    - unless directly instructed to do so, do not commit the changes to git if there are any compilation error or unit test failure
 
 6. **Debuggin issues that require human interaction with the application**
-   - If testing by human interaction is needed to better understand an issue or to verify thata bug fix or new feature implementation works as expected, the way to run the application is to call `cargo loco start`
+   - If testing by human interaction is needed to better understand an issue or to verify that a bug fix or new feature implementation works as expected, do not run the application yourself. Ask me to do that and to provide you with the results.
 
 7. **Use loco-rs generate features**
    - To generate a new entity use `cargo generate model`
