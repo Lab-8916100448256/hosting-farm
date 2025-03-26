@@ -28,3 +28,30 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
+
+impl Model {
+    /// Get all teams that the user is a member of
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there's a database error
+    pub async fn get_teams(&self, db: &DatabaseConnection) -> Result<Vec<crate::models::_entities::teams::Model>, DbErr> {
+        use crate::models::_entities::{teams, team_memberships};
+        use sea_orm::{JoinType, RelationTrait};
+
+        // Query to get all teams where the user is a member
+        let teams = teams::Entity::find()
+            .join(
+                JoinType::InnerJoin,
+                teams::Entity::belongs_to(team_memberships::Entity)
+                    .from(teams::Column::Id)
+                    .to(team_memberships::Column::TeamId)
+                    .into(),
+            )
+            .filter(team_memberships::Column::UserId.eq(self.id))
+            .all(db)
+            .await?;
+
+        Ok(teams)
+    }
+}
