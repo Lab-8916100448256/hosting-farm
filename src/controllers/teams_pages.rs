@@ -97,18 +97,9 @@ async fn team_details(
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    tracing::info!("Accessing team details for pid: {}", team_pid);
+    tracing::info!("Accessing team details for team pid: {}", team_pid);
     
-    // Parse and validate PID
-    let _pid = match Uuid::parse_str(&team_pid) {
-        Ok(uuid) => uuid,
-        Err(e) => {
-            tracing::error!("Invalid UUID format for team_pid: {}, error: {}", team_pid, e);
-            return Err(Error::string(&format!("Invalid UUID: {}", e)));
-        }
-    };
-    
-    // Find team - Use the Model::find_by_pid method which has improved error handling
+    // Find team
     let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
         Err(e) => {
@@ -116,8 +107,6 @@ async fn team_details(
             return Err(Error::string("Team not found"));
         }
     };
-    
-    tracing::info!("Found team: {}, id: {}, pid: {}", team.name, team.id, team.pid);
     
     // Check if user is a member of this team
     let membership = _entities::team_memberships::Entity::find()
@@ -138,7 +127,7 @@ async fn team_details(
         false
     };
     
-    // Get team members
+    // Get team members (non-pending)
     let memberships = _entities::team_memberships::Entity::find()
         .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
         .filter(_entities::team_memberships::Column::Pending.eq(false))
@@ -157,12 +146,40 @@ async fn team_details(
                 "user_pid": member.pid.to_string(),
                 "name": member.name,
                 "email": member.email,
-                "role": membership.role
+                "role": membership.role,
+                "pending": false
             }));
         }
     }
     
-    // Get pending invitations count
+    // Get pending invitations for this team
+    if is_admin {
+        let pending_memberships = _entities::team_memberships::Entity::find()
+            .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+            .filter(_entities::team_memberships::Column::Pending.eq(true))
+            .all(&ctx.db)
+            .await?;
+        
+        for membership in pending_memberships {
+            let member = _entities::users::Entity::find_by_id(membership.user_id)
+                .one(&ctx.db)
+                .await?;
+            
+            if let Some(member) = member {
+                members.push(json!({
+                    "id": member.id,
+                    "user_pid": member.pid.to_string(),
+                    "name": member.name,
+                    "email": member.email,
+                    "role": "Invited",
+                    "pending": true,
+                    "invitation_token": membership.invitation_token
+                }));
+            }
+        }
+    }
+    
+    // Get pending invitations count for current user
     let invitations = _entities::team_memberships::Entity::find()
         .find_with_related(_entities::teams::Entity)
         .all(&ctx.db)
@@ -463,6 +480,72 @@ async fn decline_invitation(
     Ok(response)
 }
 
+/// Cancel a team invitation (by admin or owner)
+#[debug_handler]
+async fn cancel_invitation(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path((team_pid, token)): Path<(String, String)>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    tracing::info!("Cancelling invitation with token: {} for team: {}", token, team_pid);
+    
+    // Find team
+    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
+            return Err(Error::string("Team not found"));
+        }
+    };
+    
+    // Check if user is an admin or owner of this team
+    let membership = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
+        .filter(_entities::team_memberships::Column::Pending.eq(false))
+        .one(&ctx.db)
+        .await?;
+    
+    let is_admin = if let Some(membership) = &membership {
+        membership.role == "Owner" || membership.role == "Administrator" 
+    } else {
+        false
+    };
+    
+    if !is_admin {
+        return unauthorized("Only team administrators can cancel invitations");
+    }
+    
+    // Find invitation by token and team ID
+    let invitation = _entities::team_memberships::Entity::find()
+        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
+        .filter(_entities::team_memberships::Column::InvitationToken.eq(token.clone()))
+        .filter(_entities::team_memberships::Column::Pending.eq(true))
+        .one(&ctx.db)
+        .await?
+        .ok_or_else(|| Error::string("Invitation not found"))?;
+    
+    tracing::info!("Found invitation for user_id: {}, preparing to delete", invitation.user_id);
+    
+    // Cancel invitation - delete the membership
+    let invitation_model: _entities::team_memberships::ActiveModel = invitation.into();
+    invitation_model.delete(&ctx.db).await?;
+    
+    tracing::info!("Invitation cancelled successfully");
+    
+    // For HTMX, return an empty response that will remove the list item
+    // Using an empty body with the correct content-type is what HTMX expects
+    // when using hx-swap="outerHTML" and targeting the closest li
+    let response = Response::builder()
+        .status(200)
+        .header("Content-Type", "text/html")
+        .body(axum::body::Body::empty())?;
+    
+    Ok(response)
+}
+
 /// Update a team member's role
 #[debug_handler]
 async fn update_member_role(
@@ -749,6 +832,7 @@ pub fn routes() -> Routes {
         .add("/{team_pid}/invite", post(invite_member_handler))
         .add("/invitations/{token}/accept", post(accept_invitation))
         .add("/invitations/{token}/decline", post(decline_invitation))
+        .add("/{team_pid}/invitations/{token}/cancel", post(cancel_invitation))
         .add("/{team_pid}/members/{user_pid}/role", put(update_member_role))
         .add("/{team_pid}/members/{user_pid}", delete(remove_member))
 } 
