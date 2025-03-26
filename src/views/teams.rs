@@ -130,7 +130,7 @@ async fn create_team(
 ) -> Result<impl IntoResponse> {
     let user = UserModel::find_by_pid(&ctx.db, &auth.claims.pid).await?;
     
-    let team = teams::Model::create(
+    let team = TeamModel::create(
         &ctx.db,
         teams::CreateParams {
             name: form.name,
