@@ -1,6 +1,6 @@
 //! Team model implementation
 use chrono::Local;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, TransactionTrait};
 use uuid::Uuid;
 
 use crate::models::_entities::{teams, team_memberships};
@@ -31,7 +31,7 @@ impl teams::Model {
     /// Returns an error if the team is not found or if there's a database error
     pub async fn find_by_pid(db: &DatabaseConnection, pid: &Uuid) -> ModelResult<Self> {
         let team = teams::Entity::find()
-            .filter(teams::Column::Pid.eq(pid))
+            .filter(teams::Column::Pid.eq(*pid))
             .one(db)
             .await?
             .ok_or(ModelError::EntityNotFound)?;
