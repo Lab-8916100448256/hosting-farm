@@ -57,7 +57,7 @@ impl Hooks for App {
             .add_route(controllers::auth::routes())
             .add_route(controllers::teams::routes())
             .add_route(controllers::home_pages::routes())
-            .add_route(controllers::users::routes())
+            .add_route(controllers::users_pages::routes())
             .add_route(controllers::auth_pages::routes())
             .add_route(controllers::teams_pages::routes())
     }
