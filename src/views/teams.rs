@@ -405,7 +405,7 @@ async fn remove_member(
 }
 
 /// Register team routes
-pub fn routes() -> Router<()> {
+pub fn routes() -> Router {
     Router::new()
         .route("/teams", get(teams_list))
         .route("/teams/new", get(new_team_form))
