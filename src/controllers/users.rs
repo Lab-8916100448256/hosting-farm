@@ -4,8 +4,25 @@ use crate::models::{users, _entities::team_memberships, _entities::teams};
 use serde_json::json;
 use tera;
 use crate::utils::template::render_template;
+use serde::Deserialize;
+use axum::extract::Form;
 
 type JWT = loco_rs::controller::middleware::auth::JWT;
+
+/// Params for updating user profile
+#[derive(Debug, Deserialize)]
+pub struct UpdateProfileParams {
+    pub name: String,
+    pub email: String,
+}
+
+/// Params for updating user password
+#[derive(Debug, Deserialize)]
+pub struct UpdatePasswordParams {
+    pub current_password: String,
+    pub password: String,
+    pub password_confirmation: String,
+}
 
 /// Renders the user profile page
 #[debug_handler]
@@ -99,10 +116,76 @@ async fn invitations(
     render_template(&ctx, "users/invitations.html.tera", context)
 }
 
+/// Update user profile
+#[debug_handler]
+async fn update_profile(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Form(params): Form<UpdateProfileParams>,
+) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    // Check if email already exists (if it changed)
+    if user.email != params.email {
+        let existing_user = users::Model::find_by_email(&ctx.db, &params.email).await;
+        if existing_user.is_ok() {
+            return bad_request("Email already in use");
+        }
+    }
+    
+    // Update user profile
+    let mut user_model: crate::models::_entities::users::ActiveModel = user.into();
+    user_model.name = sea_orm::ActiveValue::set(params.name);
+    user_model.email = sea_orm::ActiveValue::set(params.email);
+    
+    let _updated_user = user_model.update(&ctx.db).await?;
+    
+    // Return a response that refreshes the page
+    let response = Response::builder()
+        .header("HX-Refresh", "true")
+        .body(axum::body::Body::empty())?;
+    
+    Ok(response)
+}
+
+/// Update user password
+#[debug_handler]
+async fn update_password(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Form(params): Form<UpdatePasswordParams>,
+) -> Result<Response> {
+    // Verify passwords match
+    if params.password != params.password_confirmation {
+        return bad_request("Passwords do not match");
+    }
+    
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    
+    // Verify current password
+    if !user.verify_password(&params.current_password) {
+        return bad_request("Current password is incorrect");
+    }
+    
+    // Update password
+    let _updated_user = user.into_active_model()
+        .reset_password(&ctx.db, &params.password)
+        .await?;
+    
+    // Return a response that refreshes the page
+    let response = Response::builder()
+        .header("HX-Refresh", "true")
+        .body(axum::body::Body::empty())?;
+    
+    Ok(response)
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/users")
         .add("/profile", get(profile))
         .add("/invitations", get(invitations))
+        .add("/me", put(update_profile))
+        .add("/me/password", post(update_password))
 } 
