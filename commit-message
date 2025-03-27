@@ -1,0 +1,13 @@
+feat: Asked to Cursor Agent to implement the "remember me" feature of the login page and to automatically redirect to the home page if the user is already authenticated. Prompt below
+Make is so that when the user has checked this checkbox when logging-in, a never expiring cookie is set to remember its email. And then, when the login view is displayed, if this cookie exists, the e-mail field should be automatically be set to the value stored in that cookie.
+Also, if the user is already authenticated, the login view should should not be displayed. Instead the user should be automatically redirected to the authenticated home view (/home) 
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# On branch dev-cursor
+# Your branch is ahead of 'origin/dev-cursor' by 1 commit.
+#   (use "git push" to publish your local commits)
+#
+# Changes to be committed:
+#	modified:   src/controllers/auth_pages.rs
+#
