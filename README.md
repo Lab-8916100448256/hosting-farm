@@ -71,21 +71,21 @@ This section describes how to install the developement dependencies of the proje
    ```
    environment.systemPackages = with pkgs; [
      # ... everything else you have installed
-     sample-app-rust
+     hosting-farm
    ];
    nixpkgs.config.packageOverrides = pkgs: {
-     sample-app-rust =
+     hosting-farm =
        let
          defaultNix = builtins.fetchurl {
-           url = "https://github.com/Lab-8916100448256/hosting-farm/default.nix";
-           sha256 = "sha256:Put the correct hash here"; # Need to customize this
+           url = "https://raw.githubusercontent.com/Lab-8916100448256/hosting-farm/refs/heads/dev-cursor/default.nix";
+           sha256 = "sha256:0zqsh1ayfb0818j8kv1yy1dfyhgbwypgaq6yz5d1nc418f8kk5zs"; # Need to customize this
          };
        in pkgs.callPackage defaultNix {
          src = pkgs.fetchFromGitHub {
            owner = "Lab-8916100448256";
            repo = "hosting-farm";
-           rev = "main";  # REPLACE WITH A RELEASE TAG!
-           sha256 = "sha256-Put the correct hash here"; # Need to customize this
+           rev = "dev-cursor";  # REPLACE WITH A RELEASE TAG!
+           sha256 = "sha256-0zqsh1ayfb0818j8kv1yy1dfyhgbwypgaq6yz5d1nc418f8kk5zs"; # Need to customize this
          };
        };
    };
