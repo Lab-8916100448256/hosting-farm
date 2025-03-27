@@ -12,6 +12,7 @@ use crate::{
 use serde::Deserialize;
 use axum::response::Redirect;
 use axum::extract::{Form, Query};
+use axum::http::HeaderMap;
 use std::collections::HashMap;
 
 /// Form data for user registration
@@ -28,6 +29,8 @@ pub struct RegisterFormData {
 pub struct LoginFormData {
     pub email: String,
     pub password: String,
+    #[serde(rename = "remember-me")]
+    pub remember_me: Option<String>,
 }
 
 /// Renders the registration page
@@ -98,12 +101,42 @@ async fn handle_register(
 async fn login(
     State(ctx): State<AppContext>,
     Query(params): Query<HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Response> {
     let mut context = tera::Context::new();
     
     // Check if coming from registration success
     if params.get("registered") == Some(&"true".to_string()) {
         context.insert("registered", &true);
+    }
+    
+    // Parse cookies from headers
+    let cookie_header = headers.get(axum::http::header::COOKIE)
+        .and_then(|value| value.to_str().ok());
+    
+    if let Some(cookie_str) = cookie_header {
+        // Check if user is already authenticated
+        if cookie_str.contains("auth_token=") {
+            for cookie in cookie_str.split(';') {
+                let cookie = cookie.trim();
+                if cookie.starts_with("auth_token=") && !cookie.eq("auth_token=") {
+                    // User is already authenticated, redirect to home
+                    return Ok(Redirect::to("/home").into_response());
+                }
+            }
+        }
+        
+        // Check for remembered email
+        for cookie in cookie_str.split(';') {
+            let cookie = cookie.trim();
+            if cookie.starts_with("remembered_email=") {
+                let email = cookie["remembered_email=".len()..].to_string();
+                if !email.is_empty() {
+                    context.insert("email", &email);
+                }
+                break;
+            }
+        }
     }
     
     render_template(&ctx, "auth/login.html.tera", context)
@@ -117,7 +150,7 @@ async fn handle_login(
 ) -> Result<Response> {
     // Convert form data to login params
     let params = LoginParams {
-        email: form.email,
+        email: form.email.clone(),
         password: form.password,
     };
     
@@ -147,13 +180,21 @@ async fn handle_login(
                 }
             };
             
-            // Set token in session and redirect to home
-            // For HTMX, we'll use a special response with HX-Redirect header
-            let response = Response::builder()
+            // Prepare response with auth token cookie and redirect
+            let mut response_builder = Response::builder()
                 .header("HX-Redirect", "/home")
-                .header("Set-Cookie", format!("auth_token={}; Path=/", token))
-                .body(axum::body::Body::empty())?;
+                .header("Set-Cookie", format!("auth_token={}; Path=/", token));
                 
+            // If remember me is checked, set a persistent cookie with email
+            if form.remember_me.is_some() {
+                // Set a permanent cookie (Max-Age = 1 year)
+                response_builder = response_builder.header(
+                    "Set-Cookie", 
+                    format!("remembered_email={}; Path=/; Max-Age=31536000", form.email)
+                );
+            }
+            
+            let response = response_builder.body(axum::body::Body::empty())?;    
             Ok(response)
         },
         Err(_) => {
