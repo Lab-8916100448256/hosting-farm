@@ -1,4 +1,5 @@
 { pkgs ? import <nixpkgs> { }, src ? ./. }:
+
 let 
   manifest = (pkgs.lib.importTOML ./Cargo.toml).package;
   theSource = src;
@@ -6,8 +7,8 @@ in
 pkgs.rustPlatform.buildRustPackage rec {
   pname = manifest.name;
   version = manifest.version;
-  cargoLock.lockFile = ${theSource}/Cargo.lock;
-  src = pkgs.lib.cleanSource ${theSource};
+  src = pkgs.lib.cleanSource "${theSource}";
+  cargoLock.lockFile = "${theSource}/Cargo.lock";
 }
 
 
