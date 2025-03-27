@@ -9,6 +9,7 @@ config/development.yaml
 debug/
 target/
 result
+nginx/
 
 # include cargo lock
 !Cargo.lock
