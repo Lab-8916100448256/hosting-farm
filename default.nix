@@ -7,8 +7,10 @@ in
 pkgs.rustPlatform.buildRustPackage rec {
   pname = manifest.name;
   version = manifest.version;
-  src = pkgs.lib.cleanSource "${theSource}";
-  cargoLock.lockFile = "${theSource}/Cargo.lock";
+  src = pkgs.lib.cleanSource ./.;
+  cargoLock.lockFile = ./Cargo.lock;
+  #src = pkgs.lib.cleanSource "${theSource}";
+  #cargoLock.lockFile = "${theSource}/Cargo.lock";
 }
 
 
