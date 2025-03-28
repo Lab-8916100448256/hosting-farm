@@ -6,4 +6,6 @@ pkgs.rustPlatform.buildRustPackage rec {
   version = "0.1.1";
   src = pkgs.lib.cleanSource "${theSource}";
   cargoLock.lockFile = "${theSource}/Cargo.lock";
+  checkType = "release";
+  buildType = "release";
 }

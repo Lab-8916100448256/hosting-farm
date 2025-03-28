@@ -21,14 +21,14 @@ in {
     hosting-farm = let
       defaultNix = builtins.fetchurl {
         url = "https://raw.githubusercontent.com/Lab-8916100448256/hosting-farm/refs/heads/dev-cursor/default.nix";
-        sha256 = "sha256:1a3dgnkz5kvc9axj2v7ybh7w08qap21fq3n856fldwh9351q969y"; #### You will have to update the hash here. Run nixos-rebuild once and pick the hash from the error
+        sha256 = "sha256:1a3dgnkz5kvc9axj2v7ybh7w08qap21fq3n856fldwh9351q969y"; #### You will have to update the hash here. Run nixos-rebuild and pick the hash from the error
       };
     in pkgs.callPackage defaultNix {
       src = pkgs.fetchFromGitHub {
         owner = "Lab-8916100448256";
         repo = "hosting-farm";
         rev = "dev-cursor";  # REPLACE WITH A RELEASE TAG for production deployment!
-        sha256 = "sha256-0UqD4J18rbysxkursEzm/iTmIYVc0/rzOCktNOohhFA=";
+        sha256 = "sha256-0UqD4J18rbysxkursEzm/iTmIYVc0/rzOCktNOohhFA="; #### You will have to update the hash here. Run nixos-rebuild and pick the hash from the error
       } + "/.";
     };
   };
@@ -66,12 +66,12 @@ in {
     mailer:
       smtp:
         enable: true
-        host: mail.gandi.net
+        host: mail.example.com
         port: 587
         secure: true
         auth:
-          user: "distrilab@distrilab.org"
-          password: "Q0cG7yGoqMxFoR438b8py3U/"
+          user: "user@example.com"
+          password: "use a very safe password! (not this one)"
     database:
       uri: {{ get_env(name="DATABASE_URL", default="sqlite://hosting-farm_prod.sqlite?mode=rwc") }}
       enable_logging: false
