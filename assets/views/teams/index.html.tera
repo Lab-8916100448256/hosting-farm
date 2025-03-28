@@ -1,0 +1,54 @@
+{% extends "layout.html.tera" %}
+
+{% block title %}Your Teams{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <div class="px-4 py-6 sm:px-0">
+        <div class="border-4 border-dashed border-gray-200 rounded-lg p-4">
+            <div class="flex justify-between items-center mb-6">
+                <h1 class="text-2xl font-semibold text-gray-900">Your Teams</h1>
+                <a href="/teams/new" class="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                    Create New Team
+                </a>
+            </div>
+            
+            {% if teams | length > 0 %}
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {% for team in teams %}
+                        <div class="bg-white overflow-hidden shadow rounded-lg">
+                            <div class="px-4 py-5 sm:p-6">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900">
+                                    {{ team.name }}
+                                </h3>
+                                <p class="mt-1 max-w-2xl text-sm text-gray-500">
+                                    {{ team.description }}
+                                </p>
+                                <p class="mt-2 text-xs text-gray-400">
+                                    Your role: {{ team.role }}
+                                </p>
+                                <div class="mt-4">
+                                    <a href="/teams/{{ team.pid }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">
+                                        View details
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+                    <div class="px-4 py-5 sm:p-6 text-center">
+                        <p class="text-gray-500">You don't have any teams yet.</p>
+                        <p class="mt-2">
+                            <a href="/teams/new" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">
+                                Create your first team
+                            </a>
+                        </p>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %} 

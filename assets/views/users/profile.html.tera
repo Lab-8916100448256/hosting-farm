@@ -1,0 +1,111 @@
+{% extends "layout.html.tera" %}
+
+{% block title %}Profile - Hosting Farm{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div class="md:grid md:grid-cols-3 md:gap-6">
+            <div class="md:col-span-1">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">Profile Information</h3>
+                <p class="mt-1 text-sm text-gray-500">
+                    Update your account's profile information.
+                </p>
+            </div>
+            <div class="mt-5 md:mt-0 md:col-span-2">
+                <form action="/users/me" method="POST" hx-put="/users/me" hx-swap="outerHTML" hx-target="this" enctype="application/x-www-form-urlencoded">
+                    <div class="grid grid-cols-6 gap-6">
+                        <div class="col-span-6 sm:col-span-4">
+                            <label for="name" class="block text-sm font-medium text-gray-700">Name</label>
+                            <input type="text" name="name" id="name" value="{{ user.name }}" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                        </div>
+
+                        <div class="col-span-6 sm:col-span-4">
+                            <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
+                            <input type="email" name="email" id="email" value="{{ user.email }}" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end">
+                        <button type="submit" class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                            Save
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div class="md:grid md:grid-cols-3 md:gap-6">
+            <div class="md:col-span-1">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">Change Password</h3>
+                <p class="mt-1 text-sm text-gray-500">
+                    Ensure your account is using a long, random password to stay secure.
+                </p>
+            </div>
+            <div class="mt-5 md:mt-0 md:col-span-2">
+                <form action="/users/me/password" method="POST" hx-post="/users/me/password" hx-swap="outerHTML" hx-target="this" enctype="application/x-www-form-urlencoded">
+                    <div class="grid grid-cols-6 gap-6">
+                        <div class="col-span-6 sm:col-span-4">
+                            <label for="current_password" class="block text-sm font-medium text-gray-700">Current Password</label>
+                            <input type="password" name="current_password" id="current_password" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                        </div>
+
+                        <div class="col-span-6 sm:col-span-4">
+                            <label for="password" class="block text-sm font-medium text-gray-700">New Password</label>
+                            <input type="password" name="password" id="password" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                        </div>
+
+                        <div class="col-span-6 sm:col-span-4">
+                            <label for="password_confirmation" class="block text-sm font-medium text-gray-700">Confirm Password</label>
+                            <input type="password" name="password_confirmation" id="password_confirmation" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end">
+                        <button type="submit" class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                            Save
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div class="md:grid md:grid-cols-3 md:gap-6">
+            <div class="md:col-span-1">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">Team Memberships</h3>
+                <p class="mt-1 text-sm text-gray-500">
+                    Teams you are a member of.
+                </p>
+                <div class="mt-4">
+                    <a href="/teams/new" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Create a team
+                    </a>
+                </div>
+            </div>
+            <div class="mt-5 md:mt-0 md:col-span-2">
+                {% if teams and teams|length > 0 %}
+                <ul class="divide-y divide-gray-200">
+                    {% for team in teams %}
+                    <li class="py-4 flex justify-between">
+                        <div>
+                            <span class="text-sm font-medium text-gray-900">{{ team.name }}</span>
+                            <p class="text-sm text-gray-500">{{ team.role }}</p>
+                        </div>
+                        <a href="/teams/{{ team.pid }}" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                            View
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center py-4">
+                    <p class="text-sm text-gray-500">You are not a member of any teams.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

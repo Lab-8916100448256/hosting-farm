@@ -48,8 +48,12 @@ impl ActiveModelBehavior for super::_entities::users::ActiveModel {
         self.validate()?;
         if insert {
             let mut this = self;
-            this.pid = ActiveValue::Set(Uuid::new_v4());
-            this.api_key = ActiveValue::Set(format!("lo-{}", Uuid::new_v4()));
+            if matches!(this.pid, ActiveValue::NotSet) {
+                this.pid = ActiveValue::Set(Uuid::new_v4());
+            }
+            if matches!(this.api_key, ActiveValue::NotSet) {
+                this.api_key = ActiveValue::Set(format!("lo-{}", Uuid::new_v4()));
+            }
             Ok(this)
         } else {
             Ok(self)
@@ -260,6 +264,18 @@ impl Model {
     /// when could not convert user claims to jwt token
     pub fn generate_jwt(&self, secret: &str, expiration: &u64) -> ModelResult<String> {
         Ok(jwt::JWT::new(secret).generate_token(expiration, self.pid.to_string(), None)?)
+    }
+
+    /// finds a user by the provided id
+    ///
+    /// # Errors
+    ///
+    /// When could not find user or DB query error
+    pub async fn find_by_id(db: &DatabaseConnection, id: i32) -> ModelResult<Self> {
+        let user = users::Entity::find_by_id(id)
+            .one(db)
+            .await?;
+        user.ok_or_else(|| ModelError::EntityNotFound)
     }
 }
 

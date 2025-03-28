@@ -1,0 +1,66 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Endpoints naming and structure rules
+
+## Introduction
+This rule file provides guidelines related to API endpoints and human-facing endpoints in web application developement
+
+## API Endpoints
+- All API endpoints MUST be prefixed with `/api/`
+- API endpoints MUST return JSON responses
+- API endpoints MUST be defined in files under `src/controllers/` that end with `.rs`
+- API endpoints MUST NOT render HTML templates
+- API endpoints MUST use `format::json()` for responses
+- API endpoints MUST handle errors by returning appropriate HTTP status codes with JSON responses
+
+## Human-Facing Endpoints
+- Human-facing endpoints MUST NOT be prefixed with `/api/`
+- Human-facing endpoints MUST return HTML responses
+- Human-facing endpoints MUST be defined in files under `src/controllers/` that end with `_pages.rs`
+- Human-facing endpoints MUST use `render_template()` for responses
+- Human-facing endpoints MUST handle errors by re-rendering the template with error messages
+- Human-facing endpoints MUST use form submissions for data input
+- Human-facing endpoints MUST redirect to appropriate pages after successful actions
+
+## Examples
+
+### API Endpoint (Correct)
+```rust
+// In src/controllers/auth.rs
+pub fn routes() -> Routes {
+    Routes::new()
+        .prefix("/api/auth")
+        .add("/verify/{token}", get(verify))  // Returns JSON
+}
+```
+
+### Human-Facing Endpoint (Correct)
+```rust
+// In src/controllers/auth_pages.rs
+pub fn routes() -> Routes {
+    Routes::new()
+        .prefix("/auth")
+        .add("/verify/{token}", get(verify_email))  // Returns HTML
+}
+```
+
+## Common Mistakes to Avoid
+1. ❌ Mixing API and human-facing endpoints in the same controller file
+2. ❌ Using HTML templates in API endpoints
+3. ❌ Using JSON responses in human-facing endpoints
+4. ❌ Not properly prefixing API endpoints with `/api/`
+5. ❌ Using form submissions in API endpoints
+6. ❌ Using direct JSON responses in human-facing endpoints
+
+## Verification Checklist
+Before committing changes, verify that:
+1. [ ] API endpoints are in files ending with `.rs`
+2. [ ] Human-facing endpoints are in files ending with `_pages.rs`
+3. [ ] API endpoints use `/api/` prefix
+4. [ ] Human-facing endpoints do not use `/api/` prefix
+5. [ ] API endpoints return JSON using `format::json()`
+6. [ ] Human-facing endpoints use `render_template()`
+7. [ ] No mixing of response types in the same controller file 

@@ -214,6 +214,16 @@ async fn magic_link_verify(
     format::json(LoginResponse::new(&user, &token))
 }
 
+/// Handles user logout by clearing the auth token cookie
+#[debug_handler]
+async fn logout() -> Result<Response> {
+    let response = Response::builder()
+        .header("Set-Cookie", "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+        .header("HX-Redirect", "/login")
+        .body(axum::body::Body::empty())?;
+    Ok(response)
+}
+
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/api/auth")
@@ -225,4 +235,5 @@ pub fn routes() -> Routes {
         .add("/current", get(current))
         .add("/magic-link", post(magic_link))
         .add("/magic-link/{token}", get(magic_link_verify))
+        .add("/logout", post(logout))
 }
