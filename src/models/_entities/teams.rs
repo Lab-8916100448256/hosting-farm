@@ -1,5 +1,6 @@
 //! `SeaORM` Entity for teams
 use sea_orm::entity::prelude::*;
+use sea_orm::prelude::DateTimeWithTimeZone;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
