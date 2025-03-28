@@ -42,8 +42,9 @@ pkgs.rustPlatform.buildRustPackage rec {
     mkdir -p $out/bin
     echo "Installing binary ${binaryName} to $out/bin/"
     ls $cargoArtifacts
-    ls $cargoArtifacts/bin
-    install -Dm755 $cargoArtifacts/bin/${binaryName} $out/bin/${binaryName}
+    ls $cargoArtifacts/target
+    ls $cargoArtifacts/target/realease
+    install -Dm755 $cargoArtifacts/target/realease/${binaryName} $out/bin/${binaryName}
 
     # Install assets into standard share location
     mkdir -p $out/share/hosting-farm
