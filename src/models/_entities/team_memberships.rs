@@ -1,5 +1,6 @@
 //! `SeaORM` Entity for team memberships
 use sea_orm::entity::prelude::*;
+use sea_orm::prelude::DateTimeWithTimeZone;
 use serde::{Deserialize, Serialize};
 
 // Define the role enum for team members
