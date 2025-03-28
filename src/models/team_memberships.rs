@@ -1,5 +1,6 @@
 //! Team membership model implementation
-use chrono::{DateTime, DateTimeWithTimeZone, Duration, FixedOffset, Local, TimeZone, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Local, TimeZone, Utc};
+use sea_orm::prelude::DateTimeWithTimeZone;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, TransactionTrait};
 use uuid::Uuid;
 use loco_rs::prelude::*;
