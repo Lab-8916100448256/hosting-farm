@@ -3,23 +3,25 @@
 { config, pkgs, ... }:
 
 let
+  unstable = import <unstable> { }; # Not using anything unfree at the moment
   # Define the hosting-farm package derivation once
   hosting-farm-pkg = let
       defaultNix = builtins.fetchurl {
         # IMPORTANT: Use the raw URL of desired version of default.nix
-        url = "https://raw.githubusercontent.com/Lab-8916100448256/hosting-farm/dev_gemini/default.nix"; # UPDATE URL IF NEEDED
+        url = "https://raw.githubusercontent.com/Lab-8916100448256/hosting-farm/refs/tags/v0.1.1/default.nix"; # UPDATE URL IF NEEDED
         # You might need to update the hash.
         # You will get the correct hash from the error message during nixos-rebuild build
-        sha256 = "sha256:YOUR_UPDATED_DEFAULT_NIX_HASH_HERE"; # UPDATE HASH
+        sha256 = "sha256-eMKu3R26I6qWl4haEn1gI7H81IkpntGYrDET5v7Z8Ps="; # YOU WILL HAVE TO CHANGE THE HASH if you use a different release
       };
     in pkgs.callPackage defaultNix {
       src = pkgs.fetchFromGitHub {
         owner = "Lab-8916100448256";
         repo = "hosting-farm";
-        rev = "dev-gemini";  # REPLACE WITH A RELEASE TAG/COMMIT for production!
+        rev = "v0.1.1";  # UPDATE VESION IF NEEDED
+        # You might need to update the hash.
         # You will get the correct hash from the error message during nixos-rebuild build
-        sha256 = "sha256-YOUR_UPDATED_SRC_HASH_HERE"; # UPDATE HASH if source code changed
-      }; # Removed the trailing '/.' which is usually not needed with fetchFromGitHub
+        sha256 = "sha256-Ph9FGOUk8rHnXAc2asvGBc57kRiMdknYjo0hRWtubaQ="; # YOU WILL HAVE TO CHANGE THE HASH if you use a different release
+      };
     };
 in {
 
