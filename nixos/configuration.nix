@@ -65,7 +65,8 @@ in {
   # hosting-farm configuration file
   # As this contains sensitive information, you might want to get it from a secret instead of putting it directly in your configuration.nix
   # environment.etc."hosting-farm/production.yaml".text = "${hosting-farm-config}";
-  environment.etc."hosting-farm/production.yaml".text = ''
+  environment.etc."hosting-farm/production.yaml" = {
+    text = ''
     logger:
       enable: true
       pretty_backtrace: true
@@ -112,6 +113,17 @@ in {
         location:
           from: Cookie
           name: auth_token
+    '';
+    # Set ownership and permissions
+    user = "root";              # Owned by root (standard for /etc files)
+    group = "hosting-farm";     # Accessible by the hosting-farm group
+    mode = "0440";              # Permissions: Owner=read, Group=read, Other=no access
+                                # (r--r-----)
+  };
+
+
+
+  environment.etc."hosting-farm/production.yaml".text = ''
   '';
 
   # Dedicated user/group for the service
