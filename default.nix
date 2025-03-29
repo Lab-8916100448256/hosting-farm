@@ -38,13 +38,32 @@ pkgs.rustPlatform.buildRustPackage rec {
   installPhase = ''
     runHook preInstall
 
+   # The build occurs relative to the source root in the Nix sandbox.
+   # Cargo places release binaries in target/release/
+   local binary_path="target/release/${binaryName}"
+
+   # Debugging: Check if the binary exists before trying to install
+   echo "Checking for binary at: $(pwd)/''${binary_path}"
+   ls -lh "$(pwd)/target/release/" || echo "target/release directory not found or empty!"
+    if [ ! -f "$binary_path" ]; then
+        echo "ERROR: Binary '$binary_path' not found!"
+        # List target directory content for more detailed debugging info
+        find target -ls || echo "target directory not found"
+         echo "inspecting ./target/x86_64-unknown-linux-gnu/"
+
+        # This part is not from gemini, I added it myself because I already found that there was a 
+        # `x86_64-unknown-linux-gnu/release/` folder inside `./target` with my previous debug version of default.nix 
+        ls -lh ./target/x86_64-unknown-linux-gnu/
+        echo "inspecting ./target/x86_64-unknown-linux-gnu/release/"
+        ls -lh ./target/x86_64-unknown-linux-gnu/release/
+
+        exit 1
+    fi
+
     # Install binary
     mkdir -p $out/bin
-    echo "Installing binary ${binaryName} to $out/bin/"
-    ls $cargoArtifacts
-    ls $cargoArtifacts/target
-    ls $cargoArtifacts/target/realease
-    install -Dm755 $cargoArtifacts/target/realease/${binaryName} $out/bin/${binaryName}
+    echo "Installing binary from $binary_path to $out/bin/${binaryName}"
+    install -Dm755 "$binary_path" "$out/bin/${binaryName}"
 
     # Install assets into standard share location
     mkdir -p $out/share/hosting-farm
