@@ -147,7 +147,7 @@ in {
 
       # Let systemd manage the state directory /var/lib/hosting-farm
       # This creates the directory with correct permissions (owned by User/Group)
-      StateDirectory = "hosting-farm";
+      StateDirectory = "hosting-farm"; # Manages /var/lib/hosting-farm
       # Optional: Specify mode if needed, defaults usually fine with User/Group set
       # StateDirectoryMode=0750
 
@@ -155,30 +155,30 @@ in {
       # LogsDirectory = "hosting-farm"; # Manages /var/log/hosting-farm
       # LogsDirectoryMode=0750
 
-      # Set the working directory to the state directory
-      WorkingDirectory = "/var/lib/hosting-farm"; # App finds assets/ and writes DB here
+      # Set the working directory to the state directory. The app finds assets/ and writes DB here
+      WorkingDirectory = "/var/lib/hosting-farm"; # Should be writable due to StateDirectory
+      # But need to explicitly allow writing to the directory containing the actual DB files
+      # because the target of the symlinks are outside the StateDirectory
+      ReadWritePaths = [ "/persist/var/lib/hosting-farm" ];
 
       # Path to the executable using the package definition
       ExecStart = "${hosting-farm-pkg}/bin/hosting_farm-cli start -e production";
-
       Restart = "always";
       RestartSec = 10;
 
-      # Standard hardening options
-      ProtectSystem=strict;
-      ProtectHome=true;
-      PrivateTmp=true;
-      PrivateDevices=true;
-      ProtectHostname=true;
-      ProtectClock=true;
-      ProtectKernelTunables=true;
-      ProtectKernelModules=true;
-      ProtectKernelLogs=true;
-      ProtectControlGroups=true;
-      RestrictAddressFamilies="AF_INET AF_INET6"; # Allow network access
-      RestrictNamespaces=true;
-      # Add other capabilities if needed, e.g. CapabilityBoundingSet=CAP_NET_BIND_SERVICE if binding to privileged ports
-      # NoNewPrivileges=true; # Good practice unless needed
+      # Hardening settings
+      ProtectHome = true;
+      PrivateTmp = true;
+      PrivateDevices = true;
+      ProtectHostname = true;
+      ProtectClock = true;
+      ProtectKernelTunables = true;
+      ProtectKernelModules = true;
+      ProtectKernelLogs = true;
+      ProtectControlGroups = true;
+      RestrictAddressFamilies = "AF_INET AF_INET6";
+      RestrictNamespaces = true;
+      # NoNewPrivileges=true; # Consider adding this for extra security if the app doesn't need root privileges during startup
     };
   };
 
