@@ -9,9 +9,10 @@ let
   # This avoids hardcoding the version in Nix if you prefer
   cargoToml = pkgs.lib.importTOML "${theSource}/Cargo.toml";
 
-  # Get the actual binary name from Cargo.toml [[bin]] section if possible,
-  # or hardcode if simpler. Assuming it's 'hosting_farm-cli'.
-  binaryName = "hosting_farm-cli";
+  # The default install hook usually finds the binary/binaries defined in Cargo.toml
+  # It will install them to $out/bin. We don't need to specify the name here
+  # unless there are multiple binaries and we want specific handling.
+  # binaryName = "hosting_farm-cli";
 in
 pkgs.rustPlatform.buildRustPackage rec {
   pname = "hosting-farm"; # The package name
@@ -20,64 +21,41 @@ pkgs.rustPlatform.buildRustPackage rec {
 
   # Clean the source to remove potentially unwanted files (like .git)
   src = pkgs.lib.cleanSource "${theSource}";
-
-  # Point to the lock file within the source
-  cargoLock.lockFile = "${src}/Cargo.lock"; # Use ${src} here as it's the cleaned source
+  cargoLock.lockFile = "${src}/Cargo.lock";
 
   # Build and check in release mode for performance
   checkType = "release";
   buildType = "release";
 
   # Ensure build inputs like OpenSSL, pkg-config are available if needed
+  # Add other native build dependencies your Rust code might need here
   nativeBuildInputs = with pkgs; [ pkg-config ];
-  buildInputs = with pkgs; [ openssl ]; # Add other Rust dependencies if needed
+  # Add other runtime C libraries your Rust code links against here
+  buildInputs = with pkgs; [ openssl ]; # Example: if using rustls with native-certs or openssl crate
 
-  # Custom installation phase:
-  # The default installPhase for rustPlatform typically just installs binaries to $out/bin.
-  # We override it to also copy the assets directory.
-  installPhase = ''
-    runHook preInstall
+  # Use postInstall hook to add steps *after* the default installation
+  postInstall = ''
+    # The default installPhase (using cargoInstallHook) has already run
+    # and placed the binary (e.g., hosting_farm-cli) into $out/bin.
 
-   # The build occurs relative to the source root in the Nix sandbox.
-   # Cargo places release binaries in target/release/
-   local binary_path="target/release/${binaryName}"
-
-   # Debugging: Check if the binary exists before trying to install
-   echo "Checking for binary at: $(pwd)/''${binary_path}"
-   ls -lh "$(pwd)/target/release/" || echo "target/release directory not found or empty!"
-    if [ ! -f "$binary_path" ]; then
-        echo "ERROR: Binary '$binary_path' not found!"
-        # List target directory content for more detailed debugging info
-        find target -ls || echo "target directory not found"
-         echo "inspecting ./target/x86_64-unknown-linux-gnu/"
-
-        # This part is not from gemini, I added it myself because I already found that there was a 
-        # `x86_64-unknown-linux-gnu/release/` folder inside `./target` with my previous debug version of default.nix 
-        ls -lh ./target/x86_64-unknown-linux-gnu/
-        echo "inspecting ./target/x86_64-unknown-linux-gnu/release/"
-        ls -lh ./target/x86_64-unknown-linux-gnu/release/
-
-        exit 1
-    fi
-
-    # Install binary
-    mkdir -p $out/bin
-    echo "Installing binary from $binary_path to $out/bin/${binaryName}"
-    install -Dm755 "$binary_path" "$out/bin/${binaryName}"
-
-    # Install assets into standard share location
+    # Now, just copy the assets directory.
+    # ${src} refers to the cleaned source directory.
     mkdir -p $out/share/hosting-farm
     echo "Copying assets from ${src}/assets to $out/share/hosting-farm/"
     cp -r ${src}/assets $out/share/hosting-farm/
 
-    runHook postInstall
+    # Optional: Add any other post-installation steps here if needed.
+    # For example, installing documentation, example configs, etc.
+    # mkdir -p $out/share/doc/${pname}
+    # cp ${src}/README.md $out/share/doc/${pname}/
   '';
 
   meta = with pkgs.lib; {
     description = "Hosting Farm web application";
     homepage = "https://github.com/Lab-8916100448256/hosting-farm";
-    license = licenses.cc0; # Please verify the actual license
-    maintainers = [ maintainers.lab-8916100448256 ];
+    license = licenses.mit; # Please verify the actual license
+    platforms = platforms.all; # Rust is generally portable
+    maintainers = [ maintainers.lab-8916100448256 ]; 
   };
 }
 
