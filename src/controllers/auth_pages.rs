@@ -9,29 +9,10 @@ use crate::{
     },
     utils::template::render_template,
 };
-use serde::Deserialize;
-use axum::response::Redirect;
 use axum::extract::{Form, Query};
 use axum::http::HeaderMap;
 use std::collections::HashMap;
 
-/// Form data for user registration
-#[derive(Debug, Deserialize)]
-pub struct RegisterFormData {
-    pub name: String,
-    pub email: String,
-    pub password: String,
-    pub password_confirmation: String,
-}
-
-/// Form data for user login
-#[derive(Debug, Deserialize)]
-pub struct LoginFormData {
-    pub email: String,
-    pub password: String,
-    #[serde(rename = "remember-me")]
-    pub remember_me: Option<String>,
-}
 
 /// Renders the registration page
 #[debug_handler]
@@ -39,14 +20,14 @@ async fn register(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let context = tera::Context::new();
-    render_template(&ctx, "auth/register.html.tera", context)
+    render_template(&ctx, "auth/register.html", context)
 }
 
 /// Handles the registration form submission
 #[debug_handler]
 async fn handle_register(
     State(ctx): State<AppContext>,
-    Form(form): Form<RegisterFormData>,
+    Form(form): Form<RegisterParams>,
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
@@ -54,7 +35,7 @@ async fn handle_register(
         context.insert("error", "Passwords do not match");
         context.insert("name", &form.name);
         context.insert("email", &form.email);
-        return render_template(&ctx, "auth/register.html.tera", context);
+        return render_template(&ctx, "auth/register.html", context);
     }
     
     // Convert form data to RegisterParams
@@ -62,6 +43,7 @@ async fn handle_register(
         name: form.name,
         email: form.email,
         password: form.password,
+        password_confirmation: form.password_confirmation,
     };
     
     // Create user account
@@ -78,7 +60,10 @@ async fn handle_register(
             AuthMailer::send_welcome(&ctx, &user).await?;
             
             // Redirect to login page with success message
-            Ok(Redirect::to("/auth/login?registered=true").into_response())
+            let response = Response::builder()
+            .header("HX-Location", "/auth/login?registered=true")
+            .body(axum::body::Body::empty())?; 
+            Ok(response)
         },
         Err(err) => {
             tracing::info!(
@@ -91,7 +76,7 @@ async fn handle_register(
             context.insert("error", "Registration failed. Email may already be in use.");
             context.insert("name", &params.name);
             context.insert("email", &params.email);
-            render_template(&ctx, "auth/register.html.tera", context)
+            render_template(&ctx, "auth/register.html", context)
         }
     }
 }
@@ -101,7 +86,7 @@ async fn handle_register(
 async fn login(
     State(ctx): State<AppContext>,
     Query(params): Query<HashMap<String, String>>,
-    headers: axum::http::HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let mut context = tera::Context::new();
     
@@ -111,47 +96,40 @@ async fn login(
     }
     
     // Parse cookies from headers
-    let cookie_header = headers.get(axum::http::header::COOKIE)
-        .and_then(|value| value.to_str().ok());
-    
-    if let Some(cookie_str) = cookie_header {
+    if let Some(cookie_header) = headers.get("cookie").and_then(|h| h.to_str().ok()) {
         // Check if user is already authenticated
-        if cookie_str.contains("auth_token=") {
-            for cookie in cookie_str.split(';') {
-                let cookie = cookie.trim();
-                if cookie.starts_with("auth_token=") && !cookie.eq("auth_token=") {
-                    // User is already authenticated, redirect to home
-                    return Ok(Redirect::to("/home").into_response());
-                }
+        for cookie in cookie_header.split(';').map(|s| s.trim()) {
+            if cookie.starts_with("auth_token=") && cookie.len() > "auth_token=".len() {
+                // User is already authenticated, redirect to home
+                let response = Response::builder()
+                .header("HX-Location", "/home")
+                .body(axum::body::Body::empty())?; 
+                return Ok(response);
             }
-        }
-        
-        // Check for remembered email
-        for cookie in cookie_str.split(';') {
-            let cookie = cookie.trim();
+            
             if cookie.starts_with("remembered_email=") {
-                let email = cookie["remembered_email=".len()..].to_string();
+                let email = &cookie["remembered_email=".len()..];
                 if !email.is_empty() {
-                    context.insert("email", &email);
+                    context.insert("email", email);
                 }
-                break;
             }
         }
     }
     
-    render_template(&ctx, "auth/login.html.tera", context)
+    render_template(&ctx, "auth/login.html", context)
 }
 
 /// Handles the login form submission
 #[debug_handler]
 async fn handle_login(
     State(ctx): State<AppContext>,
-    Form(form): Form<LoginFormData>,
+    Form(form): Form<LoginParams>,
 ) -> Result<Response> {
     // Convert form data to login params
     let params = LoginParams {
         email: form.email.clone(),
         password: form.password,
+        remember_me: form.remember_me,
     };
     
     // Try to login
@@ -165,7 +143,7 @@ async fn handle_login(
                 let mut context = tera::Context::new();
                 context.insert("error", "Invalid email or password");
                 context.insert("email", &params.email);
-                return render_template(&ctx, "auth/login.html.tera", context);
+                return render_template(&ctx, "auth/login.html", context);
             }
             
             let jwt_secret = ctx.config.get_jwt_config()?;
@@ -176,17 +154,18 @@ async fn handle_login(
                     let mut context = tera::Context::new();
                     context.insert("error", "Authentication error");
                     context.insert("email", &params.email);
-                    return render_template(&ctx, "auth/login.html.tera", context);
+                    return render_template(&ctx, "auth/login.html", context);
                 }
             };
             
             // Prepare response with auth token cookie and redirect
             let mut response_builder = Response::builder()
+                // TODO: Use HX-Location instead of HX-Redirect
                 .header("HX-Redirect", "/home")
                 .header("Set-Cookie", format!("auth_token={}; Path=/", token));
                 
             // If remember me is checked, set a persistent cookie with email
-            if form.remember_me.is_some() {
+            if params.remember_me.is_some() {
                 // Set a permanent cookie (Max-Age = 1 year)
                 response_builder = response_builder.header(
                     "Set-Cookie", 
@@ -201,7 +180,7 @@ async fn handle_login(
             let mut context = tera::Context::new();
             context.insert("error", "Invalid email or password");
             context.insert("email", &params.email);
-            render_template(&ctx, "auth/login.html.tera", context)
+            render_template(&ctx, "auth/login.html", context)
         }
     }
 }
@@ -212,7 +191,7 @@ async fn forgot_password(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     let context = tera::Context::new();
-    render_template(&ctx, "auth/forgot-password.html.tera", context)
+    render_template(&ctx, "auth/forgot-password.html", context)
 }
 
 /// Renders the reset password page
@@ -223,7 +202,7 @@ async fn reset_password(
 ) -> Result<Response> {
     let mut context = tera::Context::new();
     context.insert("token", &token);
-    render_template(&ctx, "auth/reset-password.html.tera", context)
+    render_template(&ctx, "auth/reset-password.html", context)
 }
 
 /// Renders the email verification page
@@ -256,15 +235,17 @@ async fn verify_email(
         }
     }
     
-    render_template(&ctx, "auth/verify.html.tera", context)
+    render_template(&ctx, "auth/verify.html", context)
 }
 
 /// Handles user logout by clearing the auth token cookie
 #[debug_handler]
 async fn handle_logout() -> Result<Response> {
+    // TODO: This is not fully implemented.
+    // - To fully logout the user, the bearer token must be removed from the DB
     let response = Response::builder()
         .header("Set-Cookie", "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
-        .header("HX-Redirect", "/auth/login")
+        .header("HX-Location", "/auth/login")
         .body(axum::body::Body::empty())?;
     Ok(response)
 }

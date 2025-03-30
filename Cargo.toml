@@ -10,7 +10,7 @@ default-run = "hosting_farm-cli"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
-loco-rs = { version = "0.14.0" }
+loco-rs = { version = "0.15.0" }
 
 [dependencies]
 loco-rs = { workspace = true  }
@@ -21,6 +21,7 @@ tokio = { version = "1.33.0", default-features = false, features = [
 ] }
 async-trait = { version = "0.1.74" }
 axum = { version = "0.8.1" }
+axum-extra = { version = "0.10", features = ["cookie"] }
 tracing = { version = "0.1.40" }
 tracing-subscriber = { version = "0.3.17", features = ["env-filter", "json"] }
 regex = { version = "1.11.1" }
@@ -32,7 +33,7 @@ sea-orm = { version = "1.1.0", features = [
   "macros",
 ] }
 chrono = { version = "0.4" }
-validator = { version = "0.19" }
+validator = { version = "0.20.0" }
 uuid = { version = "1.6.0", features = ["v4"] }
 include_dir = { version = "0.7" }
 # view engine i18n

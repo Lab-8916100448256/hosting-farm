@@ -8,7 +8,7 @@ use crate::{
         _entities::{
             team_memberships::{self, Column as TeamMembershipColumn, Entity as TeamMembershipEntity, Model as TeamMembershipModel},
             teams::{Entity as TeamEntity, Model as TeamModel},
-            users::{Entity as UserEntity},
+            users::Entity as UserEntity,
         },
         team_memberships::{UpdateRoleParams, VALID_ROLES, InviteMemberParams},
         teams::{CreateTeamParams, UpdateTeamParams},
@@ -115,6 +115,7 @@ async fn delete_team(
     
     // Instead of returning empty JSON, send a redirect to the teams list page
     let response = Response::builder()
+        // TODO: Use HX-Location instead of HX-Redirect
         .header("HX-Redirect", "/teams")
         .body(axum::body::Body::empty())?;
         

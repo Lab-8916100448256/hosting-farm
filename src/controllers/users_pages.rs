@@ -73,7 +73,7 @@ async fn profile(
     context.insert("active_page", "profile");
     context.insert("invitation_count", &invitations);
     
-    render_template(&ctx, "users/profile.html.tera", context)
+    render_template(&ctx, "users/profile.html", context)
 }
 
 /// Renders the user invitations page
@@ -115,7 +115,7 @@ async fn invitations(
     context.insert("active_page", "invitations");
     context.insert("invitation_count", &invitation_count);
     
-    render_template(&ctx, "users/invitations.html.tera", context)
+    render_template(&ctx, "users/invitations.html", context)
 }
 
 /// Update user profile
