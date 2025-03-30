@@ -12,8 +12,6 @@ async fn home(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    //let mut view_context = tera::Context::new();
-
     match auth.user {
         Some(user) => {
             // Get pending invitations count

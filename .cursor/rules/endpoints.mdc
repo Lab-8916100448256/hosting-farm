@@ -18,11 +18,12 @@ This rule file provides guidelines related to API endpoints and human-facing end
 
 ## Human-Facing Endpoints
 - Human-facing endpoints MUST NOT be prefixed with `/api/`
-- Human-facing endpoints MUST return HTML responses
-- Human-facing endpoints MUST be defined in files under `src/controllers/` that end with `_pages.rs`
-- Human-facing endpoints MUST use for response an HTML viewhandler 
-- Human-facing endpoints MUST handle errors by returning . 
-- Human-facing endpoints MUST never handle errors by returning an Error type. A normal an HTML view with an error messages must be returned instead. Depending on the cases it can be a full view or an HTMX fragment that will be inserted in the page from where the user called the endpoint. 
+- Human-facing endpoints MUST return either an HTML responses or an HTMX redirect though an HX_Location header.
+- Human-facing endpoints MUST be defined in files under `src/controllers/` that end with `_pages.rs`.
+- Human-facing endpoints MUST use for response an HTML viewhandler .
+- Human-facing endpoints handlers MUST never handle errors by returning an Error type. A normal an HTML response with an error messages must be returned instead. Depending on the cases it can be, for example : 
+  - The full page including a error messages in the places that cannot be rendered because of the failure for a standard endpoint that is servoing non AJAX requests  
+  - an HTMX fragment that will be inserted into the page from where the endpoint was called, for endpoints that correspond to AJAX requests. 
 - Human-facing endpoints MUST use form submissions for data input
 - Human-facing endpoints MUST redirect to appropriate pages after successful actions. 
 - Using HTMX HX_Location SHOULD be the preferred method for implementing a redirect. If not applicable HTMX HX_Redirect can be used instead.
@@ -32,7 +33,8 @@ This rule file provides guidelines related to API endpoints and human-facing end
 
 ## Examples
 - Example of API endpoints implementation : src/controller/auth_api.rs
-- Example of human-facing endpoints implementation : src/controller/auth_pages.rs src/view/auth.rs
+- Example of human-facing endpoints implementation : src/controller/auth_pages.rs src/view/auth_pages.rs
+  - Example of endpoint handler returning only an HTMX fragment in case of error and an HTMS redirect in case of success : handle_register
 
 ### API Endpoint (Correct)
 ```rust

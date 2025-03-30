@@ -14,8 +14,6 @@ type JWT = loco_rs::controller::middleware::auth::JWT;
 async fn create_team_page(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
     match users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
         Ok(user) => {
-            let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-
             // Get pending invitations count
             let invitations = _entities::team_memberships::Entity::find()
                 .find_with_related(_entities::teams::Entity)
