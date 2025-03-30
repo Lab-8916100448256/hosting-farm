@@ -1,1 +1,1 @@
-Welcome {{name}}
+Welcome to Hosting Farm {{name}}

@@ -19,6 +19,11 @@ pub struct LoginParams {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct ForgotPasswordParams {
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RegisterParams {
     pub email: String,
     pub password: String,
