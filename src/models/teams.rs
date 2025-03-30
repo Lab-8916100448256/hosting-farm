@@ -2,6 +2,7 @@ use loco_rs::prelude::*;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait, ConnectionTrait, DbErr, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use validator::Validate;
 
 use super::_entities::teams::{self, ActiveModel, Model};
 use super::_entities::team_memberships;

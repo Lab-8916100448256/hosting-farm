@@ -3,6 +3,7 @@ use chrono::{offset::Local, Duration};
 use loco_rs::{auth::jwt, hash, prelude::*};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use validator::Validate;
 
 pub use super::_entities::users::{self, ActiveModel, Entity, Model};
 
@@ -13,6 +14,8 @@ pub const MAGIC_LINK_EXPIRATION_MIN: i8 = 5;
 pub struct LoginParams {
     pub email: String,
     pub password: String,
+    #[serde(rename = "remember-me")]
+    pub remember_me: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -20,6 +23,7 @@ pub struct RegisterParams {
     pub email: String,
     pub password: String,
     pub name: String,
+    pub password_confirmation: String,
 }
 
 #[derive(Debug, Validate, Deserialize)]
@@ -263,7 +267,7 @@ impl Model {
     ///
     /// when could not convert user claims to jwt token
     pub fn generate_jwt(&self, secret: &str, expiration: &u64) -> ModelResult<String> {
-        Ok(jwt::JWT::new(secret).generate_token(expiration, self.pid.to_string(), None)?)
+        Ok(jwt::JWT::new(secret).generate_token(*expiration, self.pid.to_string(), serde_json::Map::new())?)
     }
 
     /// finds a user by the provided id

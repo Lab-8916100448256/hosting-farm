@@ -12,7 +12,7 @@ const VIEWS_DIR: &str = "assets/views";
 
 // Create Tera instance (lazy_static would be better in a real app)
 fn create_tera() -> Result<tera::Tera> {
-    let glob_pattern = format!("{}/**/*.html.tera", VIEWS_DIR);
+    let glob_pattern = format!("{}/**/*.html", VIEWS_DIR);
     let mut tera = match tera::Tera::new(&glob_pattern) {
         Ok(t) => t,
         Err(e) => return Err(loco_rs::Error::string(&format!("Failed to initialize Tera: {}", e))),

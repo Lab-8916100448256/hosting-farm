@@ -217,9 +217,10 @@ async fn magic_link_verify(
 /// Handles user logout by clearing the auth token cookie
 #[debug_handler]
 async fn logout() -> Result<Response> {
+    // TODO: This is not the correct way to implement this. APIs do not use Session cookies.
+    // - Instead of clearing the session cookie, the bearer token must be removed from the DB
     let response = Response::builder()
         .header("Set-Cookie", "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
-        .header("HX-Redirect", "/login")
         .body(axum::body::Body::empty())?;
     Ok(response)
 }
