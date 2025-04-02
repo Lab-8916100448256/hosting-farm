@@ -30,11 +30,11 @@ async fn handle_register(
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
-        let mut context = tera::Context::new();
-        context.insert("error", "Passwords do not match");
-        context.insert("name", &form.name);
-        context.insert("email", &form.email);
-        return render_template(&ctx, "auth/register.html", context);
+        return format::render().view(
+            &v,
+            "error.html",
+            data!({"message": "Password and password confirmation do not match"}),
+        );
     }
 
     // Convert form data to RegisterParams
@@ -111,10 +111,11 @@ async fn login(
             let mut email = "";
             // Parse cookies from headers
             if let Some(cookie_header) = headers.get("cookie").and_then(|h| h.to_str().ok()) {
-                // Check if user is already authenticated
+                // Check if user has a "remember me" cookie
                 for cookie in cookie_header.split(';').map(|s| s.trim()) {
                     if cookie.starts_with("remembered_email=") {
                         email = &cookie["remembered_email=".len()..];
+                        break;
                     }
                 }
             }
@@ -152,10 +153,14 @@ async fn handle_login(
             let valid = user.verify_password(&params.password);
 
             if !valid {
+                tracing::info!(
+                    message = "Invalid password in login attempt,",
+                    user_email = &params.email,
+                );             
                 return format::render().view(
                     &v,
                     "error.html",
-                    data!({"message": format!("Log in failed: {}", "Invalid email or password")})
+                    data!({"message": "Log in failed: Invalid email or password"})
                 );
             };
 
@@ -163,11 +168,16 @@ async fn handle_login(
 
             let token = match user.generate_jwt(&jwt_secret.secret, &jwt_secret.expiration) {
                 Ok(token) => token,
-                Err(_) => {
+                Err(err) => {
+                    tracing::error!(
+                        message = "Failed to generate JWT token,",
+                        user_email = &params.email,
+                        error = err.to_string(),
+                    );
                     return format::render().view(
                         &v,
                         "error.html",
-                        data!({"message": format!("Log in failed: {}", "Invalid email or password")})
+                        data!({"message": "Log in failed: Failed to generate JWT token"})
                     );                    
                 }
             };
@@ -189,13 +199,19 @@ async fn handle_login(
             let response = response_builder.body(axum::body::Body::empty())?;
             Ok(response)
         }
-        Err(_) => format::render().view(
-            &v,
-            "auth/login.html",
-            data!({
-                "error": "Invalid email or password", 
+        Err(_) => {
+            tracing::info!(
+                message = "Unknown user login attempt,",
+                user_email = &params.email,
+            );
+            format::render().view(
+                &v,
+                "error.html",
+                data!({
+                "message": "Log in failed: Invalid email or password", 
                 "email": &params.email}),
-        ),
+            )
+        }
     }
 }
 
@@ -221,10 +237,10 @@ async fn handle_forgot_password(
     let params = ForgotPasswordParams {
         email: form.email.clone(),
     };
-    // TODO: Send email with reset link if account exists and implement the reset email result view
+    // TODO: Send email with reset link if account exists and implement the reset email sent view
     format::render().view(
         &v,
-        "auth/reset-emailsent.html",
+        "auth/reset-email-sent.html",
         data!({}),
     )
 }
@@ -236,7 +252,7 @@ async fn reset_password(
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
 ) -> Result<Response> {
-    // TODO: Check if token is valid and implement the reset password view
+    // TODO: Check if token is valid and finish to implement the reset password view
     format::render().view(
         &v,
         "auth/reset-password.html",
@@ -262,7 +278,7 @@ async fn verify_email(
                     "auth/verify.html",
                     data!({
                         "success": true,
-                        "error_message": "Your email is already verified.",
+                        "message": "Your email has already been verified.",
                     }),
                 );
             } else {
@@ -274,7 +290,7 @@ async fn verify_email(
                     "auth/verify.html",
                     data!({
                         "success": true,
-                        "error_message": "Your email is now verified.",
+                        "message": "Your email has been verified.",
                     }),
                 );
             }
@@ -285,7 +301,7 @@ async fn verify_email(
                 "auth/verify.html",
                 data!({
                     "success": false,
-                    "error_message": "Invalid or expired verification token.",
+                    "message": "Invalid or expired verification token.",
                 }),
             );
         }
@@ -298,8 +314,7 @@ async fn handle_logout(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    // TODO: This is not fully implemented.
-    // - To fully logout the user, the bearer token must be removed from the DB
+    // TODO: This is not fully implemented.To fully logout the user, the bearer token must be removed from the DB
     let response = Response::builder()
         .header("HX-Redirect", "/auth/login")
         .header(
@@ -320,7 +335,7 @@ pub fn routes() -> Routes {
         .add("/login", post(handle_login))
         .add("/forgot-password", get(forgot_password))
         .add("/forgot-password", post(handle_forgot_password))
-        .add("/reset-password", get(reset_password))
+        .add("/reset-password/{token}", get(reset_password))
         .add("/verify/{token}", get(verify_email))
         .add("/logout", post(handle_logout))
 }

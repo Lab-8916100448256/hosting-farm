@@ -1,4 +1,4 @@
-;<html>
+<html>
 
 <body>
   Dear {{name}},
@@ -8,7 +8,7 @@
     Verify Your Account
   </a>
   Then you will be able to log in to your account.
-  <p>Best regards,<br>The Loco Team</p>
+  <p>Best regards,<br>Your NixiN server</p>
 </body>
 
 </html>
