@@ -122,10 +122,6 @@ in {
   };
 
 
-
-  environment.etc."hosting-farm/production.yaml".text = ''
-  '';
-
   # Dedicated user/group for the service
   users.users.hosting-farm = {
     isSystemUser = true;
