@@ -11,25 +11,33 @@ This rule file provides guidelines related to API endpoints and human-facing end
 ## API Endpoints
 - All API endpoints MUST be prefixed with `/api/`
 - API endpoints MUST return JSON responses
-- API endpoints MUST be defined in files under `src/controllers/` that end with `.rs`
+- API endpoints MUST be defined in files under `src/controllers/` that end with `_api.rs`
 - API endpoints MUST NOT render HTML templates
 - API endpoints MUST use `format::json()` for responses
 - API endpoints MUST handle errors by returning appropriate HTTP status codes with JSON responses
 
 ## Human-Facing Endpoints
 - Human-facing endpoints MUST NOT be prefixed with `/api/`
-- Human-facing endpoints MUST return HTML responses
-- Human-facing endpoints MUST be defined in files under `src/controllers/` that end with `_pages.rs`
-- Human-facing endpoints MUST use `render_template()` for responses
-- Human-facing endpoints MUST handle errors by re-rendering the template with error messages
+- Human-facing endpoints MUST return either an HTML responses or an HTMX redirect through HX_Redirect or HX_Location header.
+- Human-facing endpoints MUST be defined in files under `src/controllers/` that end with `_pages.rs`.
+- Human-facing endpoints MUST use for response an HTML viewhandler .
+- Human-facing endpoints handlers MUST never handle errors by returning an Error type. A normal an HTML response with an error messages must be returned instead. Depending on the cases it can be, for example : 
+  - The full page including a error messages in the places that cannot be rendered because of the failure for a standard endpoint that is servoing non AJAX requests  
+  - an HTMX fragment that will be inserted into the page from where the endpoint was called, for endpoints are serving AJAX requests. 
 - Human-facing endpoints MUST use form submissions for data input
-- Human-facing endpoints MUST redirect to appropriate pages after successful actions
+- Human-facing endpoints MUST redirect to appropriate pages after successful actions. 
+- Using HTMX HX_Location SHOULD be the preferred method for implementing a redirect. If not applicable HTMX HX_Redirect can be used instead.
+- View rendering MUST be implemented using the `format::render().view()` function of the `loco_rs::format` module. There is no need for any custom template rendering code that would directly call the Tera engine. 
+- Human-facing endpoints MUST use the custom authentication middleware of `auth_no_error` module to extract the authentication data from teh requests
+- Authenticated Human-facing endpoints MUST handle gracefully the case of a user calling them without being authenticated by redirecting the user to the login page. Once successfuly logged-in the user MUST be redirected to the endpoint he originaly called.
 
 ## Examples
+- Example of API endpoints implementation : src/controller/auth_api.rs
+- Example of human-facing endpoints and views implementation : src/controller/auth_pages.rs, src/view/auth_pages.rs and assets/views/auth/
 
 ### API Endpoint (Correct)
 ```rust
-// In src/controllers/auth.rs
+// In src/controllers/auth_api.rs
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/api/auth")
@@ -51,16 +59,17 @@ pub fn routes() -> Routes {
 1. ❌ Mixing API and human-facing endpoints in the same controller file
 2. ❌ Using HTML templates in API endpoints
 3. ❌ Using JSON responses in human-facing endpoints
-4. ❌ Not properly prefixing API endpoints with `/api/`
+4. ❌ Not properly prefixing API endpoints routes with `/api/`
 5. ❌ Using form submissions in API endpoints
 6. ❌ Using direct JSON responses in human-facing endpoints
 
 ## Verification Checklist
 Before committing changes, verify that:
-1. [ ] API endpoints are in files ending with `.rs`
+1. [ ] API endpoints are in files ending with `_api.rs`
 2. [ ] Human-facing endpoints are in files ending with `_pages.rs`
-3. [ ] API endpoints use `/api/` prefix
+3. [ ] API endpoints routes use `/api/` prefix
 4. [ ] Human-facing endpoints do not use `/api/` prefix
 5. [ ] API endpoints return JSON using `format::json()`
-6. [ ] Human-facing endpoints use `render_template()`
+6. [ ] Human-facing endpoints use `format::render().view()`
 7. [ ] No mixing of response types in the same controller file 
+
