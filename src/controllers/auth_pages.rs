@@ -3,7 +3,7 @@ use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
     models::{
         users,
-        users::{LoginParams, RegisterParams, ForgotPasswordParams},
+        users::{LoginParams, RegisterParams, ForgotPasswordParams, ResetPasswordParams},
     },
     utils::template::render_template,
 };
@@ -295,12 +295,40 @@ async fn reset_password(
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
 ) -> Result<Response> {
-    // TODO: Check if token is valid finish to implement the `auth/reset-password.html` view which should display fields to type the new password or an error message if the token is invalid
-    format::render().view(
-        &v,
-        "auth/reset-password.html",
-        data!({}),
-    )
+    // Attempt to find the user by the reset token
+    match users::Model::find_by_reset_token(&ctx.db, &token).await {
+        Ok(user) => {
+            // Check if the token is still valid (e.g., within an expiration timeframe)
+            // Assuming the find_by_reset_token implicitly checks validity or that validity check happens on POST.
+            // For now, just render the form if the token leads to a user.
+            if user.reset_token.is_some() && user.reset_sent_at.is_some() {
+                 // Optional: Add explicit time validation if needed
+                 // let expiry_duration = Duration::hours(1); // Example: 1 hour validity
+                 // if user.reset_sent_at.unwrap() + expiry_duration < chrono::Utc::now().naive_utc() { ... handle expired ... }
+
+                format::render().view(
+                    &v,
+                    "auth/reset-password.html",
+                    data!({ "token": token }), // Pass only token when valid
+                )
+            } else {
+                // Token exists but seems invalid (e.g., already used)
+                 format::render().view(
+                    &v,
+                    "auth/reset-password.html",
+                    data!({ "error": "Invalid or expired reset link." }), // Pass only error when invalid
+                )
+            }
+        }
+        Err(_) => {
+            // Token not found or other DB error
+            format::render().view(
+                &v,
+                "auth/reset-password.html",
+                data!({ "error": "Invalid or expired reset link." }), // Pass only error when invalid
+            )
+        }
+    }
 }
 
 /// Renders the email verification page
@@ -368,6 +396,79 @@ async fn handle_logout(
     Ok(response)
 }
 
+/// Handles the reset password form submission
+#[debug_handler]
+async fn handle_reset_password(
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    Form(form): Form<ResetPasswordParams>,
+) -> Result<Response> {
+    // Check if passwords match
+    if form.password != form.password_confirmation {
+        return format::render().view(
+            &v,
+            "error.html",
+            data!({ "message": "New password and confirmation do not match." }),
+        );
+    }
+
+    // Find user by reset token
+    match users::Model::find_by_reset_token(&ctx.db, &form.token).await {
+        Ok(user) => {
+            // Check if token is actually associated with this user and potentially check expiry
+            if user.reset_token.as_deref() == Some(&form.token) && user.reset_sent_at.is_some() {
+                
+                // Use the reset_password method on ActiveModel
+                match user
+                    .into_active_model()
+                    .reset_password(&ctx.db, &form.password)
+                    .await
+                {
+                    Ok(_) => {
+                        // Redirect to login page with success message
+                        let response = Response::builder()
+                            .header("HX-Redirect", "/auth/login?reset=success")
+                            .body(axum::body::Body::empty())?;
+                        Ok(response)
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to update password for token {}: {}",
+                            &form.token, e
+                        );
+                        format::render().view(
+                            &v,
+                            "error.html",
+                            data!({
+                                "message": "Failed to reset password. Please try again."
+                            }),
+                        )
+                    }
+                }
+            } else {
+                // Token mismatch or already cleared - treat as invalid
+                format::render().view(
+                    &v,
+                    "error.html",
+                    data!({
+                        "message": "Invalid or expired password reset link."
+                    }),
+                )
+            }
+        }
+        Err(_) => {
+            // User not found for the token
+            format::render().view(
+                &v,
+                "error.html",
+                data!({
+                    "message": "Invalid or expired password reset link."
+                }),
+            )
+        }
+    }
+}
+
 /// Authentication page routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -379,6 +480,7 @@ pub fn routes() -> Routes {
         .add("/forgot-password", get(forgot_password))
         .add("/forgot-password", post(handle_forgot_password))
         .add("/reset-password/{token}", get(reset_password))
+        .add("/reset-password", post(handle_reset_password))
         .add("/verify/{token}", get(verify_email))
         .add("/logout", post(handle_logout))
 }
