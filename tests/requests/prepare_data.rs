@@ -14,7 +14,8 @@ pub async fn init_user_login(request: &TestServer, ctx: &AppContext) -> LoggedIn
     let register_payload = serde_json::json!({
         "name": "loco",
         "email": USER_EMAIL,
-        "password": USER_PASSWORD
+        "password": USER_PASSWORD,
+        "password_confirmation": USER_PASSWORD
     });
 
     //Creating a new user

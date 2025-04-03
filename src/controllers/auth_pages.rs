@@ -231,13 +231,56 @@ async fn forgot_password(
 #[debug_handler]
 async fn handle_forgot_password(
     ViewEngine(v): ViewEngine<TeraView>,
-    State(_ctx): State<AppContext>,
-    Form(form): Form<LoginParams>,
+    State(ctx): State<AppContext>,
+    Form(form): Form<ForgotPasswordParams>,
 ) -> Result<Response> {
     let params = ForgotPasswordParams {
         email: form.email.clone(),
     };
-    // TODO: Send email with reset link if account exists and implement the reset email sent view
+
+    // Find user by email
+    match users::Model::find_by_email(&ctx.db, &params.email).await {
+        Ok(user) => {
+            // User found, generate reset token and send email
+            match user
+                .into_active_model()
+                .set_forgot_password_sent(&ctx.db)
+                .await
+            {
+                Ok(updated_user) => {
+                    // Send forgot password email
+                    if let Err(e) = AuthMailer::forgot_password(&ctx, &updated_user).await {
+                        // Log error but proceed to render confirmation page
+                        tracing::error!(
+                            "Failed to send forgot password email to {}: {}",
+                            &params.email,
+                            e
+                        );
+                    } else {
+                         tracing::info!("Forgot password email sent to {}", &params.email);
+                    }
+                }
+                Err(e) => {
+                    // Log error but proceed to render confirmation page
+                    tracing::error!(
+                        "Failed to set forgot password token for {}: {}",
+                        &params.email,
+                        e
+                    );
+                }
+            }
+        }
+        Err(ModelError::EntityNotFound) => {
+            // User not found, log but proceed as if successful to prevent email enumeration
+             tracing::info!("Forgot password attempt for non-existent user: {}", &params.email);
+        }
+        Err(e) => {
+            // Other DB error, log but proceed
+            tracing::error!("Database error during forgot password for {}: {}", &params.email, e);
+        }
+    }
+
+    // Always render the confirmation page, regardless of whether the user was found or email sent successfully.
     format::render().view(
         &v,
         "auth/reset-email-sent.html",
@@ -252,7 +295,7 @@ async fn reset_password(
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
 ) -> Result<Response> {
-    // TODO: Check if token is valid and finish to implement the reset password view
+    // TODO: Check if token is valid finish to implement the `auth/reset-password.html` view which should display fields to type the new password or an error message if the token is invalid
     format::render().view(
         &v,
         "auth/reset-password.html",
@@ -314,7 +357,7 @@ async fn handle_logout(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    // TODO: This is not fully implemented.To fully logout the user, the bearer token must be removed from the DB
+    // TODO: This is not fully implemented. To fully logout the user, the bearer token must also be removed or invalidated in the DB
     let response = Response::builder()
         .header("HX-Redirect", "/auth/login")
         .header(
