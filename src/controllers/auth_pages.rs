@@ -381,11 +381,11 @@ async fn verify_email(
 
 /// Handles user logout by clearing the auth token cookie
 #[debug_handler]
-async fn handle_logout(
-    ViewEngine(v): ViewEngine<TeraView>,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
-    // TODO: This is not fully implemented. To fully logout the user, the bearer token must also be removed or invalidated in the DB
+async fn handle_logout() -> Result<Response> {
+    // TODO: Implement server-side JWT invalidation (e.g., token blacklist)
+    // This implementation only clears the client-side cookie. The JWT itself
+    // remains valid until it expires. For a fully secure logout, the token
+    // should be invalidated on the server-side as well.
     let response = Response::builder()
         .header("HX-Redirect", "/auth/login")
         .header(
