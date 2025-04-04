@@ -24,6 +24,13 @@ pub struct ForgotPasswordParams {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct ResetPasswordParams {
+    pub token: String,
+    pub password: String,
+    pub password_confirmation: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RegisterParams {
     pub email: String,
     pub password: String,

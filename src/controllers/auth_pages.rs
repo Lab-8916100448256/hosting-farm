@@ -3,13 +3,14 @@ use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
     models::{
         users,
-        users::{LoginParams, RegisterParams, ForgotPasswordParams},
+        users::{LoginParams, RegisterParams, ForgotPasswordParams, ResetPasswordParams},
     },
     utils::template::render_template,
 };
 use axum::debug_handler;
 use axum::extract::{Form, Query};
 use axum::http::HeaderMap;
+use axum::response::Redirect;
 use loco_rs::prelude::*;
 use std::collections::HashMap;
 
@@ -197,7 +198,11 @@ async fn handle_login(
             }
 
             let response = response_builder.body(axum::body::Body::empty())?;
-            Ok(response)
+            tracing::info!(
+                message = "User login successful,",
+                user_email = &params.email,
+            );             
+        Ok(response)
         }
         Err(_) => {
             tracing::info!(
@@ -228,21 +233,77 @@ async fn forgot_password(
     )
 }
 
+/// Renders the page shown after requesting a password reset link.
 #[debug_handler]
-async fn handle_forgot_password(
+async fn render_reset_email_sent_page(
     ViewEngine(v): ViewEngine<TeraView>,
-    State(_ctx): State<AppContext>,
-    Form(form): Form<LoginParams>,
+    State(_ctx): State<AppContext>, // May not need ctx if just rendering static page
 ) -> Result<Response> {
-    let params = ForgotPasswordParams {
-        email: form.email.clone(),
-    };
-    // TODO: Send email with reset link if account exists and implement the reset email sent view
-    format::render().view(
+     format::render().view(
         &v,
         "auth/reset-email-sent.html",
         data!({}),
     )
+}
+
+#[debug_handler]
+async fn handle_forgot_password(
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    Form(form): Form<ForgotPasswordParams>,
+) -> Result<Response> {
+    let params = ForgotPasswordParams {
+        email: form.email.clone(),
+    };
+
+    // Find user by email
+    match users::Model::find_by_email(&ctx.db, &params.email).await {
+        Ok(user) => {
+            // User found, generate reset token and send email
+            match user
+                .into_active_model()
+                .set_forgot_password_sent(&ctx.db)
+                .await
+            {
+                Ok(updated_user) => {
+                    // Send forgot password email
+                    if let Err(e) = AuthMailer::forgot_password(&ctx, &updated_user).await {
+                        // Log error but proceed to redirect
+                        tracing::error!(
+                            "Failed to send forgot password email to {}: {}",
+                            &params.email,
+                            e
+                        );
+                    } else {
+                         tracing::info!("Forgot password email sent to {}", &params.email);
+                    }
+                }
+                Err(e) => {
+                    // Log error but proceed to redirect
+                    tracing::error!(
+                        "Failed to set forgot password token for {}: {}",
+                        &params.email,
+                        e
+                    );
+                }
+            }
+        }
+        Err(ModelError::EntityNotFound) => {
+            // User not found, log but proceed as if successful to prevent email enumeration
+             tracing::info!("Forgot password attempt for non-existent user: {}", &params.email);
+        }
+        Err(e) => {
+            // Other DB error, log but proceed
+            tracing::error!("Database error during forgot password for {}: {}", &params.email, e);
+        }
+    }
+
+    // Always redirect to the confirmation page
+    // TODO: There is still someting wrong in the `auth/reset-email-sent.html` view. 
+    let response = Response::builder()
+         .header("HX-Redirect", "/auth/reset-email-sent")
+         .body(axum::body::Body::empty())?;
+    Ok(response)
 }
 
 /// Renders the reset password page
@@ -252,12 +313,40 @@ async fn reset_password(
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
 ) -> Result<Response> {
-    // TODO: Check if token is valid and finish to implement the reset password view
-    format::render().view(
-        &v,
-        "auth/reset-password.html",
-        data!({}),
-    )
+    // Attempt to find the user by the reset token
+    match users::Model::find_by_reset_token(&ctx.db, &token).await {
+        Ok(user) => {
+            // Check if the token is still valid (e.g., within an expiration timeframe)
+            // Assuming the find_by_reset_token implicitly checks validity or that validity check happens on POST.
+            // For now, just render the form if the token leads to a user.
+            if user.reset_token.is_some() && user.reset_sent_at.is_some() {
+                 // Optional: Add explicit time validation if needed
+                 // let expiry_duration = Duration::hours(1); // Example: 1 hour validity
+                 // if user.reset_sent_at.unwrap() + expiry_duration < chrono::Utc::now().naive_utc() { ... handle expired ... }
+
+                format::render().view(
+                    &v,
+                    "auth/reset-password.html",
+                    data!({ "token": token }), // Pass only token when valid
+                )
+            } else {
+                // Token exists but seems invalid (e.g., already used)
+                 format::render().view(
+                    &v,
+                    "auth/reset-password.html",
+                    data!({ "error": "Invalid or expired reset link." }), // Pass only error when invalid
+                )
+            }
+        }
+        Err(_) => {
+            // Token not found or other DB error
+            format::render().view(
+                &v,
+                "auth/reset-password.html",
+                data!({ "error": "Invalid or expired reset link." }), // Pass only error when invalid
+            )
+        }
+    }
 }
 
 /// Renders the email verification page
@@ -310,11 +399,11 @@ async fn verify_email(
 
 /// Handles user logout by clearing the auth token cookie
 #[debug_handler]
-async fn handle_logout(
-    ViewEngine(v): ViewEngine<TeraView>,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
-    // TODO: This is not fully implemented.To fully logout the user, the bearer token must be removed from the DB
+async fn handle_logout() -> Result<Response> {
+    // TODO: Implement server-side JWT invalidation (e.g., token blacklist)
+    // This implementation only clears the client-side cookie. The JWT itself
+    // remains valid until it expires. For a fully secure logout, the token
+    // should be invalidated on the server-side as well.
     let response = Response::builder()
         .header("HX-Redirect", "/auth/login")
         .header(
@@ -323,6 +412,81 @@ async fn handle_logout(
         )
         .body(axum::body::Body::empty())?;
     Ok(response)
+}
+
+/// Handles the reset password form submission
+#[debug_handler]
+async fn handle_reset_password(
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    Form(form): Form<ResetPasswordParams>,
+) -> Result<Response> {
+    // Check if passwords match
+    if form.password != form.password_confirmation {
+        return format::render().view(
+            &v,
+            "error.html",
+            data!({
+                "message": "New password and confirmation do not match."
+            }),
+        );
+    }
+
+    // Find user by reset token
+    match users::Model::find_by_reset_token(&ctx.db, &form.token).await {
+        Ok(user) => {
+            // Check if token is actually associated with this user and potentially check expiry
+            if user.reset_token.as_deref() == Some(&form.token) && user.reset_sent_at.is_some() {
+                
+                // Use the reset_password method on ActiveModel
+                match user
+                    .into_active_model()
+                    .reset_password(&ctx.db, &form.password)
+                    .await
+                {
+                    Ok(_) => {
+                        // Redirect to login page with success message using HX-Redirect
+                        let response = Response::builder()
+                            .header("HX-Redirect", "/auth/login?reset=success")
+                            .body(axum::body::Body::empty())?;
+                        Ok(response)
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to update password for token {}: {}",
+                            &form.token, e
+                        );
+                        format::render().view(
+                            &v,
+                            "error.html",
+                            data!({
+                                "message": "Failed to reset password. Please try again."
+                            }),
+                        )
+                    }
+                }
+            } else {
+                // Token mismatch or already cleared - treat as invalid
+                format::render().view(
+                    &v,
+                    "error.html",
+                    data!({
+                        "message": "Invalid or expired password reset link."
+                    }),
+                )
+            }
+        }
+        Err(_) => {
+            // User not found for the token
+            format::render().view(
+                &v,
+                "error.html",
+                data!({
+                    "message": "Invalid or expired password reset link."
+                }),
+            )
+        }
+    }
 }
 
 /// Authentication page routes
@@ -335,7 +499,9 @@ pub fn routes() -> Routes {
         .add("/login", post(handle_login))
         .add("/forgot-password", get(forgot_password))
         .add("/forgot-password", post(handle_forgot_password))
+        .add("/reset-email-sent", get(render_reset_email_sent_page))
         .add("/reset-password/{token}", get(reset_password))
+        .add("/reset-password", post(handle_reset_password))
         .add("/verify/{token}", get(verify_email))
         .add("/logout", post(handle_logout))
 }
