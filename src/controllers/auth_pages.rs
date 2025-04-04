@@ -10,6 +10,7 @@ use crate::{
 use axum::debug_handler;
 use axum::extract::{Form, Query};
 use axum::http::HeaderMap;
+use axum::response::Redirect;
 use loco_rs::prelude::*;
 use std::collections::HashMap;
 
@@ -197,7 +198,11 @@ async fn handle_login(
             }
 
             let response = response_builder.body(axum::body::Body::empty())?;
-            Ok(response)
+            tracing::info!(
+                message = "User login successful,",
+                user_email = &params.email,
+            );             
+        Ok(response)
         }
         Err(_) => {
             tracing::info!(
@@ -228,6 +233,19 @@ async fn forgot_password(
     )
 }
 
+/// Renders the page shown after requesting a password reset link.
+#[debug_handler]
+async fn render_reset_email_sent_page(
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(_ctx): State<AppContext>, // May not need ctx if just rendering static page
+) -> Result<Response> {
+     format::render().view(
+        &v,
+        "auth/reset-email-sent.html",
+        data!({}),
+    )
+}
+
 #[debug_handler]
 async fn handle_forgot_password(
     ViewEngine(v): ViewEngine<TeraView>,
@@ -250,7 +268,7 @@ async fn handle_forgot_password(
                 Ok(updated_user) => {
                     // Send forgot password email
                     if let Err(e) = AuthMailer::forgot_password(&ctx, &updated_user).await {
-                        // Log error but proceed to render confirmation page
+                        // Log error but proceed to redirect
                         tracing::error!(
                             "Failed to send forgot password email to {}: {}",
                             &params.email,
@@ -261,7 +279,7 @@ async fn handle_forgot_password(
                     }
                 }
                 Err(e) => {
-                    // Log error but proceed to render confirmation page
+                    // Log error but proceed to redirect
                     tracing::error!(
                         "Failed to set forgot password token for {}: {}",
                         &params.email,
@@ -280,12 +298,12 @@ async fn handle_forgot_password(
         }
     }
 
-    // Always render the confirmation page, regardless of whether the user was found or email sent successfully.
-    format::render().view(
-        &v,
-        "auth/reset-email-sent.html",
-        data!({}),
-    )
+    // Always redirect to the confirmation page
+    // TODO: There is still someting wrong in the `auth/reset-email-sent.html` view. 
+    let response = Response::builder()
+         .header("HX-Redirect", "/auth/reset-email-sent")
+         .body(axum::body::Body::empty())?;
+    Ok(response)
 }
 
 /// Renders the reset password page
@@ -408,7 +426,9 @@ async fn handle_reset_password(
         return format::render().view(
             &v,
             "error.html",
-            data!({ "message": "New password and confirmation do not match." }),
+            data!({
+                "message": "New password and confirmation do not match."
+            }),
         );
     }
 
@@ -425,7 +445,7 @@ async fn handle_reset_password(
                     .await
                 {
                     Ok(_) => {
-                        // Redirect to login page with success message
+                        // Redirect to login page with success message using HX-Redirect
                         let response = Response::builder()
                             .header("HX-Redirect", "/auth/login?reset=success")
                             .body(axum::body::Body::empty())?;
@@ -479,6 +499,7 @@ pub fn routes() -> Routes {
         .add("/login", post(handle_login))
         .add("/forgot-password", get(forgot_password))
         .add("/forgot-password", post(handle_forgot_password))
+        .add("/reset-email-sent", get(render_reset_email_sent_page))
         .add("/reset-password/{token}", get(reset_password))
         .add("/reset-password", post(handle_reset_password))
         .add("/verify/{token}", get(verify_email))

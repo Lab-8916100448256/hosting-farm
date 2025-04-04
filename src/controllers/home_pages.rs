@@ -14,7 +14,11 @@ async fn home(
 ) -> Result<Response> {
     match auth.user {
         Some(user) => {
-            // Get pending invitations count
+            tracing::info!(
+                message = "generating home page for authenticated user,",
+                user_email = &user.email,
+            );             
+        // Get pending invitations count
             let invitations = crate::models::_entities::team_memberships::Entity::find()
                 .find_with_related(crate::models::_entities::teams::Entity)
                 .all(&ctx.db)
@@ -30,7 +34,10 @@ async fn home(
         }
         None => {
             // Render the index view, non-authenticated user parameters
-            format::render().view(&v, "home/index.html", data!({
+            tracing::info!(
+                message = "generating home page for non-authenticated user,",
+            );             
+           format::render().view(&v, "home/index.html", data!({
                 "active_page": "home"}))
         }
     }
