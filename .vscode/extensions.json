@@ -1,0 +1,10 @@
+{
+    "recommendations": [
+        "dwtexe.cursor-stats",
+        "usernamehw.errorlens",
+        "tamasfe.even-better-toml",
+        "rust-lang.rust-analyzer",
+        "specstory.specstory-vscode",
+        "karunamurti.tera"
+    ]
+}
