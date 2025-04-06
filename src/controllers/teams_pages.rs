@@ -3,13 +3,15 @@ use crate::models::_entities::teams::Entity as TeamEntity;
 use crate::models::_entities::teams::Model as TeamModel;
 use crate::models::{_entities, users};
 use crate::utils::template::render_template;
-use axum::debug_handler;
-use axum::extract::Form;
+use axum::{debug_handler, extract::Form};
+
 use loco_rs::prelude::*;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use serde_json::json;
 
 use loco_rs::controller::middleware::auth::JWT;
+
+use crate::views::error_fragment;
 
 /// Create team page
 #[debug_handler]
@@ -786,6 +788,7 @@ async fn delete_team(
 #[debug_handler]
 async fn invite_member_handler(
     auth: JWT,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
     Form(params): Form<crate::models::team_memberships::InviteMemberParams>,
@@ -798,18 +801,7 @@ async fn invite_member_handler(
 
     if !is_admin {
         // Return error message with HTMX
-        let html_response = format!(
-            "<div id='invitation-error' class='mt-2 text-sm text-red-600'>{}</div>",
-            "Only team administrators can invite members"
-        );
-
-        let response = Response::builder()
-            .header("Content-Type", "text/html")
-            .header("HX-Retarget", "#invitation-error-container")
-            .header("HX-Swap", "innerHTML")
-            .body(axum::body::Body::from(html_response))?;
-
-        return Ok(response);
+        return error_fragment(v, "Only team administrators can invite members");
     }
 
     // Find the target user by email
@@ -817,18 +809,7 @@ async fn invite_member_handler(
         Ok(user) => user,
         Err(_) => {
             // If user doesn't exist, abort with an error
-            let error_message = format!("No user found with e-mail {}", &params.email);
-            // Return error message with HTMX
-            let html_response = format!(
-                "<div id='invitation-error' class='mt-2 text-sm text-red-600'>{}</div>",
-                error_message
-            );
-            let response = Response::builder()
-                .header("Content-Type", "text/html")
-                .header("HX-Retarget", "#invitation-error-container")
-                .header("HX-Swap", "innerHTML")
-                .body(axum::body::Body::from(html_response))?;
-            return Ok(response);
+            return error_fragment(v, &format!("No user found with e-mail {}", &params.email));
         }
     };
 
@@ -849,20 +830,7 @@ async fn invite_member_handler(
         } else {
             format!("User {} is already a member of this team", params.email)
         };
-
-        // Return error message with HTMX
-        let html_response = format!(
-            "<div id='invitation-error' class='mt-2 text-sm text-red-600'>{}</div>",
-            error_message
-        );
-
-        let response = Response::builder()
-            .header("Content-Type", "text/html")
-            .header("HX-Retarget", "#invitation-error-container")
-            .header("HX-Swap", "innerHTML")
-            .body(axum::body::Body::from(html_response))?;
-
-        return Ok(response);
+        return error_fragment(v, &error_message);
     }
 
     // If we get here, the user exists but isn't a member,
@@ -889,16 +857,7 @@ async fn invite_member_handler(
                 "An internal error occured while creating the invitation {}",
                 &e
             );
-            let html_response = format!(
-                "<div id='invitation-error' class='mt-2 text-sm text-red-600'>{}</div>",
-                error_message
-            );
-            let response = Response::builder()
-                .header("Content-Type", "text/html")
-                .header("HX-Retarget", "#invitation-error-container")
-                .header("HX-Swap", "innerHTML")
-                .body(axum::body::Body::from(html_response))?;
-            return Ok(response);
+            return error_fragment(v, &error_message);
         }
     };
 
