@@ -11,12 +11,13 @@
     
     <p>Hello {{ name }},</p>
     
-    <p>You have been invited to join the team <strong>{{ team_name }}</strong>.</p>
+    <p>You have been invited by {{ other_user }} to join the team <strong>{{ team_name }}</strong>.</p>
     
-    <p>To accept this invitation, please click the button below:</p>
+    <p>To review this invitation, please click the button below</p>
+    If you do not have one already, you will need to create an account on the Hosting Farm, using the same e-mail address this message was sent to.
     
     <div style="text-align: center; margin: 30px 0;">
-        <a href="{{ invitation_url }}" style="background-color: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Accept Invitation</a>
+        <a href="{{ invitation_url }}" style="background-color: #0d6efd; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Go To Invitations</a>
     </div>
     
     <p>If you received this invitation by mistake, you can simply ignore this email.</p>
