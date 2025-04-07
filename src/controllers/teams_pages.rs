@@ -5,6 +5,7 @@ use crate::models::{_entities, users};
 use crate::utils::template::render_template;
 use crate::views::*;
 
+use axum::http::StatusCode;
 use axum::{debug_handler, extract::Form};
 use loco_rs::controller::middleware::auth::JWT;
 use loco_rs::prelude::*;
@@ -513,12 +514,11 @@ async fn accept_invitation(
     invitation_model.pending = sea_orm::ActiveValue::set(false);
     invitation_model.update(&ctx.db).await?;
 
-    // For HTMX, return a response that will replace the invitation item
+    // Remove the invitation row from the UI
     let response = Response::builder()
-    .header("Content-Type", "text/html")
-    .body(axum::body::Body::from(
-        "<div class='px-4 py-4 sm:px-6 text-center text-sm text-green-600'>Invitation accepted successfully.</div>"
-    ))?;
+        .status(StatusCode::OK)
+        .header("HX-Trigger", "updateInvitationCount")
+        .body(axum::body::Body::empty())?;
 
     Ok(response)
 }
@@ -557,12 +557,11 @@ async fn decline_invitation(
     let invitation_model: team_memberships::ActiveModel = invitation.into();
     invitation_model.delete(&ctx.db).await?;
 
-    // For HTMX, return a response that will replace the invitation item
+    // Remove the invitation row from the UI
     let response = Response::builder()
-    .header("Content-Type", "text/html")
-    .body(axum::body::Body::from(
-        "<div class='px-4 py-4 sm:px-6 text-center text-sm text-gray-600'>Invitation declined.</div>"
-    ))?;
+        .status(StatusCode::OK)
+        .header("HX-Trigger", "updateInvitationCount")
+        .body(axum::body::Body::empty())?;
 
     Ok(response)
 }

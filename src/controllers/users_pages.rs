@@ -1,11 +1,12 @@
+use crate::models::{_entities::team_memberships, _entities::teams, users};
+use crate::utils::template::render_template;
 use axum::debug_handler;
+use axum::extract::Form;
 use loco_rs::prelude::*;
-use crate::models::{users, _entities::team_memberships, _entities::teams};
+use sea_orm::PaginatorTrait;
+use serde::Deserialize;
 use serde_json::json;
 use tera;
-use crate::utils::template::render_template;
-use serde::Deserialize;
-use axum::extract::Form;
 
 type JWT = loco_rs::controller::middleware::auth::JWT;
 
@@ -26,12 +27,9 @@ pub struct UpdatePasswordParams {
 
 /// Renders the user profile page
 #[debug_handler]
-async fn profile(
-    auth: JWT,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+async fn profile(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
+
     // Get user's team memberships
     let teams = teams::Entity::find()
         .find_with_related(team_memberships::Entity)
@@ -39,14 +37,17 @@ async fn profile(
         .await?
         .into_iter()
         .filter_map(|(team, memberships)| {
-            let is_member = memberships.iter().any(|m| m.user_id == user.id && !m.pending);
+            let is_member = memberships
+                .iter()
+                .any(|m| m.user_id == user.id && !m.pending);
             if is_member {
                 // Find user's role in this team
-                let role = memberships.iter()
+                let role = memberships
+                    .iter()
                     .find(|m| m.user_id == user.id && !m.pending)
                     .map(|m| m.role.clone())
                     .unwrap_or_else(|| "Unknown".to_string());
-                
+
                 Some(json!({
                     "pid": team.pid.to_string(),
                     "name": team.name,
@@ -57,7 +58,7 @@ async fn profile(
             }
         })
         .collect::<Vec<_>>();
-    
+
     // Get pending invitations count
     let invitations = team_memberships::Entity::find()
         .find_with_related(teams::Entity)
@@ -66,24 +67,21 @@ async fn profile(
         .into_iter()
         .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
         .count();
-    
+
     let mut context = tera::Context::new();
     context.insert("user", &user);
     context.insert("teams", &teams);
     context.insert("active_page", "profile");
     context.insert("invitation_count", &invitations);
-    
+
     render_template(&ctx, "users/profile.html", context)
 }
 
 /// Renders the user invitations page
 #[debug_handler]
-async fn invitations(
-    auth: JWT,
-    State(ctx): State<AppContext>,
-) -> Result<Response> {
+async fn invitations(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
+
     // Get user's pending team invitations
     let invitations = team_memberships::Entity::find()
         .find_with_related(teams::Entity)
@@ -105,17 +103,36 @@ async fn invitations(
             }
         })
         .collect::<Vec<_>>();
-    
+
     // Get pending invitations count (same as above but just the count)
     let invitation_count = invitations.len();
-    
+
     let mut context = tera::Context::new();
     context.insert("user", &user);
     context.insert("invitations", &invitations);
     context.insert("active_page", "invitations");
     context.insert("invitation_count", &invitation_count);
-    
+
     render_template(&ctx, "users/invitations.html", context)
+}
+
+/// Returns the HTML fragment for the invitation count badge
+#[debug_handler]
+async fn get_invitation_count(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
+    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+
+    // Get pending invitations count
+    let invitation_count = team_memberships::Entity::find()
+        .filter(team_memberships::Column::UserId.eq(user.id))
+        .filter(team_memberships::Column::Pending.eq(true))
+        .count(&ctx.db)
+        .await?;
+
+    let mut context = tera::Context::new();
+    context.insert("invitation_count", &invitation_count);
+
+    // Use render_template to render the fragment
+    render_template(&ctx, "users/_invitation_count_badge.html", context)
 }
 
 /// Update user profile
@@ -126,7 +143,7 @@ async fn update_profile(
     Form(params): Form<UpdateProfileParams>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
+
     // Check if email already exists (if it changed)
     if user.email != params.email {
         let existing_user = users::Model::find_by_email(&ctx.db, &params.email).await;
@@ -134,19 +151,19 @@ async fn update_profile(
             return bad_request("Email already in use");
         }
     }
-    
+
     // Update user profile
     let mut user_model: crate::models::_entities::users::ActiveModel = user.into();
     user_model.name = sea_orm::ActiveValue::set(params.name);
     user_model.email = sea_orm::ActiveValue::set(params.email);
-    
+
     let _updated_user = user_model.update(&ctx.db).await?;
-    
+
     // Return a response that refreshes the page
     let response = Response::builder()
         .header("HX-Refresh", "true")
         .body(axum::body::Body::empty())?;
-    
+
     Ok(response)
 }
 
@@ -161,24 +178,25 @@ async fn update_password(
     if params.password != params.password_confirmation {
         return bad_request("Passwords do not match");
     }
-    
+
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    
+
     // Verify current password
     if !user.verify_password(&params.current_password) {
         return bad_request("Current password is incorrect");
     }
-    
+
     // Update password
-    let _updated_user = user.into_active_model()
+    let _updated_user = user
+        .into_active_model()
         .reset_password(&ctx.db, &params.password)
         .await?;
-    
+
     // Return a response that refreshes the page
     let response = Response::builder()
         .header("HX-Refresh", "true")
         .body(axum::body::Body::empty())?;
-    
+
     Ok(response)
 }
 
@@ -188,6 +206,7 @@ pub fn routes() -> Routes {
         .prefix("/users")
         .add("/profile", get(profile))
         .add("/invitations", get(invitations))
+        .add("/invitation_count", get(get_invitation_count))
         .add("/me", put(update_profile))
         .add("/me/password", post(update_password))
-} 
+}
