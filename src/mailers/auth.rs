@@ -27,12 +27,12 @@ impl AuthMailer {
             locals: json!({
               "name": user.name,
               "verifyToken": user.email_verification_token,
-              "domain": ctx.config.server.full_url()
+              "domain": &ctx.config.server.host,
             }),
             from: Some("test@example.com".to_string()),
             ..Default::default()
         };
-        
+
         // Set the from email to match the SMTP username if available
         if let Some(mailer_config) = &ctx.config.mailer {
             if let Some(smtp_config) = &mailer_config.smtp {
@@ -41,7 +41,7 @@ impl AuthMailer {
                 }
             }
         }
-        
+
         Self::mail_template(ctx, &welcome, args).await?;
 
         Ok(())
@@ -58,12 +58,12 @@ impl AuthMailer {
             locals: json!({
               "name": user.name,
               "resetToken": user.reset_token,
-              "domain": ctx.config.server.full_url()
+              "domain": &ctx.config.server.host,
             }),
             from: Some("test@example.com".to_string()),
             ..Default::default()
         };
-        
+
         // Set the from email to match the SMTP username if available
         if let Some(mailer_config) = &ctx.config.mailer {
             if let Some(smtp_config) = &mailer_config.smtp {
@@ -72,7 +72,7 @@ impl AuthMailer {
                 }
             }
         }
-        
+
         Self::mail_template(ctx, &forgot, args).await?;
 
         Ok(())
@@ -91,12 +91,12 @@ impl AuthMailer {
               "token": user.magic_link_token.clone().ok_or_else(|| Error::string(
                         "the user model not contains magic link token",
                 ))?,
-              "host": ctx.config.server.full_url()
+              "host": &ctx.config.server.host
             }),
             from: Some("test@example.com".to_string()),
             ..Default::default()
         };
-        
+
         // Set the from email to match the SMTP username if available
         if let Some(mailer_config) = &ctx.config.mailer {
             if let Some(smtp_config) = &mailer_config.smtp {
@@ -105,7 +105,7 @@ impl AuthMailer {
                 }
             }
         }
-        
+
         Self::mail_template(ctx, &magic_link, args).await?;
 
         Ok(())
