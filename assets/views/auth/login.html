@@ -12,15 +12,9 @@
     </div>
     {% endif %}
     
-    <form action="/auth/login" method="POST" class="space-y-6" hx-post="/auth/login" hx-target="#error-message"">
+    <form action="/auth/login" method="POST" class="space-y-6" hx-post="/auth/login" hx-target="#error-container"">
         
-        <div id="error-message">
-            {% if error %}
-            <div class=" p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg">
-                {{ error }}
-            </div>
-            {% endif %}
-        </div>
+        <div id="error-container"></div>
         
         <div>
             <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>

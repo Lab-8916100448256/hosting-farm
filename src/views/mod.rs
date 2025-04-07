@@ -7,10 +7,10 @@ use axum::http::header::HeaderValue;
 use loco_rs::prelude::*;
 
 // Build an error message fragment with HTMX headers to inject it into error container of a page
-pub fn error_fragment(v: TeraView, message: &str) -> Result<Response> {
+pub fn error_fragment(v: &TeraView, message: &str) -> Result<Response> {
     let res = format::render().view(
-        &v,
-        "error.html",
+        v,
+        "error_message.html",
         data!({
             "message": message
         }),
@@ -28,4 +28,21 @@ pub fn error_fragment(v: TeraView, message: &str) -> Result<Response> {
             Err(e)
         }
     }
+}
+
+// Build a full page with an error message
+pub fn error_page(v: &TeraView, message: &str, e: Option<Error>) -> Result<Response> {
+    let error_details = if let Some(e) = &e {
+        format!("Error details : {}", e)
+    } else {
+        "".to_string()
+    };
+    format::render().view(
+        v,
+        "error_page.html",
+        data!({
+            "error_message": message,
+            "error_details": error_details,
+        }),
+    )
 }

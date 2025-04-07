@@ -20,7 +20,7 @@ impl TeamMailer {
         let invited_email = invited_user.email.clone();
 
         // Get frontend URL from config
-        let frontend_url = &ctx.config.server.host;
+        let frontend_url = ctx.config.server.full_url();
 
         // Create the locals JSON for template rendering
         let locals = json!({

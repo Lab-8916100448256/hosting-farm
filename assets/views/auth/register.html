@@ -6,15 +6,9 @@
 <div class="max-w-md mx-auto">
     <h2 class="text-2xl font-bold text-gray-900 mb-6">Create your account</h2>
 
-    <form action="/auth/register" method="POST" class="space-y-6" hx-post="/auth/register" hx-target="#error-message"
+    <form action="/auth/register" method="POST" class="space-y-6" hx-post="/auth/register" hx-target="#error-container"
         hx-boost="true">
-        <div id="error-message">
-            {% if error %}
-            <div class="p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg">
-                {{ error }}
-            </div>
-            {% endif %}
-        </div>
+        <div id="error-container"></div>
 
         <div>
             <label for="name" class="block text-sm font-medium text-gray-700">Full name</label>
