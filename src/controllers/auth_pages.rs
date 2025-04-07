@@ -3,17 +3,16 @@ use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
     models::{
         users,
-        users::{LoginParams, RegisterParams, ForgotPasswordParams, ResetPasswordParams},
+        users::{ForgotPasswordParams, LoginParams, RegisterParams, ResetPasswordParams},
     },
     utils::template::render_template,
+    views::*,
 };
 use axum::debug_handler;
 use axum::extract::{Form, Query};
 use axum::http::HeaderMap;
-use axum::response::Redirect;
 use loco_rs::prelude::*;
 use std::collections::HashMap;
-
 
 /// Renders the registration page
 #[debug_handler]
@@ -31,11 +30,7 @@ async fn handle_register(
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
-        return format::render().view(
-            &v,
-            "error.html",
-            data!({"message": "Password and password confirmation do not match"}),
-        );
+        return error_fragment(&v, "Password and password confirmation do not match");
     }
 
     // Convert form data to RegisterParams
@@ -73,19 +68,15 @@ async fn handle_register(
             );
 
             let err_message = match err {
-                ModelError::EntityAlreadyExists => format!("Account already exists"),
-                ModelError::EntityNotFound => format!("Entity not found"),
+                ModelError::EntityAlreadyExists => "Account already exists".to_string(),
+                ModelError::EntityNotFound => "Entity not found".to_string(),
                 ModelError::Validation(err) => format!("Validation error: {}", err),
                 ModelError::Jwt(err) => format!("JWT error: {}", err),
                 ModelError::DbErr(err) => format!("Database error: {}", err),
                 ModelError::Any(err) => format!("{}", err),
-                ModelError::Message(err) => format!("{}", err),
+                ModelError::Message(msg) => msg,
             };
-            format::render().view(
-                &v,
-                "error.html",
-                data!({"message": format!("Could not register account: {}", err_message)}),
-            )
+            error_fragment(&v, &format!("Could not register account: {}", err_message))
         }
     }
 }
@@ -102,10 +93,11 @@ async fn login(
     match auth.user {
         Some(_user) => {
             // User is already authenticated, redirect to home
+            tracing::info!("User is already authenticated, redirecting to home");
             let response = Response::builder()
                 .header("HX-Redirect", "/home")
                 .body(axum::body::Body::empty())?;
-            return Ok(response);
+            Ok(response)
         }
         None => {
             let registered = params.get("registered") == Some(&"true".to_string());
@@ -114,8 +106,8 @@ async fn login(
             if let Some(cookie_header) = headers.get("cookie").and_then(|h| h.to_str().ok()) {
                 // Check if user has a "remember me" cookie
                 for cookie in cookie_header.split(';').map(|s| s.trim()) {
-                    if cookie.starts_with("remembered_email=") {
-                        email = &cookie["remembered_email=".len()..];
+                    if let Some(remembered_email) = cookie.strip_prefix("remembered_email=") {
+                        email = remembered_email;
                         break;
                     }
                 }
@@ -157,12 +149,8 @@ async fn handle_login(
                 tracing::info!(
                     message = "Invalid password in login attempt,",
                     user_email = &params.email,
-                );             
-                return format::render().view(
-                    &v,
-                    "error.html",
-                    data!({"message": "Log in failed: Invalid email or password"})
                 );
+                return error_fragment(&v, "Log in failed: Invalid email or password");
             };
 
             let jwt_secret = ctx.config.get_jwt_config()?;
@@ -175,11 +163,7 @@ async fn handle_login(
                         user_email = &params.email,
                         error = err.to_string(),
                     );
-                    return format::render().view(
-                        &v,
-                        "error.html",
-                        data!({"message": "Log in failed: Failed to generate JWT token"})
-                    );                    
+                    return error_fragment(&v, "Log in failed: Failed to generate JWT token");
                 }
             };
 
@@ -201,21 +185,15 @@ async fn handle_login(
             tracing::info!(
                 message = "User login successful,",
                 user_email = &params.email,
-            );             
-        Ok(response)
+            );
+            Ok(response)
         }
         Err(_) => {
             tracing::info!(
                 message = "Unknown user login attempt,",
                 user_email = &params.email,
             );
-            format::render().view(
-                &v,
-                "error.html",
-                data!({
-                "message": "Log in failed: Invalid email or password", 
-                "email": &params.email}),
-            )
+            error_fragment(&v, "Log in failed: Invalid email or password")
         }
     }
 }
@@ -226,11 +204,7 @@ async fn forgot_password(
     ViewEngine(v): ViewEngine<TeraView>,
     State(_ctx): State<AppContext>,
 ) -> Result<Response> {
-    format::render().view(
-        &v,
-        "auth/forgot-password.html",
-        data!({}),
-    )
+    format::render().view(&v, "auth/forgot-password.html", data!({}))
 }
 
 /// Renders the page shown after requesting a password reset link.
@@ -239,16 +213,11 @@ async fn render_reset_email_sent_page(
     ViewEngine(v): ViewEngine<TeraView>,
     State(_ctx): State<AppContext>, // May not need ctx if just rendering static page
 ) -> Result<Response> {
-     format::render().view(
-        &v,
-        "auth/reset-email-sent.html",
-        data!({}),
-    )
+    format::render().view(&v, "auth/reset-email-sent.html", data!({}))
 }
 
 #[debug_handler]
 async fn handle_forgot_password(
-    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     Form(form): Form<ForgotPasswordParams>,
 ) -> Result<Response> {
@@ -275,7 +244,7 @@ async fn handle_forgot_password(
                             e
                         );
                     } else {
-                         tracing::info!("Forgot password email sent to {}", &params.email);
+                        tracing::info!("Forgot password email sent to {}", &params.email);
                     }
                 }
                 Err(e) => {
@@ -290,19 +259,26 @@ async fn handle_forgot_password(
         }
         Err(ModelError::EntityNotFound) => {
             // User not found, log but proceed as if successful to prevent email enumeration
-             tracing::info!("Forgot password attempt for non-existent user: {}", &params.email);
+            tracing::info!(
+                "Forgot password attempt for non-existent user: {}",
+                &params.email
+            );
         }
         Err(e) => {
             // Other DB error, log but proceed
-            tracing::error!("Database error during forgot password for {}: {}", &params.email, e);
+            tracing::error!(
+                "Database error during forgot password for {}: {}",
+                &params.email,
+                e
+            );
         }
     }
 
     // Always redirect to the confirmation page
-    // TODO: There is still someting wrong in the `auth/reset-email-sent.html` view. 
+    // TODO: There is still someting wrong in the `auth/reset-email-sent.html` view.
     let response = Response::builder()
-         .header("HX-Redirect", "/auth/reset-email-sent")
-         .body(axum::body::Body::empty())?;
+        .header("HX-Redirect", "/auth/reset-email-sent")
+        .body(axum::body::Body::empty())?;
     Ok(response)
 }
 
@@ -320,9 +296,9 @@ async fn reset_password(
             // Assuming the find_by_reset_token implicitly checks validity or that validity check happens on POST.
             // For now, just render the form if the token leads to a user.
             if user.reset_token.is_some() && user.reset_sent_at.is_some() {
-                 // Optional: Add explicit time validation if needed
-                 // let expiry_duration = Duration::hours(1); // Example: 1 hour validity
-                 // if user.reset_sent_at.unwrap() + expiry_duration < chrono::Utc::now().naive_utc() { ... handle expired ... }
+                // Optional: Add explicit time validation if needed
+                // let expiry_duration = Duration::hours(1); // Example: 1 hour validity
+                // if user.reset_sent_at.unwrap() + expiry_duration < chrono::Utc::now().naive_utc() { ... handle expired ... }
 
                 format::render().view(
                     &v,
@@ -331,7 +307,7 @@ async fn reset_password(
                 )
             } else {
                 // Token exists but seems invalid (e.g., already used)
-                 format::render().view(
+                format::render().view(
                     &v,
                     "auth/reset-password.html",
                     data!({ "error": "Invalid or expired reset link." }), // Pass only error when invalid
@@ -362,38 +338,36 @@ async fn verify_email(
         Ok(user) => {
             if user.email_verified_at.is_some() {
                 tracing::info!(pid = user.pid.to_string(), "user already verified");
-                return format::render().view(
+                format::render().view(
                     &v,
                     "auth/verify.html",
                     data!({
                         "success": true,
                         "message": "Your email has already been verified.",
                     }),
-                );
+                )
             } else {
                 let active_model = user.into_active_model();
                 let _user = active_model.verified(&ctx.db).await?;
                 tracing::info!(pid = _user.pid.to_string(), "user verified");
-                return format::render().view(
+                format::render().view(
                     &v,
                     "auth/verify.html",
                     data!({
                         "success": true,
-                        "message": "Your email has been verified.",
+                        "message": "Your email is now verified.",
                     }),
-                );
+                )
             }
         }
-        Err(_) => {
-            return format::render().view(
-                &v,
-                "auth/verify.html",
-                data!({
-                    "success": false,
-                    "message": "Invalid or expired verification token.",
-                }),
-            );
-        }
+        Err(_) => format::render().view(
+            &v,
+            "auth/verify.html",
+            data!({
+                "success": false,
+                "message": "Invalid or expired verification token.",
+            }),
+        ),
     }
 }
 
@@ -423,13 +397,7 @@ async fn handle_reset_password(
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
-        return format::render().view(
-            &v,
-            "error.html",
-            data!({
-                "message": "New password and confirmation do not match."
-            }),
-        );
+        return error_fragment(&v, "New password and confirmation do not match.");
     }
 
     // Find user by reset token
@@ -437,7 +405,6 @@ async fn handle_reset_password(
         Ok(user) => {
             // Check if token is actually associated with this user and potentially check expiry
             if user.reset_token.as_deref() == Some(&form.token) && user.reset_sent_at.is_some() {
-                
                 // Use the reset_password method on ActiveModel
                 match user
                     .into_active_model()
@@ -454,37 +421,20 @@ async fn handle_reset_password(
                     Err(e) => {
                         tracing::error!(
                             "Failed to update password for token {}: {}",
-                            &form.token, e
+                            &form.token,
+                            e
                         );
-                        format::render().view(
-                            &v,
-                            "error.html",
-                            data!({
-                                "message": "Failed to reset password. Please try again."
-                            }),
-                        )
+                        error_fragment(&v, "Failed to reset password. Please try again.")
                     }
                 }
             } else {
                 // Token mismatch or already cleared - treat as invalid
-                format::render().view(
-                    &v,
-                    "error.html",
-                    data!({
-                        "message": "Invalid or expired password reset link."
-                    }),
-                )
+                error_fragment(&v, "Invalid or expired password reset link.")
             }
         }
         Err(_) => {
             // User not found for the token
-            format::render().view(
-                &v,
-                "error.html",
-                data!({
-                    "message": "Invalid or expired password reset link."
-                }),
-            )
+            error_fragment(&v, "Invalid or expired password reset link.")
         }
     }
 }

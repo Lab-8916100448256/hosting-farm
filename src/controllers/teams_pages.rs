@@ -1,13 +1,15 @@
+use crate::models::_entities::team_memberships;
+use crate::models::_entities::teams::Entity as TeamEntity;
 use crate::models::_entities::teams::Model as TeamModel;
 use crate::models::{_entities, users};
 use crate::utils::template::render_template;
-use axum::debug_handler;
-use axum::extract::Form;
+use crate::views::*;
+
+use axum::{debug_handler, extract::Form};
+use loco_rs::controller::middleware::auth::JWT;
 use loco_rs::prelude::*;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use serde_json::json;
-
-type JWT = loco_rs::controller::middleware::auth::JWT;
 
 /// Create team page
 #[debug_handler]
@@ -15,7 +17,7 @@ async fn create_team_page(auth: JWT, State(ctx): State<AppContext>) -> Result<Re
     match users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
         Ok(user) => {
             // Get pending invitations count
-            let invitations = _entities::team_memberships::Entity::find()
+            let invitations = team_memberships::Entity::find()
                 .find_with_related(_entities::teams::Entity)
                 .all(&ctx.db)
                 .await?
@@ -56,7 +58,7 @@ async fn list_teams(auth: JWT, State(ctx): State<AppContext>) -> Result<Response
         Ok(user) => {
             // Get all teams where the user is a member
             let teams_result = _entities::teams::Entity::find()
-                .find_with_related(_entities::team_memberships::Entity)
+                .find_with_related(team_memberships::Entity)
                 .all(&ctx.db)
                 .await?
                 .into_iter()
@@ -85,7 +87,7 @@ async fn list_teams(auth: JWT, State(ctx): State<AppContext>) -> Result<Response
                 .collect::<Vec<_>>();
 
             // Get pending invitations count
-            let invitations = _entities::team_memberships::Entity::find()
+            let invitations = team_memberships::Entity::find()
                 .find_with_related(_entities::teams::Entity)
                 .all(&ctx.db)
                 .await?
@@ -123,6 +125,7 @@ async fn list_teams(auth: JWT, State(ctx): State<AppContext>) -> Result<Response
 /// Team details page
 #[debug_handler]
 async fn team_details(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
@@ -136,20 +139,29 @@ async fn team_details(
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
-            return Err(Error::string("Team not found"));
+            return error_page(&v, "Team not found", None);
         }
     };
 
     // Check if user is a member of this team
-    let membership = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let membership = team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(user.id))
+        .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
         .await?;
 
     if membership.is_none() {
-        return unauthorized("You are not a member of this team");
+        tracing::error!(
+            "Access to team {} by unauthorized user: {:?}",
+            team.name,
+            user
+        );
+        return error_page(
+            &v,
+            "You are not authorized to view this team because you are not one of its members",
+            None,
+        );
     }
 
     // Check if user is an admin or owner
@@ -160,9 +172,9 @@ async fn team_details(
     };
 
     // Get team members (non-pending)
-    let memberships = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let memberships = team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::Pending.eq(false))
         .all(&ctx.db)
         .await?;
 
@@ -186,9 +198,9 @@ async fn team_details(
 
     // Get pending invitations for this team
     if is_admin {
-        let pending_memberships = _entities::team_memberships::Entity::find()
-            .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-            .filter(_entities::team_memberships::Column::Pending.eq(true))
+        let pending_memberships = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(team.id))
+            .filter(team_memberships::Column::Pending.eq(true))
             .all(&ctx.db)
             .await?;
 
@@ -212,8 +224,8 @@ async fn team_details(
     }
 
     // Get pending invitations count for current user
-    let invitations = _entities::team_memberships::Entity::find()
-        .find_with_related(_entities::teams::Entity)
+    let invitations = team_memberships::Entity::find()
+        .find_with_related(TeamEntity)
         .all(&ctx.db)
         .await?
         .into_iter()
@@ -241,6 +253,7 @@ async fn team_details(
 /// Invite member page
 #[debug_handler]
 async fn invite_member_page(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
@@ -254,28 +267,28 @@ async fn invite_member_page(
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
-            return Err(Error::string("Team not found"));
+            return error_page(&v, "Team not found", None);
         }
     };
 
     // Check if user is an administrator of this team
-    let membership = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let membership = team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(user.id))
+        .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
         .await?;
 
     if let Some(membership) = membership {
         if membership.role != "Owner" && membership.role != "Administrator" {
-            return unauthorized("Only team administrators can invite members");
+            return error_fragment(&v, "Only team administrators can invite members");
         }
     } else {
-        return unauthorized("You are not a member of this team");
+        return error_fragment(&v, "You are not a member of this team");
     }
 
     // Get pending invitations count
-    let invitations = _entities::team_memberships::Entity::find()
+    let invitations = team_memberships::Entity::find()
         .find_with_related(_entities::teams::Entity)
         .all(&ctx.db)
         .await?
@@ -301,6 +314,7 @@ async fn invite_member_page(
 /// Edit team page
 #[debug_handler]
 async fn edit_team_page(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
@@ -314,28 +328,28 @@ async fn edit_team_page(
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
-            return Err(Error::string("Team not found"));
+            return error_page(&v, "Team not found", None);
         }
     };
 
     // Check if user is an owner of this team
-    let membership = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let membership = team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(user.id))
+        .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
         .await?;
 
     if let Some(membership) = membership {
         if membership.role != "Owner" {
-            return unauthorized("Only team owners can edit team details");
+            return error_page(&v, "Only team owners can edit team details", None);
         }
     } else {
-        return unauthorized("You are not a member of this team");
+        return error_page(&v, "You are not a member of this team", None);
     }
 
     // Get pending invitations count
-    let invitations = _entities::team_memberships::Entity::find()
+    let invitations = team_memberships::Entity::find()
         .find_with_related(_entities::teams::Entity)
         .all(&ctx.db)
         .await?
@@ -362,6 +376,7 @@ async fn edit_team_page(
 /// Handle team creation form submission
 #[debug_handler]
 async fn create_team_handler(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Form(params): Form<crate::models::teams::CreateTeamParams>,
@@ -382,7 +397,7 @@ async fn create_team_handler(
         }
         Err(e) => {
             tracing::error!("Failed to create team: {:?}", e);
-            return Err(Error::string(&format!("Failed to create team: {}", e)));
+            return error_fragment(&v, &format!("Failed to create team: {}", e));
         }
     };
 
@@ -393,6 +408,10 @@ async fn create_team_handler(
         }
         Err(e) => {
             tracing::error!("Team verification failed after creation: {:?}", e);
+            return error_fragment(
+                &v,
+                &format!("Team verification failed after creation: {}", e),
+            );
         }
     }
 
@@ -410,6 +429,7 @@ async fn create_team_handler(
 /// Handle team edit form submission
 #[debug_handler]
 async fn update_team_handler(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
@@ -424,24 +444,24 @@ async fn update_team_handler(
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
-            return Err(Error::string("Team not found"));
+            return error_fragment(&v, "Team not found");
         }
     };
 
     // Check if user is an owner of this team
-    let membership = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let membership = team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(user.id))
+        .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
         .await?;
 
     if let Some(membership) = membership {
         if membership.role != "Owner" {
-            return unauthorized("Only team owners can edit team details");
+            return error_fragment(&v, "Only team owners can edit team details");
         }
     } else {
-        return unauthorized("You are not a member of this team");
+        return error_fragment(&v, "You are not a member of this team");
     }
 
     // Update the team
@@ -461,6 +481,7 @@ async fn update_team_handler(
 /// Accept a team invitation
 #[debug_handler]
 async fn accept_invitation(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
@@ -468,27 +489,36 @@ async fn accept_invitation(
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
 
     // Find invitation by token
-    let invitation = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::InvitationToken.eq(token.clone()))
+    let invitation = match team_memberships::Entity::find()
+        .filter(team_memberships::Column::InvitationToken.eq(token.clone()))
         .one(&ctx.db)
-        .await?
-        .ok_or_else(|| Error::string("Invitation not found"))?;
+        .await
+    {
+        Ok(value) => match value {
+            Some(invitation) => invitation,
+            None => return error_page(&v, "Invitation not found", None),
+        },
+        Err(err) => {
+            tracing::error!("Failed to find invitation: {:?}", err);
+            return error_page(&v, "Database error while searching for invitation", None);
+        }
+    };
 
     if invitation.user_id != user.id {
-        return unauthorized("This invitation is not for you");
+        return error_page(&v, "This invitation is not for you", None);
     }
 
     // Accept invitation
-    let mut invitation_model: _entities::team_memberships::ActiveModel = invitation.into();
+    let mut invitation_model: team_memberships::ActiveModel = invitation.into();
     invitation_model.pending = sea_orm::ActiveValue::set(false);
     invitation_model.update(&ctx.db).await?;
 
     // For HTMX, return a response that will replace the invitation item
     let response = Response::builder()
-        .header("Content-Type", "text/html")
-        .body(axum::body::Body::from(
-            "<div class='px-4 py-4 sm:px-6 text-center text-sm text-green-600'>Invitation accepted successfully.</div>"
-        ))?;
+    .header("Content-Type", "text/html")
+    .body(axum::body::Body::from(
+        "<div class='px-4 py-4 sm:px-6 text-center text-sm text-green-600'>Invitation accepted successfully.</div>"
+    ))?;
 
     Ok(response)
 }
@@ -496,6 +526,7 @@ async fn accept_invitation(
 /// Decline a team invitation
 #[debug_handler]
 async fn decline_invitation(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
@@ -503,26 +534,35 @@ async fn decline_invitation(
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
 
     // Find invitation by token
-    let invitation = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::InvitationToken.eq(token.clone()))
+    let invitation = match team_memberships::Entity::find()
+        .filter(team_memberships::Column::InvitationToken.eq(token.clone()))
         .one(&ctx.db)
-        .await?
-        .ok_or_else(|| Error::string("Invitation not found"))?;
+        .await
+    {
+        Ok(value) => match value {
+            Some(invitation) => invitation,
+            None => return error_page(&v, "Invitation not found", None),
+        },
+        Err(err) => {
+            tracing::error!("Failed to find invitation: {:?}", err);
+            return error_page(&v, "Database error while searching for invitation", None);
+        }
+    };
 
     if invitation.user_id != user.id {
-        return unauthorized("This invitation is not for you");
+        return error_page(&v, "This invitation is not for you", None);
     }
 
     // Decline invitation - delete the invitation
-    let invitation_model: _entities::team_memberships::ActiveModel = invitation.into();
+    let invitation_model: team_memberships::ActiveModel = invitation.into();
     invitation_model.delete(&ctx.db).await?;
 
     // For HTMX, return a response that will replace the invitation item
     let response = Response::builder()
-        .header("Content-Type", "text/html")
-        .body(axum::body::Body::from(
-            "<div class='px-4 py-4 sm:px-6 text-center text-sm text-gray-600'>Invitation declined.</div>"
-        ))?;
+    .header("Content-Type", "text/html")
+    .body(axum::body::Body::from(
+        "<div class='px-4 py-4 sm:px-6 text-center text-sm text-gray-600'>Invitation declined.</div>"
+    ))?;
 
     Ok(response)
 }
@@ -530,6 +570,7 @@ async fn decline_invitation(
 /// Cancel a team invitation (by admin or owner)
 #[debug_handler]
 async fn cancel_invitation(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path((team_pid, token)): Path<(String, String)>,
@@ -547,15 +588,15 @@ async fn cancel_invitation(
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
-            return Err(Error::string("Team not found"));
+            return error_fragment(&v, "Team not found");
         }
     };
 
     // Check if user is an admin or owner of this team
-    let membership = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let membership = team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(user.id))
+        .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
         .await?;
 
@@ -566,17 +607,26 @@ async fn cancel_invitation(
     };
 
     if !is_admin {
-        return unauthorized("Only team administrators can cancel invitations");
+        return error_fragment(&v, "Only team administrators can cancel invitations");
     }
 
     // Find invitation by token and team ID
-    let invitation = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::InvitationToken.eq(token.clone()))
-        .filter(_entities::team_memberships::Column::Pending.eq(true))
+    let invitation = match team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::InvitationToken.eq(token.clone()))
+        .filter(team_memberships::Column::Pending.eq(true))
         .one(&ctx.db)
-        .await?
-        .ok_or_else(|| Error::string("Invitation not found"))?;
+        .await
+    {
+        Ok(value) => match value {
+            Some(invitation) => invitation,
+            None => return error_fragment(&v, "Invitation not found"),
+        },
+        Err(err) => {
+            tracing::error!("Failed to find invitation: {:?}", err);
+            return error_fragment(&v, "Database error while searching for invitation");
+        }
+    };
 
     tracing::info!(
         "Found invitation for user_id: {}, preparing to delete",
@@ -584,7 +634,7 @@ async fn cancel_invitation(
     );
 
     // Cancel invitation - delete the membership
-    let invitation_model: _entities::team_memberships::ActiveModel = invitation.into();
+    let invitation_model: team_memberships::ActiveModel = invitation.into();
     invitation_model.delete(&ctx.db).await?;
 
     tracing::info!("Invitation cancelled successfully");
@@ -603,6 +653,7 @@ async fn cancel_invitation(
 /// Update a team member's role
 #[debug_handler]
 async fn update_member_role(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path((team_pid, user_pid)): Path<(String, String)>,
@@ -614,51 +665,63 @@ async fn update_member_role(
 
     // Validate role
     if !crate::models::team_memberships::VALID_ROLES.contains(&params.role.as_str()) {
-        return bad_request(&format!(
-            "Invalid role. Valid roles are: {:?}",
-            crate::models::team_memberships::VALID_ROLES
-        ));
+        return error_fragment(
+            &v,
+            &format!(
+                "Invalid role. Valid roles are: {:?}",
+                crate::models::team_memberships::VALID_ROLES
+            ),
+        );
     }
 
     // Check if current user is an owner of this team
-    let is_owner = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(current_user.id))
-        .filter(_entities::team_memberships::Column::Role.eq("Owner"))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let is_owner = team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(current_user.id))
+        .filter(team_memberships::Column::Role.eq("Owner"))
+        .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
         .await?
         .is_some();
 
     if !is_owner {
-        return unauthorized("Only team owners can update member roles");
+        return error_fragment(&v, "Only team owners can update member roles");
     }
 
     // Get membership
-    let membership = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(target_user.id))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let membership = match team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(target_user.id))
+        .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?
-        .ok_or_else(|| Error::string("User is not a member of this team"))?;
+        .await
+    {
+        Ok(value) => match value {
+            Some(membership) => membership,
+            None => return error_fragment(&v, "User is not a member of this team"),
+        },
+        Err(err) => {
+            tracing::error!("Failed to find membership: {:?}", err);
+            return error_fragment(&v, "Database error while searching for membership");
+        }
+    };
 
     // Cannot change owner's role if there's only one owner
     if membership.role == "Owner" && params.role != "Owner" {
-        let owners_count = _entities::team_memberships::Entity::find()
-            .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-            .filter(_entities::team_memberships::Column::Role.eq("Owner"))
-            .filter(_entities::team_memberships::Column::Pending.eq(false))
+        let owners_count = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(team.id))
+            .filter(team_memberships::Column::Role.eq("Owner"))
+            .filter(team_memberships::Column::Pending.eq(false))
             .count(&ctx.db)
             .await?;
 
         if owners_count <= 1 {
-            return bad_request("Cannot change the role of the last owner");
+            return error_fragment(&v, "Cannot change the role of the last owner");
         }
     }
 
     // Update role
-    let mut membership_model: _entities::team_memberships::ActiveModel = membership.into();
+    let mut membership_model: team_memberships::ActiveModel = membership.into();
     membership_model.role = sea_orm::ActiveValue::set(params.role);
     membership_model.update(&ctx.db).await?;
 
@@ -673,6 +736,7 @@ async fn update_member_role(
 /// Remove a team member
 #[debug_handler]
 async fn remove_member(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path((team_pid, user_pid)): Path<(String, String)>,
@@ -683,26 +747,48 @@ async fn remove_member(
 
     // Cannot remove yourself - use leave_team for that
     if current_user.id == target_user.id {
-        return bad_request("Cannot remove yourself from a team. Use leave_team instead.");
+        return error_page(
+            &v,
+            "Cannot remove yourself from a team. Use leave_team instead.",
+            None,
+        );
     }
 
     // Get target user's membership
-    let target_membership = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(target_user.id))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let target_membership = match team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(target_user.id))
+        .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?
-        .ok_or_else(|| Error::string("User is not a member of this team"))?;
+        .await
+    {
+        Ok(value) => match value {
+            Some(membership) => membership,
+            None => return error_page(&v, "User is not a member of this team", None),
+        },
+        Err(err) => {
+            tracing::error!("Failed to find membership: {:?}", err);
+            return error_page(&v, "Database error while searching for membership", None);
+        }
+    };
 
     // Check permissions
-    let current_user_membership = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(current_user.id))
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
+    let current_user_membership = match team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(current_user.id))
+        .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?
-        .ok_or_else(|| Error::string("You are not a member of this team"))?;
+        .await
+    {
+        Ok(value) => match value {
+            Some(membership) => membership,
+            None => return error_page(&v, "You are not a member of this team", None),
+        },
+        Err(err) => {
+            tracing::error!("Failed to find membership: {:?}", err);
+            return error_page(&v, "Database error while searching for membership", None);
+        }
+    };
 
     let current_user_is_owner = current_user_membership.role == "Owner";
     let current_user_is_admin =
@@ -710,37 +796,40 @@ async fn remove_member(
 
     // Cannot remove an owner unless you're an owner
     if target_membership.role == "Owner" && !current_user_is_owner {
-        return unauthorized("Only team owners can remove another owner");
+        return error_page(&v, "Only team owners can remove another owner", None);
     }
 
     // Cannot remove an admin unless you're an owner
     if target_membership.role == "Administrator" && !current_user_is_owner {
-        return unauthorized("Only team owners can remove an administrator");
+        return error_page(&v, "Only team owners can remove an administrator", None);
     }
 
     // Cannot remove a developer/observer unless you're an admin or owner
     if !current_user_is_admin {
-        return unauthorized("Only team administrators and owners can remove members");
+        return error_page(
+            &v,
+            "Only team administrators and owners can remove members",
+            None,
+        );
     }
 
     // Special case: Prevent removing the last owner
     if target_membership.role == "Owner" {
         // Count owners
-        let owner_count = _entities::team_memberships::Entity::find()
-            .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-            .filter(_entities::team_memberships::Column::Role.eq("Owner"))
-            .filter(_entities::team_memberships::Column::Pending.eq(false))
+        let owner_count = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(team.id))
+            .filter(team_memberships::Column::Role.eq("Owner"))
+            .filter(team_memberships::Column::Pending.eq(false))
             .count(&ctx.db)
             .await?;
 
         if owner_count <= 1 {
-            return bad_request("Cannot remove the last owner");
+            return error_page(&v, "Cannot remove the last owner", None);
         }
     }
 
     // Remove the member
-    let target_membership_model: _entities::team_memberships::ActiveModel =
-        target_membership.into();
+    let target_membership_model: team_memberships::ActiveModel = target_membership.into();
     target_membership_model.delete(&ctx.db).await?;
 
     // Return a response that refreshes the page
@@ -754,6 +843,7 @@ async fn remove_member(
 /// Delete a team
 #[debug_handler]
 async fn delete_team(
+    ViewEngine(v): ViewEngine<TeraView>,
     auth: JWT,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
@@ -764,7 +854,7 @@ async fn delete_team(
     // Check if user is an owner of this team
     let is_owner = team.has_role(&ctx.db, user.id, "Owner").await?;
     if !is_owner {
-        return unauthorized("Only team owners can delete a team");
+        return error_page(&v, "Only team owners can delete a team", None);
     }
 
     // Delete the team
@@ -785,72 +875,41 @@ async fn delete_team(
 #[debug_handler]
 async fn invite_member_handler(
     auth: JWT,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
     Form(params): Form<crate::models::team_memberships::InviteMemberParams>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
+            return error_fragment(&v, "Team not found");
+        }
+    };
 
     // Check if user is an admin of this team
-    let is_admin = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(user.id))
-        .filter(
-            _entities::team_memberships::Column::Role
-                .eq("Owner")
-                .or(_entities::team_memberships::Column::Role.eq("Administrator")),
-        )
-        .filter(_entities::team_memberships::Column::Pending.eq(false))
-        .one(&ctx.db)
-        .await?
-        .is_some();
+    let is_admin = team.has_role(&ctx.db, user.id, "Administrator").await?;
 
     if !is_admin {
-        return unauthorized("Only team administrators can invite members");
+        // Return error message with HTMX
+        return error_fragment(&v, "Only team administrators can invite members");
     }
 
-    // Find the user by email
+    // Find the target user by email
     let target_user = match users::Model::find_by_email(&ctx.db, &params.email).await {
         Ok(user) => user,
         Err(_) => {
-            // If user doesn't exist, proceed with invitation as normal
-            // Create invitation
-            let invitation = _entities::team_memberships::Model::create_invitation(
-                &ctx.db,
-                team.id,
-                &params.email,
-            )
-            .await?;
-
-            // Find the invited user
-            let invited_user = users::Model::find_by_id(&ctx.db, invitation.user_id).await?;
-
-            // Send invitation email using the TeamMailer
-            crate::mailers::team::TeamMailer::send_invitation(
-                &ctx,
-                &invited_user,
-                &team,
-                &invitation,
-            )
-            .await?;
-
-            // Redirect back to the team page
-            let redirect_url = format!("/teams/{}", team_pid);
-            tracing::info!("Redirecting to: {}", redirect_url);
-            let response = Response::builder()
-                // TODO: Use HX-Location instead of HX-Redirect
-                .header("HX-Redirect", redirect_url)
-                .body(axum::body::Body::empty())?;
-
-            return Ok(response);
+            // If user doesn't exist, abort with an error
+            return error_fragment(&v, &format!("No user found with e-mail {}", &params.email));
         }
     };
 
     // Check if user is already a member or has a pending invitation
-    let existing_membership = _entities::team_memberships::Entity::find()
-        .filter(_entities::team_memberships::Column::TeamId.eq(team.id))
-        .filter(_entities::team_memberships::Column::UserId.eq(target_user.id))
+    let existing_membership = team_memberships::Entity::find()
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .filter(team_memberships::Column::UserId.eq(target_user.id))
         .one(&ctx.db)
         .await?;
 
@@ -864,36 +923,45 @@ async fn invite_member_handler(
         } else {
             format!("User {} is already a member of this team", params.email)
         };
-
-        // Return error message with HTMX
-        let html_response = format!(
-            "<div id='invitation-error' class='mt-2 text-sm text-red-600'>{}</div>",
-            error_message
-        );
-
-        let response = Response::builder()
-            .header("Content-Type", "text/html")
-            .header("HX-Retarget", "#invitation-error-container")
-            .header("HX-Swap", "innerHTML")
-            .body(axum::body::Body::from(html_response))?;
-
-        return Ok(response);
+        return error_fragment(&v, &error_message);
     }
 
-    // If we get here, the user exists but isn't a member, so create invitation
-    let invitation =
-        _entities::team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email)
-            .await?;
+    // If we get here, the user exists but isn't a member,
+    // so, proceed with inviting to the team
 
-    // Send invitation email using the TeamMailer
-    crate::mailers::team::TeamMailer::send_invitation(&ctx, &target_user, &team, &invitation)
-        .await?;
+    // Create invitation entity
+    /*let invitation =*/
+    match team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await {
+        Ok(invit) => invit,
+        Err(e) => {
+            // Something terribly wrong happened, abort with an error message
+
+            // First log the error
+            let message = "Failed to create a team invitation entity";
+            tracing::error!(
+                error = e.to_string(),
+                team_id = team.id,
+                target_user = &params.email,
+                message
+            );
+
+            // then return an error message with HTMX to the front-end
+            let error_message = format!(
+                "An internal error occured while creating the invitation {}",
+                &e
+            );
+            return error_fragment(&v, &error_message);
+        }
+    };
+
+    // Send notification e_mail to target user
+    crate::mailers::team::TeamMailer::send_invitation(&ctx, &user, &target_user, &team).await?;
 
     // Redirect back to the team page
     let redirect_url = format!("/teams/{}", team_pid);
     tracing::info!("Redirecting to: {}", redirect_url);
     let response = Response::builder()
-        // TODO: Use HX-Location instead of HX-Redirect
+        // TODO: Use HX-Location instead of HX-Redirect?
         .header("HX-Redirect", redirect_url)
         .body(axum::body::Body::empty())?;
 
