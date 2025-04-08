@@ -2,6 +2,7 @@ use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
     models::{_entities::team_memberships, _entities::teams, users},
     utils::template::render_template,
+    views::htmx_redirect,
 };
 use axum::debug_handler;
 use axum::extract::Form;
@@ -139,11 +140,7 @@ async fn get_invitation_count(
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
     if auth.user.is_none() {
-        // For this fragment endpoint, returning an empty response or a specific
-        // "logged out" fragment might be better than a full page redirect,
-        // but a redirect is consistent with the other pages for now.
-        // Alternatively, could return an empty count or an error fragment.
-        return Ok(Redirect::to("/auth/login").into_response());
+        return htmx_redirect("/auth/login");
     }
     let user = auth.user.unwrap(); // User is guaranteed to be Some here
 
@@ -169,10 +166,7 @@ async fn update_profile(
     Form(params): Form<UpdateProfileParams>,
 ) -> Result<Response> {
     if auth.user.is_none() {
-        // Redirect to login if not authenticated
-        // For POST/PUT, redirecting might lose form data. A 401 Unauthorized
-        // might be more appropriate, but redirect follows the pattern.
-        return Ok(Redirect::to("/auth/login").into_response());
+        return htmx_redirect("/auth/login");
     }
     let user = auth.user.unwrap(); // User is guaranteed to be Some here
 
@@ -207,8 +201,7 @@ async fn update_password(
     Form(params): Form<UpdatePasswordParams>,
 ) -> Result<Response> {
     if auth.user.is_none() {
-        // Redirect to login if not authenticated
-        return Ok(Redirect::to("/auth/login").into_response());
+        return htmx_redirect("/auth/login");
     }
     let user = auth.user.unwrap(); // User is guaranteed to be Some here
 

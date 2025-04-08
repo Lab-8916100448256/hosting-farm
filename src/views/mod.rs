@@ -46,3 +46,20 @@ pub fn error_page(v: &TeraView, message: &str, e: Option<Error>) -> Result<Respo
         }),
     )
 }
+
+pub fn htmx_redirect(url: &str) -> Result<Response> {
+    tracing::info!("Redirecting to: {}", url);
+    let response = match Response::builder()
+        // TODO: Use HX-Location instead of HX-Redirect
+        .header("HX-Redirect", url)
+        .body(axum::body::Body::empty())
+    {
+        Ok(response) => response,
+        Err(e) => {
+            tracing::error!("Failed to create redirect response: {}", e);
+            return Err(e.into());
+        }
+    };
+
+    Ok(response)
+}
