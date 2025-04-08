@@ -1,141 +1,128 @@
-use crate::models::_entities::team_memberships;
-use crate::models::_entities::teams::Entity as TeamEntity;
-use crate::models::_entities::teams::Model as TeamModel;
-use crate::models::{_entities, users};
-use crate::utils::template::render_template;
-use crate::views::*;
-
-use axum::{debug_handler, extract::Form};
-use loco_rs::controller::middleware::auth::JWT;
-use loco_rs::prelude::*;
+use crate::{
+    middleware::auth_no_error::JWTWithUserOpt,
+    models::{
+        _entities::{team_memberships, teams, users},
+        team_memberships::{InviteMemberParams, UpdateRoleParams},
+        teams::{CreateTeamParams, UpdateTeamParams},
+    },
+    utils::template::render_template,
+    views::{error_fragment, error_page, htmx_redirect},
+};
+use axum::{
+    debug_handler,
+    extract::{Form, Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Redirect},
+};
+use loco_rs::{app::AppContext, prelude::*};
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use serde_json::json;
+use tracing;
 
 /// Create team page
 #[debug_handler]
-async fn create_team_page(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    match users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
-        Ok(user) => {
-            // Get pending invitations count
-            let invitations = team_memberships::Entity::find()
-                .find_with_related(_entities::teams::Entity)
-                .all(&ctx.db)
-                .await?
-                .into_iter()
-                .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-                .count();
-
-            let mut context = tera::Context::new();
-            context.insert("user", &user);
-            context.insert("active_page", "teams");
-            context.insert("invitation_count", &invitations);
-
-            render_template(&ctx, "teams/new.html", context)
-        }
-        Err(err) => {
-            tracing::error!(
-                error = err.to_string(),
-                user_pid = auth.claims.pid,
-                "user not found during authentication verification in /teams/new handler"
-            );
-            let response = Response::builder()
-                .header(
-                    "Set-Cookie",
-                    "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
-                )
-                // TODO: Use HX-Location instead of HX-Redirect
-                .header("HX-Redirect", "/auth/login")
-                .body(axum::body::Body::empty())?;
-            Ok(response)
-        }
+async fn create_team_page(
+    auth: JWTWithUserOpt<users::Model>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    if auth.user.is_none() {
+        return Ok(Redirect::to("/auth/login").into_response());
     }
+    let user = auth.user.unwrap();
+
+    // Get pending invitations count
+    let invitations = team_memberships::Entity::find()
+        .find_with_related(teams::Entity)
+        .all(&ctx.db)
+        .await?
+        .into_iter()
+        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+        .count();
+
+    let mut context = tera::Context::new();
+    context.insert("user", &user);
+    context.insert("active_page", "teams");
+    context.insert("invitation_count", &invitations);
+
+    render_template(&ctx, "teams/new.html", context)
 }
 
 /// List teams page
 #[debug_handler]
-async fn list_teams(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    match users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await {
-        Ok(user) => {
-            // Get all teams where the user is a member
-            let teams_result = _entities::teams::Entity::find()
-                .find_with_related(team_memberships::Entity)
-                .all(&ctx.db)
-                .await?
-                .into_iter()
-                .filter_map(|(team, memberships)| {
-                    let is_member = memberships
-                        .iter()
-                        .any(|m| m.user_id == user.id && !m.pending);
-                    if is_member {
-                        // Find user's role in this team
-                        let role = memberships
-                            .iter()
-                            .find(|m| m.user_id == user.id && !m.pending)
-                            .map(|m| m.role.clone())
-                            .unwrap_or_else(|| "Unknown".to_string());
-
-                        Some(json!({
-                            "pid": team.pid.to_string(),
-                            "name": team.name,
-                            "description": team.description,
-                            "role": role
-                        }))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            // Get pending invitations count
-            let invitations = team_memberships::Entity::find()
-                .find_with_related(_entities::teams::Entity)
-                .all(&ctx.db)
-                .await?
-                .into_iter()
-                .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-                .count();
-
-            let mut context = tera::Context::new();
-            context.insert("user", &user);
-            context.insert("teams", &teams_result);
-            context.insert("active_page", "teams");
-            context.insert("invitation_count", &invitations);
-
-            render_template(&ctx, "teams/list.html", context)
-        }
-        Err(err) => {
-            tracing::error!(
-                error = err.to_string(),
-                user_pid = auth.claims.pid,
-                "user not found during authentication verification in /teams handler"
-            );
-            let response = Response::builder()
-                .header(
-                    "Set-Cookie",
-                    "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
-                )
-                // TODO: Use HX-Location instead of HX-Redirect
-                .header("HX-Redirect", "/auth/login")
-                .body(axum::body::Body::empty())?;
-            Ok(response)
-        }
+async fn list_teams(
+    auth: JWTWithUserOpt<users::Model>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    if auth.user.is_none() {
+        return Ok(Redirect::to("/auth/login").into_response());
     }
+    let user = auth.user.unwrap();
+
+    // Get all teams where the user is a member
+    let teams_result = teams::Entity::find()
+        .find_with_related(team_memberships::Entity)
+        .all(&ctx.db)
+        .await?
+        .into_iter()
+        .filter_map(|(team, memberships)| {
+            let is_member = memberships
+                .iter()
+                .any(|m| m.user_id == user.id && !m.pending);
+            if is_member {
+                // Find user's role in this team
+                let role = memberships
+                    .iter()
+                    .find(|m| m.user_id == user.id && !m.pending)
+                    .map(|m| m.role.clone())
+                    .unwrap_or_else(|| "Unknown".to_string());
+
+                Some(json!({
+                    "pid": team.pid.to_string(),
+                    "name": team.name,
+                    "description": team.description,
+                    "role": role
+                }))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // Get pending invitations count
+    let invitations = team_memberships::Entity::find()
+        .find_with_related(teams::Entity)
+        .all(&ctx.db)
+        .await?
+        .into_iter()
+        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+        .count();
+
+    let mut context = tera::Context::new();
+    context.insert("user", &user);
+    context.insert("teams", &teams_result);
+    context.insert("active_page", "teams");
+    context.insert("invitation_count", &invitations);
+
+    render_template(&ctx, "teams/list.html", context)
 }
 
 /// Team details page
 #[debug_handler]
 async fn team_details(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
+    auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    if auth.user.is_none() {
+        return Ok(Redirect::to("/auth/login").into_response());
+    }
+    let user = auth.user.unwrap();
 
     tracing::info!("Accessing team details for team pid: {}", team_pid);
 
     // Find team
-    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+    let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
@@ -180,7 +167,7 @@ async fn team_details(
 
     let mut members = Vec::new();
     for membership in memberships {
-        let member = _entities::users::Entity::find_by_id(membership.user_id)
+        let member = users::Entity::find_by_id(membership.user_id)
             .one(&ctx.db)
             .await?;
 
@@ -205,7 +192,7 @@ async fn team_details(
             .await?;
 
         for membership in pending_memberships {
-            let member = _entities::users::Entity::find_by_id(membership.user_id)
+            let member = users::Entity::find_by_id(membership.user_id)
                 .one(&ctx.db)
                 .await?;
 
@@ -225,7 +212,7 @@ async fn team_details(
 
     // Get pending invitations count for current user
     let invitations = team_memberships::Entity::find()
-        .find_with_related(TeamEntity)
+        .find_with_related(teams::Entity)
         .all(&ctx.db)
         .await?
         .into_iter()
@@ -254,16 +241,17 @@ async fn team_details(
 #[debug_handler]
 async fn invite_member_page(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
+    auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-
-    tracing::info!("Accessing invite member page for team pid: {}", team_pid);
+    if auth.user.is_none() {
+        return Ok(Redirect::to("/auth/login").into_response());
+    }
+    let user = auth.user.unwrap();
 
     // Find team
-    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+    let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
@@ -271,7 +259,7 @@ async fn invite_member_page(
         }
     };
 
-    // Check if user is an administrator of this team
+    // Check if user is an admin or owner of this team
     let membership = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(user.id))
@@ -281,15 +269,25 @@ async fn invite_member_page(
 
     if let Some(membership) = membership {
         if membership.role != "Owner" && membership.role != "Administrator" {
-            return error_fragment(&v, "Only team administrators can invite members");
+            tracing::error!(
+                "Unauthorized user: {:?} tried to invite into team {}",
+                user,
+                team.name,
+            );
+            return error_page(&v, "Only team administrators can invite members", None);
         }
     } else {
-        return error_fragment(&v, "You are not a member of this team");
+        tracing::error!(
+            "Access to team {} by unauthorized user: {:?}",
+            team.name,
+            user
+        );
+        return error_page(&v, "You are not a member of this team", None);
     }
 
-    // Get pending invitations count
+    // Get pending invitations count for current user
     let invitations = team_memberships::Entity::find()
-        .find_with_related(_entities::teams::Entity)
+        .find_with_related(teams::Entity)
         .all(&ctx.db)
         .await?
         .into_iter()
@@ -302,7 +300,8 @@ async fn invite_member_page(
         "team",
         &json!({
             "pid": team.pid.to_string(),
-            "name": team.name
+            "name": team.name,
+            "description": team.description
         }),
     );
     context.insert("active_page", "teams");
@@ -315,16 +314,17 @@ async fn invite_member_page(
 #[debug_handler]
 async fn edit_team_page(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
+    auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-
-    tracing::info!("Accessing edit team page for team pid: {}", team_pid);
+    if auth.user.is_none() {
+        return Ok(Redirect::to("/auth/login").into_response());
+    }
+    let user = auth.user.unwrap();
 
     // Find team
-    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+    let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
@@ -332,7 +332,7 @@ async fn edit_team_page(
         }
     };
 
-    // Check if user is an owner of this team
+    // Check if user is an admin or owner of this team
     let membership = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(user.id))
@@ -341,16 +341,26 @@ async fn edit_team_page(
         .await?;
 
     if let Some(membership) = membership {
-        if membership.role != "Owner" {
-            return error_page(&v, "Only team owners can edit team details", None);
+        if membership.role != "Owner" && membership.role != "Administrator" {
+            tracing::error!(
+                "Unauthorized user: {:?} tried to edit team {}",
+                user,
+                team.name,
+            );
+            return error_page(&v, "Only team administrators can team details", None);
         }
     } else {
+        tracing::error!(
+            "Access to team {} by unauthorized user: {:?}",
+            team.name,
+            user
+        );
         return error_page(&v, "You are not a member of this team", None);
     }
 
-    // Get pending invitations count
+    // Get pending invitations count for current user
     let invitations = team_memberships::Entity::find()
-        .find_with_related(_entities::teams::Entity)
+        .find_with_related(teams::Entity)
         .all(&ctx.db)
         .await?
         .into_iter()
@@ -373,20 +383,21 @@ async fn edit_team_page(
     render_template(&ctx, "teams/edit.html", context)
 }
 
-/// Handle team creation form submission
+/// Create team handler
 #[debug_handler]
 async fn create_team_handler(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
     State(ctx): State<AppContext>,
-    Form(params): Form<crate::models::teams::CreateTeamParams>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-
-    tracing::info!("Creating team with name: {}", params.name);
+    auth: JWTWithUserOpt<users::Model>,
+    Form(params): Form<CreateTeamParams>,
+) -> Result<impl IntoResponse> {
+    if auth.user.is_none() {
+        return htmx_redirect("/auth/login");
+    }
+    let user = auth.user.unwrap();
 
     // Create the team
-    let team = match _entities::teams::Model::create_team(&ctx.db, user.id, &params).await {
+    let team = match teams::Model::create_team(&ctx.db, user.id, &params).await {
         Ok(team) => {
             tracing::info!(
                 "Team created successfully with id: {}, pid: {}",
@@ -402,7 +413,7 @@ async fn create_team_handler(
     };
 
     // Verify team exists in database using find_by_pid for consistency
-    match _entities::teams::Model::find_by_pid(&ctx.db, &team.pid.to_string()).await {
+    match teams::Model::find_by_pid(&ctx.db, &team.pid.to_string()).await {
         Ok(_) => {
             tracing::info!("Team verification successful: {}", team.pid);
         }
@@ -416,31 +427,26 @@ async fn create_team_handler(
     }
 
     // Redirect to the team details page with explicit .to_string() to ensure proper conversion
-    let redirect_url = format!("/teams/{}", team.pid.to_string());
-    tracing::info!("Redirecting to: {}", redirect_url);
-    let response = Response::builder()
-        // TODO: Use HX-Location instead of HX-Redirect
-        .header("HX-Redirect", redirect_url)
-        .body(axum::body::Body::empty())?;
-
-    Ok(response)
+    let redirect_url = format!("/teams/{}", team.pid);
+    htmx_redirect(&redirect_url)
 }
 
-/// Handle team edit form submission
+/// Update team handler
 #[debug_handler]
 async fn update_team_handler(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
     State(ctx): State<AppContext>,
+    auth: JWTWithUserOpt<users::Model>,
     Path(team_pid): Path<String>,
-    Form(params): Form<crate::models::teams::UpdateTeamParams>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-
-    tracing::info!("Updating team with pid: {}", team_pid);
+    Form(params): Form<UpdateTeamParams>,
+) -> Result<impl IntoResponse> {
+    if auth.user.is_none() {
+        return htmx_redirect("/auth/login");
+    }
+    let user = auth.user.unwrap();
 
     // Find team
-    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+    let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
@@ -468,25 +474,22 @@ async fn update_team_handler(
     let updated_team = team.update(&ctx.db, &params).await?;
 
     // Redirect to the team details page
-    let redirect_url = format!("/teams/{}", updated_team.pid.to_string());
-    tracing::info!("Redirecting to: {}", redirect_url);
-    let response = Response::builder()
-        // TODO: Use HX-Location instead of HX-Redirect
-        .header("HX-Redirect", redirect_url)
-        .body(axum::body::Body::empty())?;
-
-    Ok(response)
+    let redirect_url = format!("/teams/{}", updated_team.pid);
+    htmx_redirect(&redirect_url)
 }
 
-/// Accept a team invitation
+/// Accept invitation handler
 #[debug_handler]
 async fn accept_invitation(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
     State(ctx): State<AppContext>,
+    auth: JWTWithUserOpt<users::Model>,
     Path(token): Path<String>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+) -> Result<impl IntoResponse> {
+    if auth.user.is_none() {
+        return htmx_redirect("/auth/login");
+    }
+    let user = auth.user.unwrap();
 
     // Find invitation by token
     let invitation = match team_memberships::Entity::find()
@@ -513,25 +516,27 @@ async fn accept_invitation(
     invitation_model.pending = sea_orm::ActiveValue::set(false);
     invitation_model.update(&ctx.db).await?;
 
-    // For HTMX, return a response that will replace the invitation item
+    // Remove the invitation row from the UI
     let response = Response::builder()
-    .header("Content-Type", "text/html")
-    .body(axum::body::Body::from(
-        "<div class='px-4 py-4 sm:px-6 text-center text-sm text-green-600'>Invitation accepted successfully.</div>"
-    ))?;
+        .status(StatusCode::OK)
+        .header("HX-Trigger", "updateInvitationCount")
+        .body(axum::body::Body::empty())?;
 
     Ok(response)
 }
 
-/// Decline a team invitation
+/// Decline invitation handler
 #[debug_handler]
 async fn decline_invitation(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
+    auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    if auth.user.is_none() {
+        return htmx_redirect("/auth/login");
+    }
+    let user = auth.user.unwrap();
 
     // Find invitation by token
     let invitation = match team_memberships::Entity::find()
@@ -557,48 +562,64 @@ async fn decline_invitation(
     let invitation_model: team_memberships::ActiveModel = invitation.into();
     invitation_model.delete(&ctx.db).await?;
 
-    // For HTMX, return a response that will replace the invitation item
+    // Remove the invitation row from the UI
     let response = Response::builder()
-    .header("Content-Type", "text/html")
-    .body(axum::body::Body::from(
-        "<div class='px-4 py-4 sm:px-6 text-center text-sm text-gray-600'>Invitation declined.</div>"
-    ))?;
+        .status(StatusCode::OK)
+        .header("HX-Trigger", "updateInvitationCount")
+        .body(axum::body::Body::empty())?;
 
     Ok(response)
 }
 
-/// Cancel a team invitation (by admin or owner)
+/// Cancel invitation handler
 #[debug_handler]
 async fn cancel_invitation(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
+    auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path((team_pid, token)): Path<(String, String)>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-
-    tracing::info!(
-        "Cancelling invitation with token: {} for team: {}",
-        token,
-        team_pid
-    );
+    if auth.user.is_none() {
+        return htmx_redirect("/auth/login");
+    }
+    let user = auth.user.unwrap();
 
     // Find team
-    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+    let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
-            return error_fragment(&v, "Team not found");
+            return error_page(&v, "Team not found", None);
         }
     };
 
     // Check if user is an admin or owner of this team
-    let membership = team_memberships::Entity::find()
+    let membership = match team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(user.id))
         .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?;
+        .await
+    {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::error!("Failed to find membership: {:?}", err);
+            return error_page(&v, "Database error while searching for membership", None);
+        }
+    };
+
+    if membership.is_none() {
+        tracing::error!(
+            "Access to team {} by unauthorized user: {:?}",
+            team.name,
+            user
+        );
+        return error_page(
+            &v,
+            "You are not authorized to cancel invitations for this team because you are not one of its administrators",
+            None,
+        );
+    }
 
     let is_admin = if let Some(membership) = &membership {
         membership.role == "Owner" || membership.role == "Administrator"
@@ -607,7 +628,12 @@ async fn cancel_invitation(
     };
 
     if !is_admin {
-        return error_fragment(&v, "Only team administrators can cancel invitations");
+        tracing::error!("Access to team {} by non-admin user: {:?}", team.name, user);
+        return error_page(
+            &v,
+            "You are not authorized to cancel invitations for this team because you are not one of its administrators",
+            None,
+        );
     }
 
     // Find invitation by token and team ID
@@ -650,17 +676,20 @@ async fn cancel_invitation(
     Ok(response)
 }
 
-/// Update a team member's role
+/// Update member role handler
 #[debug_handler]
 async fn update_member_role(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
     State(ctx): State<AppContext>,
+    auth: JWTWithUserOpt<users::Model>,
     Path((team_pid, user_pid)): Path<(String, String)>,
-    Form(params): Form<crate::models::team_memberships::UpdateRoleParams>,
-) -> Result<Response> {
-    let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    Form(params): Form<UpdateRoleParams>,
+) -> Result<impl IntoResponse> {
+    if auth.user.is_none() {
+        return htmx_redirect("/auth/login");
+    }
+    let current_user = auth.user.unwrap();
+    let team = teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
     let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
 
     // Validate role
@@ -733,16 +762,19 @@ async fn update_member_role(
     Ok(response)
 }
 
-/// Remove a team member
+/// Remove member handler
 #[debug_handler]
 async fn remove_member(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
+    auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path((team_pid, user_pid)): Path<(String, String)>,
 ) -> Result<Response> {
-    let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
+    if auth.user.is_none() {
+        return htmx_redirect("/auth/login");
+    }
+    let current_user = auth.user.unwrap();
+    let team = teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
     let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
 
     // Cannot remove yourself - use leave_team for that
@@ -840,16 +872,27 @@ async fn remove_member(
     Ok(response)
 }
 
-/// Delete a team
+/// Delete team handler
 #[debug_handler]
 async fn delete_team(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWT,
+    auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    if auth.user.is_none() {
+        return htmx_redirect("/auth/login");
+    }
+    let user = auth.user.unwrap();
+
+    // Find team
+    let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
+            return error_page(&v, "Team not found", None);
+        }
+    };
 
     // Check if user is an owner of this team
     let is_owner = team.has_role(&ctx.db, user.id, "Owner").await?;
@@ -862,26 +905,23 @@ async fn delete_team(
 
     // Instead of returning empty JSON, send a redirect to the teams list page
     let redirect_url = "/teams";
-    tracing::info!("Redirecting to: {}", redirect_url);
-    let response = Response::builder()
-        // TODO: Use HX-Location instead of HX-Redirect
-        .header("HX-Redirect", redirect_url)
-        .body(axum::body::Body::empty())?;
-
-    Ok(response)
+    htmx_redirect(redirect_url)
 }
 
-/// Handle team member invitation
+/// Invite member handler
 #[debug_handler]
 async fn invite_member_handler(
-    auth: JWT,
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    auth: JWTWithUserOpt<users::Model>,
     Path(team_pid): Path<String>,
-    Form(params): Form<crate::models::team_memberships::InviteMemberParams>,
-) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = match _entities::teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+    Form(params): Form<InviteMemberParams>,
+) -> Result<impl IntoResponse> {
+    if auth.user.is_none() {
+        return htmx_redirect("/auth/login");
+    }
+    let user = auth.user.unwrap();
+    let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
@@ -959,13 +999,7 @@ async fn invite_member_handler(
 
     // Redirect back to the team page
     let redirect_url = format!("/teams/{}", team_pid);
-    tracing::info!("Redirecting to: {}", redirect_url);
-    let response = Response::builder()
-        // TODO: Use HX-Location instead of HX-Redirect?
-        .header("HX-Redirect", redirect_url)
-        .body(axum::body::Body::empty())?;
-
-    Ok(response)
+    htmx_redirect(&redirect_url)
 }
 
 /// Team routes

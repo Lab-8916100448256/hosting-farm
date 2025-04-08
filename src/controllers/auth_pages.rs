@@ -11,6 +11,7 @@ use crate::{
 use axum::debug_handler;
 use axum::extract::{Form, Query};
 use axum::http::HeaderMap;
+use axum::response::Redirect;
 use loco_rs::prelude::*;
 use std::collections::HashMap;
 
@@ -92,12 +93,9 @@ async fn login(
 ) -> Result<Response> {
     match auth.user {
         Some(_user) => {
-            // User is already authenticated, redirect to home
+            // User is already authenticated, redirect to home using standard redirect
             tracing::info!("User is already authenticated, redirecting to home");
-            let response = Response::builder()
-                .header("HX-Redirect", "/home")
-                .body(axum::body::Body::empty())?;
-            Ok(response)
+            Ok(Redirect::to("/home").into_response())
         }
         None => {
             let registered = params.get("registered") == Some(&"true".to_string());
