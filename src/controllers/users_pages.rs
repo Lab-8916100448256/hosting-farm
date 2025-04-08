@@ -1,14 +1,16 @@
-use crate::models::{_entities::team_memberships, _entities::teams, users};
-use crate::utils::template::render_template;
+use crate::{
+    middleware::auth_no_error::JWTWithUserOpt,
+    models::{_entities::team_memberships, _entities::teams, users},
+    utils::template::render_template,
+};
 use axum::debug_handler;
 use axum::extract::Form;
+use axum::response::Redirect;
 use loco_rs::prelude::*;
 use sea_orm::PaginatorTrait;
 use serde::Deserialize;
 use serde_json::json;
 use tera;
-
-type JWT = loco_rs::controller::middleware::auth::JWT;
 
 /// Params for updating user profile
 #[derive(Debug, Deserialize)]
@@ -27,8 +29,15 @@ pub struct UpdatePasswordParams {
 
 /// Renders the user profile page
 #[debug_handler]
-async fn profile(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+async fn profile(
+    auth: JWTWithUserOpt<users::Model>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    if auth.user.is_none() {
+        // Redirect to login if not authenticated
+        return Ok(Redirect::to("/auth/login").into_response());
+    }
+    let user = auth.user.unwrap(); // User is guaranteed to be Some here
 
     // Get user's team memberships
     let teams = teams::Entity::find()
@@ -79,8 +88,15 @@ async fn profile(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
 
 /// Renders the user invitations page
 #[debug_handler]
-async fn invitations(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+async fn invitations(
+    auth: JWTWithUserOpt<users::Model>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    if auth.user.is_none() {
+        // Redirect to login if not authenticated
+        return Ok(Redirect::to("/auth/login").into_response());
+    }
+    let user = auth.user.unwrap(); // User is guaranteed to be Some here
 
     // Get user's pending team invitations
     let invitations = team_memberships::Entity::find()
@@ -118,8 +134,18 @@ async fn invitations(auth: JWT, State(ctx): State<AppContext>) -> Result<Respons
 
 /// Returns the HTML fragment for the invitation count badge
 #[debug_handler]
-async fn get_invitation_count(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+async fn get_invitation_count(
+    auth: JWTWithUserOpt<users::Model>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    if auth.user.is_none() {
+        // For this fragment endpoint, returning an empty response or a specific
+        // "logged out" fragment might be better than a full page redirect,
+        // but a redirect is consistent with the other pages for now.
+        // Alternatively, could return an empty count or an error fragment.
+        return Ok(Redirect::to("/auth/login").into_response());
+    }
+    let user = auth.user.unwrap(); // User is guaranteed to be Some here
 
     // Get pending invitations count
     let invitation_count = team_memberships::Entity::find()
@@ -138,11 +164,17 @@ async fn get_invitation_count(auth: JWT, State(ctx): State<AppContext>) -> Resul
 /// Update user profile
 #[debug_handler]
 async fn update_profile(
-    auth: JWT,
+    auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Form(params): Form<UpdateProfileParams>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    if auth.user.is_none() {
+        // Redirect to login if not authenticated
+        // For POST/PUT, redirecting might lose form data. A 401 Unauthorized
+        // might be more appropriate, but redirect follows the pattern.
+        return Ok(Redirect::to("/auth/login").into_response());
+    }
+    let user = auth.user.unwrap(); // User is guaranteed to be Some here
 
     // Check if email already exists (if it changed)
     if user.email != params.email {
@@ -170,16 +202,20 @@ async fn update_profile(
 /// Update user password
 #[debug_handler]
 async fn update_password(
-    auth: JWT,
+    auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Form(params): Form<UpdatePasswordParams>,
 ) -> Result<Response> {
+    if auth.user.is_none() {
+        // Redirect to login if not authenticated
+        return Ok(Redirect::to("/auth/login").into_response());
+    }
+    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+
     // Verify passwords match
     if params.password != params.password_confirmation {
         return bad_request("Passwords do not match");
     }
-
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
 
     // Verify current password
     if !user.verify_password(&params.current_password) {
