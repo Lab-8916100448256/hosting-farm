@@ -1,0 +1,1 @@
+1. Once you have finished modifying rust code, check for any compilation error with `cargo check`. If there are any error fix them and check again. repeat until there are no error left.
