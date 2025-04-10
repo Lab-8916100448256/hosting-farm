@@ -17,9 +17,21 @@ use std::collections::HashMap;
 
 /// Renders the registration page
 #[debug_handler]
-async fn register(State(ctx): State<AppContext>) -> Result<Response> {
-    let context = tera::Context::new();
-    render_template(&ctx, "auth/register.html", context)
+async fn register(
+    auth: JWTWithUserOpt<users::Model>,
+    State(ctx): State<AppContext>,
+) -> Result<Response> {
+    match auth.user {
+        Some(_user) => {
+            // User is already authenticated, redirect to home using standard redirect
+            tracing::info!("User is already authenticated, redirecting to home");
+            Ok(Redirect::to("/home").into_response())
+        }
+        None => {
+            let context = tera::Context::new();
+            render_template(&ctx, "auth/register.html", context)
+        }
+    }
 }
 
 /// Handles the registration form submission
