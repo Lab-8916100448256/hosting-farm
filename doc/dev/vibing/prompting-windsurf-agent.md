@@ -30,3 +30,23 @@ Followed by :
 I tested the new feature. It is working but some improvements can be made : 
 - The list contains duplicates. only a unique list should be displayed
 - It would be nice if the list diplays both the email and name of the users
+
+
+## Exemple prompt 4
+When inviting another user in a team, currently, we must select the target user by typing its e-mail, which is not practical if we do not know the exact e-mails of the other users. This needs to be improved.
+Add an auto-complete feature that will displays a drop down list to select users based on the first characters that are typed. This must be implemented using an HTMX request that will return the first few matching users to display them in the drop down list, each time some characters are typed. Matching users must be searched by e-mail address and by user name. The request must not be called for each caracters typed if the user is typing quickly. A maximum rate of one request every 200 ms must be observed. 
+The dropdown list must displays users as "user name (e-mail)" and must not contain duplicates.
+Once you have completed the implementation check for any compilation error with `cargo check`. If there are any error fix them and check again. repeat until there are no error left.
+
+=> This did not work well. Was even worse that previous prompte
+
+
+## Exemple prompt 5
+When inviting another user in a team, currently, we must select the target user by typing its e-mail, which is not practical if we do not know the exact e-mails of the other users. This needs to be improved.
+Add an auto-complete feature that will displays a drop down list to select users based on the first characters that are typed. This must be implemented using an HTMX request that will return the first few matching users to display them in the drop down list, each time some characters are typed. Matching users must be searched by e-mail address and by user name. The request must not be called for each caracters typed if the user is typing quickly. A maximum rate of one request every 200 ms must be observed. 
+The dropdown list must displays users as "user name (e-mail)" and must not contain duplicates.
+The main files to change to implement this feature are @teams_pages.rs and  @invite.html 
+Do not modify any file with name ending by `_api.rs`
+
+and added workspace rule : 
+1. Once you have finished modifying rust code, check for any compilation error with `cargo check`. If there are any error fix them and check again. repeat until there are no error left.

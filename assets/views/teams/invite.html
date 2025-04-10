@@ -18,8 +18,22 @@
                 <div class="px-4 py-5 bg-white sm:p-6">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
-                            <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
-                            <input type="email" name="email" id="email" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                            <label for="user_email" class="block text-sm font-medium text-gray-700">Email address</label>
+                            <input
+                                id="user_email"
+                                name="user_email"
+                                type="email"
+                                autocomplete="email"
+                                required
+                                class="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                                hx-get="{{ url_for('teams_pages.search_users_for_invite', team_id=team.id) }}"
+                                hx-trigger="keyup changed delay:200ms"
+                                hx-target="#user-search-results"
+                                hx-swap="outerHTML"
+                                hx-indicator="#loading-indicator"
+                            />
+                            <div id="user-search-results"></div> 
+                            <div id="loading-indicator" class="htmx-indicator">Searching...</div> 
                             <p class="mt-2 text-sm text-gray-500">The user must have an account on Hosting Farm to receive the invitation.</p>
                             <div id="error-container"></div>
                         </div>
