@@ -85,6 +85,9 @@ in {
             uri: "/static"
             path: "assets/static"
           fallback: "assets/static/404.html"
+        fallback:
+          enable: true
+          file: "assets/static/404.html"
     workers:
       mode: BackgroundAsync
     mailer:
