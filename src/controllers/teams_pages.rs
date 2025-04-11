@@ -12,10 +12,10 @@ use axum::{
     debug_handler,
     extract::{Form, Path, Query, State},
     http::StatusCode,
-    response::{IntoResponse, Redirect},
+    response::{Html, IntoResponse, Redirect},
 };
 use loco_rs::{app::AppContext, prelude::*};
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
 use serde::Deserialize;
 use serde_json::json;
 use tracing;
@@ -1020,15 +1020,15 @@ async fn search_users(
 ) -> Result<Response> {
     // Ensure user is authenticated
     if auth.user.is_none() {
-        // Although the page itself requires login, this endpoint could be called directly
-        // Returning an empty response is safer than redirecting
-        return Ok(format::render().fragment(v, "", tera::Context::new()));
+        // Return empty HTML for HTMX
+        return Ok(Html("".to_string()).into_response());
     }
     let current_user = auth.user.unwrap();
 
     let search_term = match params.q {
         Some(term) if !term.trim().is_empty() => term.trim().to_lowercase(),
-        _ => return Ok(format::render().fragment(v, "", tera::Context::new())), // Return empty if query is empty or missing
+        // Return empty HTML for HTMX if query is empty
+        _ => return Ok(Html("".to_string()).into_response()),
     };
 
     // Find team
@@ -1036,8 +1036,8 @@ async fn search_users(
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
-            // Don't expose internal errors in fragment
-            return Ok(format::render().fragment(v, "", tera::Context::new()));
+            // Return empty HTML for HTMX on error
+            return Ok(Html("".to_string()).into_response());
         }
     };
 
@@ -1046,12 +1046,14 @@ async fn search_users(
         Ok(admin) => admin,
         Err(e) => {
             tracing::error!("Failed to check role for user {} in team {}: {:?}", current_user.id, team.id, e);
-            return Ok(format::render().fragment(v, "", tera::Context::new()));
+            // Return empty HTML for HTMX on error
+            return Ok(Html("".to_string()).into_response());
         }
     };
     if !is_admin {
         tracing::warn!("Unauthorized user {} attempted to search users for team {}", current_user.pid, team.pid);
-        return Ok(format::render().fragment(v, "", tera::Context::new()));
+        // Return empty HTML for HTMX if unauthorized
+        return Ok(Html("".to_string()).into_response());
     }
 
     // Get IDs of users already associated with the team (members or pending)
@@ -1075,11 +1077,11 @@ async fn search_users(
         .all(&ctx.db)
         .await?;
 
-    let mut context = tera::Context::new();
-    context.insert("users", &matching_users);
+    // Create serializable context data
+    let context_data = json!({ "users": &matching_users });
 
-    // Render the fragment template
-    format::render().fragment(v, "teams/_user_search_results.html", context)
+    // Render the fragment template using the view engine
+    format::render().view(&v, "teams/_user_search_results.html", context_data)
 }
 
 /// Team routes
