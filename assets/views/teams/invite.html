@@ -18,9 +18,26 @@
                 <div class="px-4 py-5 bg-white sm:p-6">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
-                            <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
-                            <input type="email" name="email" id="email" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
-                            <p class="mt-2 text-sm text-gray-500">The user must have an account on Hosting Farm to receive the invitation.</p>
+                            <label for="email" class="block text-sm font-medium text-gray-700">Email address or Name</label>
+                            <input type="text" name="email" id="email"
+                                   class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                                   hx-get="/teams/{{ team.pid }}/search-users"
+                                   hx-trigger="keyup changed delay:200ms, load"
+                                   hx-target="#user-search-results"
+                                   hx-swap="innerHTML"
+                                   hx-indicator="#spinner"
+                                   autocomplete="off"
+                                   _ ="on keyup
+                                        if event.key is 'Escape'
+                                          hide #user-search-results
+                                        else
+                                          show #user-search-results
+                                        end">
+                            <div id="spinner" class="htmx-indicator">Searching...</div>
+                            <div id="user-search-results" class="relative">
+                                <!-- Search results will be loaded here -->
+                            </div>
+                            <p class="mt-2 text-sm text-gray-500">Start typing a name or email to search for users.</p>
                             <div id="error-container"></div>
                         </div>
                     </div>
