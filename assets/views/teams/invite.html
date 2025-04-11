@@ -18,9 +18,21 @@
                 <div class="px-4 py-5 bg-white sm:p-6">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
-                            <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
-                            <input type="email" name="email" id="email" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
-                            <p class="mt-2 text-sm text-gray-500">The user must have an account on Hosting Farm to receive the invitation.</p>
+                            <label for="user_query" class="block text-sm font-medium text-gray-700">User Name or Email</label>
+                            <input type="text" name="user_query" id="user_query"
+                                   class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                                   hx-get="/api/teams/{{ team.pid }}/search_users"
+                                   hx-trigger="keyup changed delay:200ms"
+                                   hx-target="#user-suggestions"
+                                   hx-swap="innerHTML"
+                                   hx-indicator="#spinner"
+                                   autocomplete="off"
+                                   placeholder="Start typing name or email...">
+                            <div id="user-suggestions"></div>
+                            <!-- Hidden input to store the actual email for submission -->
+                            <input type="hidden" name="email" id="email">
+                            <img id="spinner" class="htmx-indicator" src="/static/images/spinner.gif" alt="Loading..." width="20"> <!-- Ensure you have this spinner image -->
+                            <p class="mt-2 text-sm text-gray-500">Search for users by their name or email address.</p>
                             <div id="error-container"></div>
                         </div>
                     </div>

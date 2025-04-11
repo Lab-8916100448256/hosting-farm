@@ -41,6 +41,7 @@ fluent-templates = { version = "0.8.0", features = ["tera"] }
 unic-langid = { version = "0.9.4" }
 tera = { version = "1.19.1" }
 # /view engine
+html-escape = { version = "0.2" } # Added for safe HTML attribute encoding
 
 [[bin]]
 name = "hosting_farm-cli"

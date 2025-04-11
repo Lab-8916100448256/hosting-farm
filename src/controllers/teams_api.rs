@@ -1,6 +1,12 @@
-use axum::debug_handler;
+use axum::{
+    debug_handler,
+    extract::{Path, Query},
+    response::Html,
+};
+use html_escape;
 use loco_rs::prelude::*;
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
+use serde::Deserialize;
 
 use crate::{
     mailers::team::TeamMailer,
@@ -11,7 +17,7 @@ use crate::{
                 Model as TeamMembershipModel,
             },
             teams::{Entity as TeamEntity, Model as TeamModel},
-            users::Entity as UserEntity,
+            users::{Column as UserColumn, Entity as UserEntity},
         },
         team_memberships::{InviteMemberParams, UpdateRoleParams, VALID_ROLES},
         teams::{CreateTeamParams, UpdateTeamParams},
@@ -21,6 +27,11 @@ use crate::{
 };
 
 use loco_rs::controller::middleware::auth::JWT;
+
+#[derive(Deserialize, Debug)]
+pub struct SearchQuery {
+    user_query: Option<String>,
+}
 
 #[debug_handler]
 async fn create_team(
@@ -416,6 +427,75 @@ async fn list_invitations(auth: JWT, State(ctx): State<AppContext>) -> Result<Re
     format::json(responses)
 }
 
+#[debug_handler]
+async fn search_users(
+    auth: JWT,
+    State(ctx): State<AppContext>,
+    Path(team_pid): Path<String>,
+    Query(params): Query<SearchQuery>,
+) -> Result<Response> {
+    let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+
+    // Ensure the current user can invite members (e.g., is Administrator or Owner)
+    let is_admin = team
+        .has_role(&ctx.db, current_user.id, "Administrator")
+        .await?;
+    if !is_admin {
+        // Return empty response if user doesn't have permission, or consider an error
+        return Ok(Html("".to_string()).into_response());
+    }
+
+    let query = params.user_query.unwrap_or_default();
+    if query.trim().is_empty() {
+        // Return empty response if query is empty
+        return Ok(Html("".to_string()).into_response());
+    }
+
+    // Search for users by name or email, case-insensitive, limit results
+    let condition = Condition::any()
+        .add(UserColumn::Name.starts_with(&query))
+        .add(UserColumn::Email.starts_with(&query));
+
+    let matching_users = UserEntity::find()
+        .filter(condition)
+        .limit(5) // Limit the number of suggestions
+        .all(&ctx.db)
+        .await?;
+
+    // Generate HTML fragment for suggestions
+    let mut suggestions_html = String::new();
+    if !matching_users.is_empty() {
+        suggestions_html
+            .push_str("<div class='border border-gray-300 rounded-md mt-1 bg-white shadow-lg'>");
+        for user in matching_users {
+            let display_text = format!("{} ({})", user.name, user.email);
+            // Safely escape attribute values using the html-escape crate
+            let escaped_email = html_escape::encode_safe(&user.email);
+            let escaped_display = html_escape::encode_safe(&display_text);
+
+            // Use data attributes and Hyperscript
+            // Note the `\` at the end of lines within the format string for readability
+            suggestions_html.push_str(&format!(
+                "<div class='p-2 hover:bg-gray-100 cursor-pointer' \
+                 data-email=\"{}\" \
+                 data-display=\"{}\" \
+                 _=\"on click \
+                    get my @data-display then set #user_query.value to it \
+                    get my @data-email then set #email.value to it \
+                    set #user-suggestions.innerHTML to ''\"\
+                >{}</div>",
+                escaped_email,
+                escaped_display,
+                escaped_display // Display the escaped text inside the div
+            ));
+        }
+        suggestions_html.push_str("</div>");
+    }
+
+    Ok(Html(suggestions_html).into_response())
+}
+
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/api")
@@ -426,6 +506,7 @@ pub fn routes() -> Routes {
         .add("/teams/{team_pid}", delete(delete_team))
         .add("/teams/{team_pid}/members", get(list_members))
         .add("/teams/{team_pid}/invitations", post(invite_member))
+        .add("/teams/{team_pid}/search_users", get(search_users))
         .add(
             "/teams/{team_pid}/members/{user_pid}/role",
             put(update_member_role),
