@@ -1018,6 +1018,7 @@ async fn search_users(
     Path(team_pid): Path<String>,
     Query(params): Query<SearchQuery>,
 ) -> Result<Response> {
+    tracing::info!("Searching for users with query {:?}", params.q);
     // Ensure user is authenticated
     if auth.user.is_none() {
         // Return empty HTML for HTMX
@@ -1028,7 +1029,10 @@ async fn search_users(
     let search_term = match params.q {
         Some(term) if !term.trim().is_empty() => term.trim().to_lowercase(),
         // Return empty HTML for HTMX if query is empty
-        _ => return Ok(Html("".to_string()).into_response()),
+        _ => {
+            tracing::info!("Query is empty, returning empty HTML");
+            return Ok(Html("".to_string()).into_response());
+        }
     };
 
     // Find team
@@ -1081,6 +1085,7 @@ async fn search_users(
     let context_data = json!({ "users": &matching_users });
 
     // Render the fragment template using the view engine
+    tracing::info!("Rendering user search results with context data: {:?}", context_data);
     format::render().view(&v, "teams/_user_search_results.html", context_data)
 }
 
