@@ -808,11 +808,77 @@ Let's apply this to `assets/views/teams/invite.html`.
 
 ---
 
-Cancelled
+```diff
+                                     hx-swap="innerHTML"
+                                     hx-indicator="#spinner"
+-                                    hx-params="q"
++                                    hx-vals='js:{"q": document.getElementById("email").value}'
+                                     autocomplete="off">
+                              <div id="spinner" class="htmx-indicator">Searching...</div>
+```
+
+---
+
+Okay, the `hx-params` attribute has been removed, and `hx-vals` is back, this time using the `js:` prefix and `document.getElementById("email").value` to correctly fetch the input value and assign it to the `q` parameter.
+
+This should *finally* achieve the desired behavior: the auto-complete search (`GET`) will receive the parameter `q` with the input value, and the form submission (`POST`) will receive the parameter `email` with the input value.
+
+Please test again. I'm confident this is the correct approach.
+
+---
+
+_**User**_
+
+OK, the auto-complete drop down list and the form submission are now working as expected, :-)
+However there are acouple cosmetic things that coul dbe improved : 
+- the label of the input flied shoul dbe reverted to "Email address"
+- the input field type should be reverted to "email"
+This is because even though we use the partial content of this field in the auto-complete feature to searsh by email or name, in the end the controller code that is handling the form submission expects this to be an email only.
+The text you have added below is enough for the user to understand that it can start typing email or name for the auto-complete feature. 
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Excellent! Glad to hear it's working correctly now.
+
+You're right, reverting those cosmetic changes makes sense for clarity and aligns better with the form's final requirement.
+
+I'll make those two adjustments to `assets/views/teams/invite.html`:
+
+1.  Change the label text back to "Email address".
+2.  Change the input type back to "email".
+
+
+
+---
+
+```diff
+                      <div class="grid grid-cols-6 gap-6">
+                          <div class="col-span-6 sm:col-span-4">
+-                             <label for="email" class="block text-sm font-medium text-gray-700">Email address or Name</label>
+-                             <input type="text" name="email" id="email"
++                             <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
++                             <input type="email" name="email" id="email"
+                                     class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                                     hx-get="/teams/{{ team.pid }}/search-users"
+```
 
 ---
 
 
+
+---
+
+Okay, I've reverted the label text to "Email address" and the input type back to "email" in `assets/views/teams/invite.html`.
+
+This keeps the underlying functionality the same (search works on partial input, submission requires a valid email) but makes the UI slightly clearer about the final expected input for form submission.
+
+Everything should now be working as expected and look correct.
 
 ---
 
