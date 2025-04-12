@@ -1,0 +1,14 @@
+{% if users %}
+<ul class="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-60 overflow-auto shadow-lg"
+    _="on mouseleave hide me">
+    {% for user in users %}
+    <li class="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+        data-email="{{ user.email }}"
+        _="on click
+             set the value of previous <input/> to my.dataset.email
+             hide the closest <ul/>">
+        {{ user.name }} ({{ user.email }})
+    </li>
+    {% endfor %}
+</ul>
+{% endif %} 

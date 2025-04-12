@@ -10,12 +10,13 @@ use crate::{
 };
 use axum::{
     debug_handler,
-    extract::{Form, Path, State},
+    extract::{Form, Path, Query, State},
     http::StatusCode,
-    response::{IntoResponse, Redirect},
+    response::{Html, IntoResponse, Redirect},
 };
 use loco_rs::{app::AppContext, prelude::*};
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
+use serde::Deserialize;
 use serde_json::json;
 use tracing;
 
@@ -1002,6 +1003,92 @@ async fn invite_member_handler(
     htmx_redirect(&redirect_url)
 }
 
+/// Parameters for user search query
+#[derive(Deserialize, Debug)]
+pub struct SearchQuery {
+    q: Option<String>,
+}
+
+/// Search users handler for auto-complete
+#[debug_handler]
+async fn search_users(
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    auth: JWTWithUserOpt<users::Model>,
+    Path(team_pid): Path<String>,
+    Query(params): Query<SearchQuery>,
+) -> Result<Response> {
+    tracing::info!("Searching for users with query {:?}", params.q);
+    // Ensure user is authenticated
+    if auth.user.is_none() {
+        // Return empty HTML for HTMX
+        return Ok(Html("".to_string()).into_response());
+    }
+    let current_user = auth.user.unwrap();
+
+    let search_term = match params.q {
+        Some(term) if !term.trim().is_empty() => term.trim().to_lowercase(),
+        // Return empty HTML for HTMX if query is empty
+        _ => {
+            tracing::info!("Query is empty, returning empty HTML");
+            return Ok(Html("".to_string()).into_response());
+        }
+    };
+
+    // Find team
+    let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
+            // Return empty HTML for HTMX on error
+            return Ok(Html("".to_string()).into_response());
+        }
+    };
+
+    // Security check: Ensure current user is an admin/owner of the team
+    let is_admin = match team.has_role(&ctx.db, current_user.id, "Administrator").await {
+        Ok(admin) => admin,
+        Err(e) => {
+            tracing::error!("Failed to check role for user {} in team {}: {:?}", current_user.id, team.id, e);
+            // Return empty HTML for HTMX on error
+            return Ok(Html("".to_string()).into_response());
+        }
+    };
+    if !is_admin {
+        tracing::warn!("Unauthorized user {} attempted to search users for team {}", current_user.pid, team.pid);
+        // Return empty HTML for HTMX if unauthorized
+        return Ok(Html("".to_string()).into_response());
+    }
+
+    // Get IDs of users already associated with the team (members or pending)
+    let existing_user_ids: Vec<i32> = team_memberships::Entity::find()
+        .select_only()
+        .column(team_memberships::Column::UserId)
+        .filter(team_memberships::Column::TeamId.eq(team.id))
+        .into_tuple()
+        .all(&ctx.db)
+        .await?;
+
+    // Search for users matching the query (name or email), excluding existing members/invitees
+    let matching_users = users::Entity::find()
+        .filter(
+            Condition::any()
+                .add(users::Column::Name.contains(&search_term))
+                .add(users::Column::Email.contains(&search_term)),
+        )
+        .filter(users::Column::Id.is_not_in(existing_user_ids))
+        .limit(10) // Limit results
+        .all(&ctx.db)
+        .await?;
+
+    // Create serializable context data
+    let context_data = json!({ "users": &matching_users });
+
+    // Render the fragment template using the view engine
+    tracing::info!("Rendering user search results with context data: {:?}", context_data);
+    format::render().view(&v, "teams/_user_search_results.html", context_data)
+}
+
 /// Team routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -1015,6 +1102,7 @@ pub fn routes() -> Routes {
         .add("/{team_pid}/update", post(update_team_handler))
         .add("/{team_pid}/invite", get(invite_member_page))
         .add("/{team_pid}/invite", post(invite_member_handler))
+        .add("/{team_pid}/search-users", get(search_users))
         .add("/invitations/{token}/accept", post(accept_invitation))
         .add("/invitations/{token}/decline", post(decline_invitation))
         .add(
