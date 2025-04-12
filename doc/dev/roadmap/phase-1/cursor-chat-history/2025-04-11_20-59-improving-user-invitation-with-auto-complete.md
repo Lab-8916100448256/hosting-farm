@@ -716,6 +716,64 @@ Please try typing in the field again and see if the dropdown appears with the co
 
 ---
 
+_**User**_
+
+the list is showing now, but submitting the form is broken because the input field name has changed .
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Ah, you're absolutely right! My apologies, I didn't account for the form submission breaking when we changed the input field's name. Since the `invite_member_handler` expects the email in a field named `email` when the form is POSTed, changing the input name to `q` broke it.
+
+Let's revert the input field's `name` attribute back to `email` and use a different HTMX attribute to send the correct parameter for the search (`GET` request).
+
+**Plan:**
+
+1.  Change the `name` attribute of the input field in `assets/views/teams/invite.html` back to `"email"`.
+2.  Instead of relying on the `name` attribute for the `GET` request, we'll use `hx-params="q"` on the input field. This tells HTMX to specifically use the value of this input for the parameter named `q` in the `GET` request triggered by `hx-get`.
+
+Let's apply this fix to `assets/views/teams/invite.html`.
+
+
+
+---
+
+```diff
+                          <div class="col-span-6 sm:col-span-4">
+                              <label for="email" class="block text-sm font-medium text-gray-700">Email address or Name</label>
+-                             <input type="text" name="q" id="email"
++                             <input type="text" name="email" id="email"
+                                     class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
+                                     hx-get="/teams/{{ team.pid }}/search-users"
+                                     hx-swap="innerHTML"
+                                     hx-indicator="#spinner"
++                                    hx-params="q"
+                                     autocomplete="off">
+                              <div id="spinner" class="htmx-indicator">Searching...</div>
+```
+
+---
+
+
+
+---
+
+Okay, I've reverted the input field's `name` back to `email` and added `hx-params="q"`.
+
+This configuration ensures:
+
+1.  The HTMX `GET` request to `/teams/.../search-users` will use the input's value and send it as the `q` query parameter (because of `hx-params="q"`).
+2.  The standard HTML form `POST` request to `/teams/.../invite` will use the input's value and send it as the `email` parameter (because of `name="email"`).
+
+This should fix the form submission issue while keeping the auto-complete search functional. Please test both searching and submitting the form again.
+
+---
+
 
 
 ---
