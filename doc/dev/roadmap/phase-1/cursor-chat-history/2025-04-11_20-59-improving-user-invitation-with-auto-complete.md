@@ -774,6 +774,48 @@ This should fix the form submission issue while keeping the auto-complete search
 
 ---
 
+_**User**_
+
+This is not working. The search-users request is empty now. Here is the log : 
+```
+2025-04-12T06:22:00.296789Z DEBUG http-request: tower_http::trace::on_request: started processing request http.method=GET http.uri=/teams/b44d8ce0-990c-415d-b2fe-67de4fdd9925/search-users http.version=HTTP/1.1 http.user_agent=Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0 environment=development request_id=7873f2fc-5cca-4c39-a196-4ebda313704a
+2025-04-12T06:22:00.302380Z  INFO http-request: hosting_farm::controllers::teams_pages: Searching for users with query None http.method=GET http.uri=/teams/b44d8ce0-990c-415d-b2fe-67de4fdd9925/search-users http.version=HTTP/1.1 http.user_agent=Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0 environment=development request_id=7873f2fc-5cca-4c39-a196-4ebda313704a
+2025-04-12T06:22:00.302586Z  INFO http-request: hosting_farm::controllers::teams_pages: Query is empty, returning empty HTML http.method=GET http.uri=/teams/b44d8ce0-990c-415d-b2fe-67de4fdd9925/search-users http.version=HTTP/1.1 http.user_agent=Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0 environment=development request_id=7873f2fc-5cca-4c39-a196-4ebda313704a
+2025-04-12T06:22:00.302876Z DEBUG http-request: tower_http::trace::on_response: finished processing request latency=6 ms status=200 http.method=GET http.uri=/teams/b44d8ce0-990c-415d-b2fe-67de4fdd9925/search-users http.version=HTTP/1.1 http.user_agent=Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0 environment=development request_id=7873f2fc-5cca-4c39-a196-4ebda313704a
+```
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+You are absolutely correct, and my apologies again. The logs clearly show the request goes to `/search-users` without any query parameters, meaning `hx-params="q"` did not work as intended to map the input's value to the `q` parameter. It seems `hx-params` is more for filtering existing parameters than for mapping/renaming like this.
+
+Let's go back to using `hx-vals`, but ensure the JavaScript is correctly evaluated this time. We need to explicitly tell HTMX to evaluate a JavaScript expression to create the JSON object containing the `q` parameter.
+
+**Revised Plan:**
+
+1.  Keep the input field's `name` as `"email"`.
+2.  Remove the `hx-params="q"` attribute.
+3.  Add the `hx-vals` attribute back, using the `js:` prefix to create the JSON object: `hx-vals='js:{"q": document.getElementById("email").value}'`. This uses standard JavaScript to get the value from the input element (using its `id="email"`) and assigns it to the `q` key in the JSON object sent with the request.
+
+Let's apply this to `assets/views/teams/invite.html`.
+
+
+
+---
+
+Cancelled
+
+---
+
+
+
+---
+
 
 
 ---
