@@ -59,16 +59,41 @@ async fn handle_register(
 
     match res {
         Ok(user) => {
-            // Send verification email
-            let user = user
-                .into_active_model()
-                .set_email_verification_sent(&ctx.db)
-                .await?;
-
-            AuthMailer::send_welcome(&ctx, &user).await?;
-
-            // Redirect to login page with success message
-            redirect("/auth/login?registered=true", headers)
+            // Send verification email first
+            match AuthMailer::send_welcome(&ctx, &user).await {
+                Ok(_) => {
+                    // Email sent successfully, now update verification status
+                    match user.clone()
+                        .into_active_model()
+                        .set_email_verification_sent(&ctx.db)
+                        .await
+                    {
+                        Ok(_) => {
+                            // All good, redirect to login page with success message
+                            redirect("/auth/login?registered=true", headers)
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                message = "Failed to set email verification status after sending email",
+                                user_email = &user.email, // user is still available here
+                                error = err.to_string(),
+                            );
+                            // Although the email was sent, the DB update failed.
+                            // This is an internal error state, show error page.
+                            error_page(&v, "Account registered, but failed to finalize setup. Please contact support.", Some(loco_rs::Error::Model(err)))
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        message = "Failed to send welcome email",
+                        user_email = &user.email, // user is still available here
+                        error = err.to_string(),
+                    );
+                    // Don't proceed to update verification status if email failed.
+                    error_page(&v, "Could not send welcome email.", Some(loco_rs::Error::wrap(err)))
+                }
+            }
         }
         Err(err) => {
             tracing::info!(
@@ -161,7 +186,18 @@ async fn handle_login(
                 return error_fragment(&v, "Log in failed: Invalid email or password");
             };
 
-            let jwt_secret = ctx.config.get_jwt_config()?;
+            // Get JWT secret, handling potential error
+            let jwt_secret = match ctx.config.get_jwt_config() {
+                Ok(config) => config,
+                Err(err) => {
+                    tracing::error!(
+                        message = "Failed to get JWT configuration,",
+                        error = err.to_string(),
+                    );
+                    // Use error_fragment for user-facing error
+                    return error_fragment(&v, "Log in failed: Server configuration error.");
+                }
+            };
 
             let token = match user.generate_jwt(&jwt_secret.secret, &jwt_secret.expiration) {
                 Ok(token) => token,
@@ -187,13 +223,25 @@ async fn handle_login(
             // If remember me is checked, set a persistent cookie with email
             if params.remember_me.is_some() {
                 // Add Set-Cookie header for the remember me email
-                response.headers_mut().append(
-                    axum::http::header::SET_COOKIE,
-                    HeaderValue::from_str(&format!(
-                        "remembered_email={}; Path=/; Max-Age=31536000",
-                        form.email
-                    ))?,
-                );
+                match HeaderValue::from_str(&format!(
+                    "remembered_email={}; Path=/; Max-Age=31536000",
+                    form.email
+                )) {
+                    Ok(header_value) => {
+                        response.headers_mut().append(
+                            axum::http::header::SET_COOKIE,
+                            header_value,
+                        );
+                    }
+                    Err(e) => {
+                        // Log the error but continue processing as this is not critical
+                        tracing::error!(
+                            "Failed to create header value for remember_me cookie for user {}: {}",
+                            &form.email,
+                            e
+                        );
+                    }
+                }
             }
 
             tracing::info!(
@@ -359,17 +407,31 @@ async fn verify_email(
                     }),
                 )
             } else {
-                let active_model = user.into_active_model();
-                let _user = active_model.verified(&ctx.db).await?;
-                tracing::info!(pid = _user.pid.to_string(), "user verified");
-                format::render().view(
-                    &v,
-                    "auth/verify.html",
-                    data!({
-                        "success": true,
-                        "message": "Your email is now verified.",
-                    }),
-                )
+                let active_model = user.clone().into_active_model();
+                match active_model.verified(&ctx.db).await {
+                    Ok(_user) => {
+                        tracing::info!(pid = _user.pid.to_string(), "user verified");
+                        format::render().view(
+                            &v,
+                            "auth/verify.html", 
+                            data!({
+                                "success": true,
+                                "message": "Your email is now verified.",
+                            }),
+                        )
+                    }
+                    Err(e) => {
+                        tracing::error!(pid = user.pid.to_string(), error = e.to_string(), "failed to mark user as verified");
+                        format::render().view(
+                            &v,
+                            "auth/verify.html",
+                            data!({
+                                "success": false,
+                                "message": "Email verification failed. Please try again or contact support.",
+                            }),
+                        )
+                    }
+                }
             }
         }
         Err(_) => format::render().view(
