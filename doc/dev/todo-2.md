@@ -9,21 +9,21 @@ Similarly, `.unwrap()` calls should be replaced with proper error handling that 
 ## `.unwrap()` Occurrences
 
 - [ ] `src/controllers/auth_pages.rs:310` (in comment, verify if relevant)
-- [ ] `src/controllers/teams_pages.rs:31`
-- [ ] `src/controllers/teams_pages.rs:59`
-- [ ] `src/controllers/teams_pages.rs:120`
-- [ ] `src/controllers/teams_pages.rs:251`
-- [ ] `src/controllers/teams_pages.rs:324`
-- [ ] `src/controllers/teams_pages.rs:397`
-- [ ] `src/controllers/teams_pages.rs:446`
-- [ ] `src/controllers/teams_pages.rs:492`
-- [ ] `src/controllers/teams_pages.rs:539`
-- [ ] `src/controllers/teams_pages.rs:585`
-- [ ] `src/controllers/teams_pages.rs:691`
-- [ ] `src/controllers/teams_pages.rs:776`
-- [ ] `src/controllers/teams_pages.rs:886`
-- [ ] `src/controllers/teams_pages.rs:923`
-- [ ] `src/controllers/teams_pages.rs:1026`
+- [x] `src/controllers/teams_pages.rs:31`
+- [x] `src/controllers/teams_pages.rs:59`
+- [x] `src/controllers/teams_pages.rs:120`
+- [x] `src/controllers/teams_pages.rs:251`
+- [x] `src/controllers/teams_pages.rs:324`
+- [x] `src/controllers/teams_pages.rs:397`
+- [x] `src/controllers/teams_pages.rs:446`
+- [x] `src/controllers/teams_pages.rs:492`
+- [x] `src/controllers/teams_pages.rs:539`
+- [x] `src/controllers/teams_pages.rs:585`
+- [x] `src/controllers/teams_pages.rs:691`
+- [x] `src/controllers/teams_pages.rs:776`
+- [x] `src/controllers/teams_pages.rs:886`
+- [x] `src/controllers/teams_pages.rs:923`
+- [x] `src/controllers/teams_pages.rs:1026`
 - [ ] `src/controllers/users_pages.rs:40`
 - [ ] `src/controllers/users_pages.rs:99`
 - [ ] `src/controllers/users_pages.rs:144`

@@ -26,10 +26,11 @@ async fn create_team_page(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return Ok(Redirect::to("/auth/login").into_response());
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Get pending invitations count
     let invitations = team_memberships::Entity::find()
@@ -54,10 +55,11 @@ async fn list_teams(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return Ok(Redirect::to("/auth/login").into_response());
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Get all teams where the user is a member
     let teams_result = teams::Entity::find()
@@ -115,10 +117,11 @@ async fn team_details(
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return Ok(Redirect::to("/auth/login").into_response());
-    }
-    let user = auth.user.unwrap();
+    };
 
     tracing::info!("Accessing team details for team pid: {}", team_pid);
 
@@ -246,10 +249,11 @@ async fn invite_member_page(
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return Ok(Redirect::to("/auth/login").into_response());
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -319,10 +323,11 @@ async fn edit_team_page(
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return Ok(Redirect::to("/auth/login").into_response());
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -392,10 +397,11 @@ async fn create_team_handler(
     auth: JWTWithUserOpt<users::Model>,
     Form(params): Form<CreateTeamParams>,
 ) -> Result<impl IntoResponse> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Create the team
     let team = match teams::Model::create_team(&ctx.db, user.id, &params).await {
@@ -441,10 +447,11 @@ async fn update_team_handler(
     Path(team_pid): Path<String>,
     Form(params): Form<UpdateTeamParams>,
 ) -> Result<impl IntoResponse> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -487,10 +494,11 @@ async fn accept_invitation(
     auth: JWTWithUserOpt<users::Model>,
     Path(token): Path<String>,
 ) -> Result<impl IntoResponse> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Find invitation by token
     let invitation = match team_memberships::Entity::find()
@@ -534,10 +542,11 @@ async fn decline_invitation(
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Find invitation by token
     let invitation = match team_memberships::Entity::find()
@@ -580,10 +589,11 @@ async fn cancel_invitation(
     State(ctx): State<AppContext>,
     Path((team_pid, token)): Path<(String, String)>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -686,10 +696,12 @@ async fn update_member_role(
     Path((team_pid, user_pid)): Path<(String, String)>,
     Form(params): Form<UpdateRoleParams>,
 ) -> Result<impl IntoResponse> {
-    if auth.user.is_none() {
+    let current_user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let current_user = auth.user.unwrap();
+    };
+
     let team = teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
     let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
 
@@ -771,10 +783,12 @@ async fn remove_member(
     State(ctx): State<AppContext>,
     Path((team_pid, user_pid)): Path<(String, String)>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let current_user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let current_user = auth.user.unwrap();
+    };
+
     let team = teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
     let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
 
@@ -881,10 +895,11 @@ async fn delete_team(
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap();
+    };
 
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -918,10 +933,12 @@ async fn invite_member_handler(
     Path(team_pid): Path<String>,
     Form(params): Form<InviteMemberParams>,
 ) -> Result<impl IntoResponse> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap();
+    };
+
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
         Err(e) => {
@@ -1020,11 +1037,12 @@ async fn search_users(
 ) -> Result<Response> {
     tracing::info!("Searching for users with query {:?}", params.q);
     // Ensure user is authenticated
-    if auth.user.is_none() {
+    let current_user = if let Some(user) = auth.user {
+        user
+    } else {
         // Return empty HTML for HTMX
         return Ok(Html("".to_string()).into_response());
-    }
-    let current_user = auth.user.unwrap();
+    };
 
     let search_term = match params.q {
         Some(term) if !term.trim().is_empty() => term.trim().to_lowercase(),

@@ -34,11 +34,12 @@ async fn profile(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         // Redirect to login if not authenticated
         return Ok(Redirect::to("/auth/login").into_response());
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+    };
 
     // Get user's team memberships
     let teams = teams::Entity::find()
@@ -93,11 +94,12 @@ async fn invitations(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         // Redirect to login if not authenticated
         return Ok(Redirect::to("/auth/login").into_response());
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+    };
 
     // Get user's pending team invitations
     let invitations = team_memberships::Entity::find()
@@ -139,10 +141,11 @@ async fn get_invitation_count(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+    };
 
     // Get pending invitations count
     let invitation_count = team_memberships::Entity::find()
@@ -165,10 +168,11 @@ async fn update_profile(
     State(ctx): State<AppContext>,
     Form(params): Form<UpdateProfileParams>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+    };
 
     // Check if email already exists (if it changed)
     if user.email != params.email {
@@ -200,10 +204,11 @@ async fn update_password(
     State(ctx): State<AppContext>,
     Form(params): Form<UpdatePasswordParams>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+    };
 
     // Verify passwords match
     if params.password != params.password_confirmation {
