@@ -14,7 +14,7 @@
     </div>
     <div class="mt-5 md:mt-0 md:col-span-2">
         <form action="/teams/{{ team.pid }}/invite" method="POST" hx-post="/teams/{{ team.pid }}/invite">
-            <div class="shadow overflow-hidden sm:rounded-md">
+            <div class="shadow sm:rounded-md">
                 <div class="px-4 py-5 bg-white sm:p-6">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
@@ -27,7 +27,8 @@
                                    hx-swap="innerHTML"
                                    hx-indicator="#spinner"
                                    hx-vals='js:{"q": document.getElementById("email").value}'
-                                   autocomplete="off">
+                                   autocomplete="off"
+                                   >
                             <div id="spinner" class="htmx-indicator">Searching...</div>
                             <div id="user-search-results" class="relative">
                                 <!-- Search results will be loaded here -->
@@ -50,3 +51,51 @@
     </div>
 </div>
 {% endblock %}
+
+{% block script %}
+<!-- TODO: Revisit keyboard navigation (ArrowUp, ArrowDown, Enter) for the user search dropdown.
+     Try to implement this purely using Hyperscript instead of the current JavaScript solution.
+     The previous Hyperscript attempts had issues reliably preventing default input behavior. -->
+<script>
+document.addEventListener('DOMContentLoaded', (event) => {
+    const emailInput = document.getElementById('email');
+    const resultsContainer = document.getElementById('user-search-results');
+
+    emailInput.addEventListener('keydown', function(e) {
+        const list = resultsContainer.querySelector('#search-results-list');
+        if (!list) return;
+        const items = list.querySelectorAll('.search-result-item');
+        if (items.length === 0) return;
+
+        let current = list.querySelector('.selected');
+        let currentIndex = -1;
+        if (current) {
+            currentIndex = Array.from(items).indexOf(current);
+        }
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault(); // Prevent cursor movement
+            if (current) {
+                current.classList.remove('selected');
+            }
+            let nextIndex = (currentIndex + 1) % items.length;
+            items[nextIndex].classList.add('selected');
+            items[nextIndex].scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault(); // Prevent cursor movement
+            if (current) {
+                current.classList.remove('selected');
+            }
+            let prevIndex = (currentIndex - 1 + items.length) % items.length;
+            items[prevIndex].classList.add('selected');
+            items[prevIndex].scrollIntoView({ block: 'nearest' });
+        } else if (e.key === 'Enter') {
+            if (current) {
+                e.preventDefault(); // Prevent form submission
+                current.click(); // Trigger the click handler (hyperscript on the item)
+            }
+        }
+    });
+});
+</script>
+{% endblock script %}
