@@ -2,11 +2,11 @@ use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
     models::{_entities::team_memberships, _entities::teams, users},
     utils::template::render_template,
-    views::htmx_redirect,
+    views::redirect,
 };
 use axum::debug_handler;
 use axum::extract::Form;
-use axum::response::Redirect;
+use axum::http::header::HeaderMap;
 use loco_rs::prelude::*;
 use sea_orm::PaginatorTrait;
 use serde::Deserialize;
@@ -33,12 +33,13 @@ pub struct UpdatePasswordParams {
 async fn profile(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
         // Redirect to login if not authenticated
-        return Ok(Redirect::to("/auth/login").into_response());
+        return redirect("/auth/login", headers);
     };
 
     // Get user's team memberships
@@ -93,12 +94,13 @@ async fn profile(
 async fn invitations(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
         // Redirect to login if not authenticated
-        return Ok(Redirect::to("/auth/login").into_response());
+        return redirect("/auth/login", headers);
     };
 
     // Get user's pending team invitations
@@ -140,11 +142,12 @@ async fn invitations(
 async fn get_invitation_count(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     // Get pending invitations count
@@ -166,12 +169,13 @@ async fn get_invitation_count(
 async fn update_profile(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(params): Form<UpdateProfileParams>,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     // Check if email already exists (if it changed)
@@ -202,12 +206,13 @@ async fn update_profile(
 async fn update_password(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(params): Form<UpdatePasswordParams>,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     // Verify passwords match

@@ -6,13 +6,14 @@ use crate::{
         teams::{CreateTeamParams, UpdateTeamParams},
     },
     utils::template::render_template,
-    views::{error_fragment, error_page, htmx_redirect},
+    views::{error_fragment, error_page, redirect},
 };
 use axum::{
     debug_handler,
     extract::{Form, Path, Query, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Redirect},
+    response::{Html, IntoResponse},
+    http::header::HeaderMap,
 };
 use loco_rs::{app::AppContext, prelude::*};
 use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
@@ -25,11 +26,12 @@ use tracing;
 async fn create_team_page(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return Ok(Redirect::to("/auth/login").into_response());
+        return redirect("/auth/login", headers);
     };
 
     // Get pending invitations count
@@ -54,11 +56,12 @@ async fn create_team_page(
 async fn list_teams(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return Ok(Redirect::to("/auth/login").into_response());
+        return redirect("/auth/login", headers);
     };
 
     // Get all teams where the user is a member
@@ -116,11 +119,12 @@ async fn team_details(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return Ok(Redirect::to("/auth/login").into_response());
+        return redirect("/auth/login", headers);
     };
 
     tracing::info!("Accessing team details for team pid: {}", team_pid);
@@ -248,11 +252,12 @@ async fn invite_member_page(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return Ok(Redirect::to("/auth/login").into_response());
+        return redirect("/auth/login", headers);
     };
 
     // Find team
@@ -322,11 +327,12 @@ async fn edit_team_page(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return Ok(Redirect::to("/auth/login").into_response());
+        return redirect("/auth/login", headers);
     };
 
     // Find team
@@ -395,12 +401,13 @@ async fn create_team_handler(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     auth: JWTWithUserOpt<users::Model>,
+    headers: HeaderMap,
     Form(params): Form<CreateTeamParams>,
 ) -> Result<impl IntoResponse> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     // Create the team
@@ -435,7 +442,7 @@ async fn create_team_handler(
 
     // Redirect to the team details page with explicit .to_string() to ensure proper conversion
     let redirect_url = format!("/teams/{}", team.pid);
-    htmx_redirect(&redirect_url)
+    redirect(&redirect_url, headers)
 }
 
 /// Update team handler
@@ -445,12 +452,13 @@ async fn update_team_handler(
     State(ctx): State<AppContext>,
     auth: JWTWithUserOpt<users::Model>,
     Path(team_pid): Path<String>,
+    headers: HeaderMap,
     Form(params): Form<UpdateTeamParams>,
 ) -> Result<impl IntoResponse> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     // Find team
@@ -483,7 +491,7 @@ async fn update_team_handler(
 
     // Redirect to the team details page
     let redirect_url = format!("/teams/{}", updated_team.pid);
-    htmx_redirect(&redirect_url)
+    redirect(&redirect_url, headers)
 }
 
 /// Accept invitation handler
@@ -493,11 +501,12 @@ async fn accept_invitation(
     State(ctx): State<AppContext>,
     auth: JWTWithUserOpt<users::Model>,
     Path(token): Path<String>,
+    headers: HeaderMap,
 ) -> Result<impl IntoResponse> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     // Find invitation by token
@@ -541,11 +550,12 @@ async fn decline_invitation(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(token): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     // Find invitation by token
@@ -588,11 +598,12 @@ async fn cancel_invitation(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path((team_pid, token)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     // Find team
@@ -694,12 +705,13 @@ async fn update_member_role(
     State(ctx): State<AppContext>,
     auth: JWTWithUserOpt<users::Model>,
     Path((team_pid, user_pid)): Path<(String, String)>,
+    headers: HeaderMap,
     Form(params): Form<UpdateRoleParams>,
 ) -> Result<impl IntoResponse> {
     let current_user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     let team = teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
@@ -782,11 +794,12 @@ async fn remove_member(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path((team_pid, user_pid)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let current_user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     let team = teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
@@ -894,11 +907,12 @@ async fn delete_team(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
     Path(team_pid): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     // Find team
@@ -921,7 +935,7 @@ async fn delete_team(
 
     // Instead of returning empty JSON, send a redirect to the teams list page
     let redirect_url = "/teams";
-    htmx_redirect(redirect_url)
+    redirect(redirect_url, headers)
 }
 
 /// Invite member handler
@@ -931,12 +945,13 @@ async fn invite_member_handler(
     State(ctx): State<AppContext>,
     auth: JWTWithUserOpt<users::Model>,
     Path(team_pid): Path<String>,
+    headers: HeaderMap,
     Form(params): Form<InviteMemberParams>,
 ) -> Result<impl IntoResponse> {
     let user = if let Some(user) = auth.user {
         user
     } else {
-        return htmx_redirect("/auth/login");
+        return redirect("/auth/login", headers);
     };
 
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -1017,7 +1032,7 @@ async fn invite_member_handler(
 
     // Redirect back to the team page
     let redirect_url = format!("/teams/{}", team_pid);
-    htmx_redirect(&redirect_url)
+    redirect(&redirect_url, headers)
 }
 
 /// Parameters for user search query

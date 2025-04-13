@@ -8,10 +8,8 @@ use crate::{
     utils::template::render_template,
     views::*,
 };
-use axum::debug_handler;
-use axum::extract::{Form, Query};
-use axum::http::HeaderMap;
-use axum::response::Redirect;
+use axum::{debug_handler, extract::{Form, Query, Path, State}};
+use axum::http::{HeaderMap, header::HeaderValue};
 use loco_rs::prelude::*;
 use std::collections::HashMap;
 
@@ -20,12 +18,13 @@ use std::collections::HashMap;
 async fn register(
     auth: JWTWithUserOpt<users::Model>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     match auth.user {
         Some(_user) => {
             // User is already authenticated, redirect to home using standard redirect
             tracing::info!("User is already authenticated, redirecting to home");
-            Ok(Redirect::to("/home").into_response())
+            redirect("/home", headers)
         }
         None => {
             let context = tera::Context::new();
@@ -39,6 +38,7 @@ async fn register(
 async fn handle_register(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(form): Form<RegisterParams>,
 ) -> Result<Response> {
     // Check if passwords match
@@ -68,10 +68,7 @@ async fn handle_register(
             AuthMailer::send_welcome(&ctx, &user).await?;
 
             // Redirect to login page with success message
-            let response = Response::builder()
-                .header("HX-Redirect", "/auth/login?registered=true")
-                .body(axum::body::Body::empty())?;
-            Ok(response)
+            redirect("/auth/login?registered=true", headers)
         }
         Err(err) => {
             tracing::info!(
@@ -107,7 +104,7 @@ async fn login(
         Some(_user) => {
             // User is already authenticated, redirect to home using standard redirect
             tracing::info!("User is already authenticated, redirecting to home");
-            Ok(Redirect::to("/home").into_response())
+            redirect("/home", headers)
         }
         None => {
             let registered = params.get("registered") == Some(&"true".to_string());
@@ -139,6 +136,7 @@ async fn login(
 async fn handle_login(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(form): Form<LoginParams>,
 ) -> Result<Response> {
     // Convert form data to login params
@@ -177,21 +175,27 @@ async fn handle_login(
                 }
             };
 
-            // Prepare response with auth token cookie and redirect
-            let mut response_builder = Response::builder()
-                .header("HX-Redirect", "/home")
-                .header("Set-Cookie", format!("auth_token={}; Path=/", token));
+            // Redirect to home with cookies
+            let mut response = redirect("/home", headers)?;
+
+            // Add Set-Cookie header for the auth token
+            response.headers_mut().append(
+                axum::http::header::SET_COOKIE,
+                HeaderValue::from_str(&format!("auth_token={}; Path=/", token))?,
+            );
 
             // If remember me is checked, set a persistent cookie with email
             if params.remember_me.is_some() {
-                // Set a permanent cookie (Max-Age = 1 year)
-                response_builder = response_builder.header(
-                    "Set-Cookie",
-                    format!("remembered_email={}; Path=/; Max-Age=31536000", form.email),
+                // Add Set-Cookie header for the remember me email
+                response.headers_mut().append(
+                    axum::http::header::SET_COOKIE,
+                    HeaderValue::from_str(&format!(
+                        "remembered_email={}; Path=/; Max-Age=31536000",
+                        form.email
+                    ))?,
                 );
             }
 
-            let response = response_builder.body(axum::body::Body::empty())?;
             tracing::info!(
                 message = "User login successful,",
                 user_email = &params.email,
@@ -229,6 +233,7 @@ async fn render_reset_email_sent_page(
 #[debug_handler]
 async fn handle_forgot_password(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(form): Form<ForgotPasswordParams>,
 ) -> Result<Response> {
     let params = ForgotPasswordParams {
@@ -286,10 +291,7 @@ async fn handle_forgot_password(
 
     // Always redirect to the confirmation page
     // TODO: There is still someting wrong in the `auth/reset-email-sent.html` view.
-    let response = Response::builder()
-        .header("HX-Redirect", "/auth/reset-email-sent")
-        .body(axum::body::Body::empty())?;
-    Ok(response)
+    redirect("/auth/reset-email-sent", headers)
 }
 
 /// Renders the reset password page
@@ -403,6 +405,7 @@ async fn handle_logout() -> Result<Response> {
 async fn handle_reset_password(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(form): Form<ResetPasswordParams>,
 ) -> Result<Response> {
     // Check if passwords match
@@ -422,11 +425,8 @@ async fn handle_reset_password(
                     .await
                 {
                     Ok(_) => {
-                        // Redirect to login page with success message using HX-Redirect
-                        let response = Response::builder()
-                            .header("HX-Redirect", "/auth/login?reset=success")
-                            .body(axum::body::Body::empty())?;
-                        Ok(response)
+                        // Redirect to login page with success message
+                        redirect("/auth/login?reset=success", headers)
                     }
                     Err(e) => {
                         tracing::error!(

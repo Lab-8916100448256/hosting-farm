@@ -8,27 +8,48 @@ Similarly, `.unwrap()` calls should be replaced with proper error handling that 
 
 ## `.unwrap()` Occurrences
 
-- [ ] `src/controllers/auth_pages.rs:310` (in comment, verify if relevant)
+- [x] `src/controllers/auth_pages.rs:310` (in comment, verify if relevant)
+  - not relevant
 - [x] `src/controllers/teams_pages.rs:31`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:59`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:120`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:251`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:324`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:397`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:446`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:492`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:539`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:585`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:691`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:776`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:886`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:923`
+  - replaced by let if construct
 - [x] `src/controllers/teams_pages.rs:1026`
-- [ ] `src/controllers/users_pages.rs:40`
-- [ ] `src/controllers/users_pages.rs:99`
-- [ ] `src/controllers/users_pages.rs:144`
-- [ ] `src/controllers/users_pages.rs:170`
-- [ ] `src/controllers/users_pages.rs:205`
+  - replaced by let if construct
+- [x] `src/controllers/users_pages.rs:40`
+  - replaced by let if construct
+- [x] `src/controllers/users_pages.rs:99`
+  - replaced by let if construct
+- [x] `src/controllers/users_pages.rs:144`
+  - replaced by let if construct
+- [x] `src/controllers/users_pages.rs:170`
+  - replaced by let if construct
+- [x] `src/controllers/users_pages.rs:205`
+  - replaced by let if construct
 
 ## `?` Operator Occurrences
 

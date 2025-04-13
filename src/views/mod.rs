@@ -2,7 +2,11 @@ pub mod auth;
 pub mod teams;
 pub mod users;
 
-use axum::http::header::HeaderValue;
+use axum::{
+    http::{HeaderMap, header::HeaderValue},
+    response::{IntoResponse, Redirect, Response},
+};
+
 
 use loco_rs::prelude::*;
 
@@ -47,10 +51,21 @@ pub fn error_page(v: &TeraView, message: &str, e: Option<Error>) -> Result<Respo
     )
 }
 
+pub fn redirect(url: &str, headers: HeaderMap) -> Result<Response> {
+    if headers.get("HX-Request").map_or(false, |v| v == "true") {
+        // HTMX request: Use HX-Redirect header
+        tracing::info!("Redirecting to: {} using HTMX", url);
+        htmx_redirect(url)
+
+    } else {
+        // Standard request: Use HTTP redirect
+        tracing::info!("Redirecting to: {} using HTTP", url);
+        Ok(Redirect::to(url).into_response())
+    }
+}
+
 pub fn htmx_redirect(url: &str) -> Result<Response> {
-    tracing::info!("Redirecting to: {}", url);
     let response = match Response::builder()
-        // TODO: Use HX-Location instead of HX-Redirect
         .header("HX-Redirect", url)
         .body(axum::body::Body::empty())
     {
@@ -60,6 +75,5 @@ pub fn htmx_redirect(url: &str) -> Result<Response> {
             return Err(e.into());
         }
     };
-
     Ok(response)
 }
