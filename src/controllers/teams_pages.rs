@@ -36,13 +36,29 @@ async fn create_team_page(
     };
 
     // Get pending invitations count
-    let invitations = team_memberships::Entity::find()
+    let invitations_result = team_memberships::Entity::find()
         .find_with_related(teams::Entity)
         .all(&ctx.db)
-        .await?
-        .into_iter()
-        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-        .count();
+        .await;
+
+    let invitations = match invitations_result {
+        Ok(data) => data
+            .into_iter()
+            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+            .count(),
+        Err(e) => {
+            tracing::error!(
+                "Failed to load invitation count for user {}: {}",
+                user.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Could not load your invitation count. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
     render_template(
         &v,
@@ -70,10 +86,24 @@ async fn list_teams(
     };
 
     // Get all teams where the user is a member
-    let teams_result = teams::Entity::find()
+    let teams_data_result = teams::Entity::find()
         .find_with_related(team_memberships::Entity)
         .all(&ctx.db)
-        .await?
+        .await;
+
+    let teams_data = match teams_data_result {
+        Ok(data) => data,
+        Err(e) => {
+            tracing::error!("Failed to load teams for user {}: {}", user.id, e);
+            return error_page(
+                &v,
+                "Could not load your team information. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
+
+    let teams_result = teams_data
         .into_iter()
         .filter_map(|(team, memberships)| {
             let is_member = memberships
@@ -100,13 +130,29 @@ async fn list_teams(
         .collect::<Vec<_>>();
 
     // Get pending invitations count
-    let invitations = team_memberships::Entity::find()
+    let invitations_result = team_memberships::Entity::find()
         .find_with_related(teams::Entity)
         .all(&ctx.db)
-        .await?
-        .into_iter()
-        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-        .count();
+        .await;
+
+    let invitations = match invitations_result {
+        Ok(data) => data
+            .into_iter()
+            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+            .count(),
+        Err(e) => {
+            tracing::error!(
+                "Failed to load invitation count for user {}: {}",
+                user.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Could not load your invitation count. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
     render_template(
         &v,
@@ -147,12 +193,29 @@ async fn team_details(
     };
 
     // Check if user is a member of this team
-    let membership = team_memberships::Entity::find()
+    let membership_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(user.id))
         .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?;
+        .await;
+
+    let membership = match membership_result {
+        Ok(membership) => membership,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load membership for user {} in team {}: {}",
+                user.id,
+                team.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Could not check your team membership. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
     if membership.is_none() {
         tracing::error!(
@@ -175,17 +238,41 @@ async fn team_details(
     };
 
     // Get team members (non-pending)
-    let memberships = team_memberships::Entity::find()
+    let memberships_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::Pending.eq(false))
         .all(&ctx.db)
-        .await?;
+        .await;
+
+    let memberships = match memberships_result {
+        Ok(memberships) => memberships,
+        Err(e) => {
+            tracing::error!("Failed to load members for team {}: {}", team.id, e);
+            return error_page(
+                &v,
+                "Could not load team members. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
     let mut members = Vec::new();
     for membership in memberships {
-        let member = users::Entity::find_by_id(membership.user_id)
+        let member_result = users::Entity::find_by_id(membership.user_id)
             .one(&ctx.db)
-            .await?;
+            .await;
+
+        let member = match member_result {
+            Ok(member) => member,
+            Err(e) => {
+                tracing::error!("Failed to find user with id {}: {}", membership.user_id, e);
+                return error_page(
+                    &v,
+                    "Could not load team member details. Please try again later.",
+                    Some(e.into()),
+                );
+            }
+        };
 
         if let Some(member) = member {
             members.push(json!({
@@ -201,16 +288,40 @@ async fn team_details(
 
     // Get pending invitations for this team
     if is_admin {
-        let pending_memberships = team_memberships::Entity::find()
+        let pending_memberships_result = team_memberships::Entity::find()
             .filter(team_memberships::Column::TeamId.eq(team.id))
             .filter(team_memberships::Column::Pending.eq(true))
             .all(&ctx.db)
-            .await?;
+            .await;
+
+        let pending_memberships = match pending_memberships_result {
+            Ok(memberships) => memberships,
+            Err(e) => {
+                tracing::error!("Failed to load pending members for team {}: {}", team.id, e);
+                return error_page(
+                    &v,
+                    "Could not load pending team invitations. Please try again later.",
+                    Some(e.into()),
+                );
+            }
+        };
 
         for membership in pending_memberships {
-            let member = users::Entity::find_by_id(membership.user_id)
+            let member_result = users::Entity::find_by_id(membership.user_id)
                 .one(&ctx.db)
-                .await?;
+                .await;
+
+            let member = match member_result {
+                Ok(member) => member,
+                Err(e) => {
+                    tracing::error!("Failed to find user with id {}: {}", membership.user_id, e);
+                    return error_page(
+                        &v,
+                        "Could not load invited user details. Please try again later.",
+                        Some(e.into()),
+                    );
+                }
+            };
 
             if let Some(member) = member {
                 members.push(json!({
@@ -227,13 +338,29 @@ async fn team_details(
     }
 
     // Get pending invitations count for current user
-    let invitations = team_memberships::Entity::find()
+    let invitations_result = team_memberships::Entity::find()
         .find_with_related(teams::Entity)
         .all(&ctx.db)
-        .await?
-        .into_iter()
-        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-        .count();
+        .await;
+
+    let invitations = match invitations_result {
+        Ok(data) => data
+            .into_iter()
+            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+            .count(),
+        Err(e) => {
+            tracing::error!(
+                "Failed to load invitation count for user {}: {}",
+                user.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Could not load your invitation count. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
     render_template(
         &v,
@@ -278,12 +405,29 @@ async fn invite_member_page(
     };
 
     // Check if user is an admin or owner of this team
-    let membership = team_memberships::Entity::find()
+    let membership_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(user.id))
         .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?;
+        .await;
+
+    let membership = match membership_result {
+        Ok(membership) => membership,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load membership for user {} in team {}: {}",
+                user.id,
+                team.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Could not verify your permissions. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
     if let Some(membership) = membership {
         if membership.role != "Owner" && membership.role != "Administrator" {
@@ -304,13 +448,29 @@ async fn invite_member_page(
     }
 
     // Get pending invitations count for current user
-    let invitations = team_memberships::Entity::find()
+    let invitations_result = team_memberships::Entity::find()
         .find_with_related(teams::Entity)
         .all(&ctx.db)
-        .await?
-        .into_iter()
-        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-        .count();
+        .await;
+
+    let invitations = match invitations_result {
+        Ok(data) => data
+            .into_iter()
+            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+            .count(),
+        Err(e) => {
+            tracing::error!(
+                "Failed to load invitation count for user {}: {}",
+                user.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Could not load your invitation count. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
     render_template(
         &v,
@@ -353,12 +513,29 @@ async fn edit_team_page(
     };
 
     // Check if user is an admin or owner of this team
-    let membership = team_memberships::Entity::find()
+    let membership_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(user.id))
         .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?;
+        .await;
+
+    let membership = match membership_result {
+        Ok(membership) => membership,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load membership for user {} in team {}: {}",
+                user.id,
+                team.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Could not verify your permissions. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
     if let Some(membership) = membership {
         if membership.role != "Owner" && membership.role != "Administrator" {
@@ -379,13 +556,29 @@ async fn edit_team_page(
     }
 
     // Get pending invitations count for current user
-    let invitations = team_memberships::Entity::find()
+    let invitations_result = team_memberships::Entity::find()
         .find_with_related(teams::Entity)
         .all(&ctx.db)
-        .await?
-        .into_iter()
-        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-        .count();
+        .await;
+
+    let invitations = match invitations_result {
+        Ok(data) => data
+            .into_iter()
+            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
+            .count(),
+        Err(e) => {
+            tracing::error!(
+                "Failed to load invitation count for user {}: {}",
+                user.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Could not load your invitation count. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
     render_template(
         &v,
@@ -484,12 +677,29 @@ async fn update_team_handler(
     };
 
     // Check if user is an owner of this team
-    let membership = team_memberships::Entity::find()
+    let membership_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(user.id))
         .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?;
+        .await;
+
+    let membership = match membership_result {
+        Ok(membership) => membership,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load membership for user {} in team {}: {}",
+                user.id,
+                team.id,
+                e
+            );
+            return error_fragment(
+                &v,
+                "Could not verify your permissions. Please try again later.",
+                "#error-container",
+            );
+        }
+    };
 
     if let Some(membership) = membership {
         if membership.role != "Owner" {
@@ -504,7 +714,18 @@ async fn update_team_handler(
     }
 
     // Update the team
-    let updated_team = team.update(&ctx.db, &params).await?;
+    let update_result = team.update(&ctx.db, &params).await;
+    let updated_team = match update_result {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to update team {}: {}", team.id, e);
+            return error_fragment(
+                &v,
+                "Could not update team details. Please try again later.",
+                "#error-container",
+            );
+        }
+    };
 
     // Redirect to the team details page
     let redirect_url = format!("/teams/{}", updated_team.pid);
@@ -549,7 +770,15 @@ async fn accept_invitation(
     // Accept invitation
     let mut invitation_model: team_memberships::ActiveModel = invitation.into();
     invitation_model.pending = sea_orm::ActiveValue::set(false);
-    invitation_model.update(&ctx.db).await?;
+    let update_result = invitation_model.update(&ctx.db).await;
+    if let Err(e) = update_result {
+        tracing::error!("Failed to accept invitation : {}", e);
+        return error_page(
+            &v,
+            "Could not accept the invitation. Please try again later.",
+            Some(e.into()),
+        );
+    }
 
     // Remove the invitation row from the UI
     let response = Response::builder()
@@ -597,7 +826,15 @@ async fn decline_invitation(
 
     // Decline invitation - delete the invitation
     let invitation_model: team_memberships::ActiveModel = invitation.into();
-    invitation_model.delete(&ctx.db).await?;
+    let delete_result = invitation_model.delete(&ctx.db).await;
+    if let Err(e) = delete_result {
+        tracing::error!("Failed to decline invitation: {}", e);
+        return error_page(
+            &v,
+            "Could not decline the invitation. Please try again later.",
+            Some(e.into()),
+        );
+    }
 
     // Remove the invitation row from the UI
     let response = Response::builder()
@@ -633,13 +870,14 @@ async fn cancel_invitation(
     };
 
     // Check if user is an admin or owner of this team
-    let membership = match team_memberships::Entity::find()
+    let membership_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(user.id))
         .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await
-    {
+        .await;
+
+    let membership = match membership_result {
         Ok(value) => value,
         Err(err) => {
             tracing::error!("Failed to find membership: {:?}", err);
@@ -704,7 +942,15 @@ async fn cancel_invitation(
 
     // Cancel invitation - delete the membership
     let invitation_model: team_memberships::ActiveModel = invitation.into();
-    invitation_model.delete(&ctx.db).await?;
+    let delete_result = invitation_model.delete(&ctx.db).await;
+    if let Err(e) = delete_result {
+        tracing::error!("Failed to cancel invitation: {}", e);
+        return error_fragment(
+            &v,
+            "Could not cancel the invitation. Please try again later.",
+            "#error-container",
+        );
+    }
 
     tracing::info!("Invitation cancelled successfully");
 
@@ -735,8 +981,22 @@ async fn update_member_role(
         return redirect("/auth/login", headers);
     };
 
-    let team = teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
-    let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
+    let team_result = teams::Model::find_by_pid(&ctx.db, &team_pid).await;
+    let team = match team_result {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team {}: {}", team_pid, e);
+            return error_fragment(&v, "Team not found.", "#error-container");
+        }
+    };
+    let target_user_result = users::Model::find_by_pid(&ctx.db, &user_pid).await;
+    let target_user = match target_user_result {
+        Ok(user) => user,
+        Err(e) => {
+            tracing::error!("Failed to find user {}: {}", user_pid, e);
+            return error_fragment(&v, "Target user not found.", "#error-container");
+        }
+    };
 
     // Validate role
     if !crate::models::team_memberships::VALID_ROLES.contains(&params.role.as_str()) {
@@ -751,14 +1011,30 @@ async fn update_member_role(
     }
 
     // Check if current user is an owner of this team
-    let is_owner = team_memberships::Entity::find()
+    let is_owner_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(current_user.id))
         .filter(team_memberships::Column::Role.eq("Owner"))
         .filter(team_memberships::Column::Pending.eq(false))
         .one(&ctx.db)
-        .await?
-        .is_some();
+        .await;
+
+    let is_owner = match is_owner_result {
+        Ok(membership_opt) => membership_opt.is_some(),
+        Err(e) => {
+            tracing::error!(
+                "Failed to check ownership for user {} in team {}: {}",
+                current_user.id,
+                team.id,
+                e
+            );
+            return error_fragment(
+                &v,
+                "Could not verify your permissions. Please try again later.",
+                "#error-container",
+            );
+        }
+    };
 
     if !is_owner {
         return error_fragment(
@@ -794,12 +1070,24 @@ async fn update_member_role(
 
     // Cannot change owner's role if there's only one owner
     if membership.role == "Owner" && params.role != "Owner" {
-        let owners_count = team_memberships::Entity::find()
+        let owners_count_result = team_memberships::Entity::find()
             .filter(team_memberships::Column::TeamId.eq(team.id))
             .filter(team_memberships::Column::Role.eq("Owner"))
             .filter(team_memberships::Column::Pending.eq(false))
             .count(&ctx.db)
-            .await?;
+            .await;
+
+        let owners_count = match owners_count_result {
+            Ok(count) => count,
+            Err(e) => {
+                tracing::error!("Failed to count owners for team {}: {}", team.id, e);
+                return error_fragment(
+                    &v,
+                    "Could not verify team ownership status. Please try again later.",
+                    "#error-container",
+                );
+            }
+        };
 
         if owners_count <= 1 {
             return error_fragment(
@@ -813,7 +1101,20 @@ async fn update_member_role(
     // Update role
     let mut membership_model: team_memberships::ActiveModel = membership.into();
     membership_model.role = sea_orm::ActiveValue::set(params.role);
-    membership_model.update(&ctx.db).await?;
+    let update_result = membership_model.update(&ctx.db).await;
+    if let Err(e) = update_result {
+        tracing::error!(
+            "Failed to update role for user {} in team {}: {}",
+            target_user.id,
+            team.id,
+            e
+        );
+        return error_fragment(
+            &v,
+            "Could not update member role. Please try again later.",
+            "#error-container",
+        );
+    };
 
     // Return a response that refreshes the page
     let response = Response::builder()
@@ -838,8 +1139,22 @@ async fn remove_member(
         return redirect("/auth/login", headers);
     };
 
-    let team = teams::Model::find_by_pid(&ctx.db, &team_pid).await?;
-    let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
+    let team_result = teams::Model::find_by_pid(&ctx.db, &team_pid).await;
+    let team = match team_result {
+        Ok(team) => team,
+        Err(e) => {
+            tracing::error!("Failed to find team {}: {}", team_pid, e);
+            return error_page(&v, "Team not found", None);
+        }
+    };
+    let target_user_result = users::Model::find_by_pid(&ctx.db, &user_pid).await;
+    let target_user = match target_user_result {
+        Ok(user) => user,
+        Err(e) => {
+            tracing::error!("Failed to find user {}: {}", user_pid, e);
+            return error_page(&v, "Target user not found", None);
+        }
+    };
 
     // Cannot remove yourself - use leave_team for that
     if current_user.id == target_user.id {
@@ -912,12 +1227,24 @@ async fn remove_member(
     // Special case: Prevent removing the last owner
     if target_membership.role == "Owner" {
         // Count owners
-        let owner_count = team_memberships::Entity::find()
+        let owner_count_result = team_memberships::Entity::find()
             .filter(team_memberships::Column::TeamId.eq(team.id))
             .filter(team_memberships::Column::Role.eq("Owner"))
             .filter(team_memberships::Column::Pending.eq(false))
             .count(&ctx.db)
-            .await?;
+            .await;
+
+        let owner_count = match owner_count_result {
+            Ok(count) => count,
+            Err(e) => {
+                tracing::error!("Failed to count owners for team {}: {}", team.id, e);
+                return error_page(
+                    &v,
+                    "Could not verify team ownership status. Please try again later.",
+                    Some(e.into()),
+                );
+            }
+        };
 
         if owner_count <= 1 {
             return error_page(&v, "Cannot remove the last owner", None);
@@ -926,7 +1253,20 @@ async fn remove_member(
 
     // Remove the member
     let target_membership_model: team_memberships::ActiveModel = target_membership.into();
-    target_membership_model.delete(&ctx.db).await?;
+    let delete_result = target_membership_model.delete(&ctx.db).await;
+    if let Err(e) = delete_result {
+        tracing::error!(
+            "Failed to remove user {} from team {}: {}",
+            target_user.id,
+            team.id,
+            e
+        );
+        return error_page(
+            &v,
+            "Could not remove member. Please try again later.",
+            Some(e.into()),
+        );
+    };
 
     // Return a response that refreshes the page
     let response = Response::builder()
@@ -961,13 +1301,37 @@ async fn delete_team(
     };
 
     // Check if user is an owner of this team
-    let is_owner = team.has_role(&ctx.db, user.id, "Owner").await?;
+    let is_owner_result = team.has_role(&ctx.db, user.id, "Owner").await;
+    let is_owner = match is_owner_result {
+        Ok(is_owner) => is_owner,
+        Err(e) => {
+            tracing::error!(
+                "Failed to check ownership for user {} in team {}: {}",
+                user.id,
+                team.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Could not verify your permissions. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
     if !is_owner {
         return error_page(&v, "Only team owners can delete a team", None);
     }
 
     // Delete the team
-    team.delete(&ctx.db).await?;
+    let delete_result = team.delete(&ctx.db).await;
+    if let Err(e) = delete_result {
+        tracing::error!("Failed to delete team: {}", e);
+        return error_page(
+            &v,
+            "Could not delete the team. Please try again later.",
+            Some(e.into()),
+        );
+    };
 
     // Instead of returning empty JSON, send a redirect to the teams list page
     let redirect_url = "/teams";
@@ -999,7 +1363,23 @@ async fn invite_member_handler(
     };
 
     // Check if user is an admin of this team
-    let is_admin = team.has_role(&ctx.db, user.id, "Administrator").await?;
+    let is_admin_result = team.has_role(&ctx.db, user.id, "Administrator").await;
+    let is_admin = match is_admin_result {
+        Ok(is_admin) => is_admin,
+        Err(e) => {
+            tracing::error!(
+                "Failed to check admin role for user {} in team {}: {}",
+                user.id,
+                team.id,
+                e
+            );
+            return error_fragment(
+                &v,
+                "Could not verify your permissions. Please try again later.",
+                "#error-container",
+            );
+        }
+    };
 
     if !is_admin {
         // Return error message with HTMX
@@ -1031,11 +1411,28 @@ async fn invite_member_handler(
     };
 
     // Check if user is already a member or has a pending invitation
-    let existing_membership = team_memberships::Entity::find()
+    let existing_membership_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
         .filter(team_memberships::Column::UserId.eq(target_user.id))
         .one(&ctx.db)
-        .await?;
+        .await;
+
+    let existing_membership = match existing_membership_result {
+        Ok(membership_opt) => membership_opt,
+        Err(e) => {
+            tracing::error!(
+                "Failed to check existing membership for user {} in team {}: {}",
+                target_user.id,
+                team.id,
+                e
+            );
+            return error_fragment(
+                &v,
+                "Could not check existing membership. Please try again later.",
+                "#error-container",
+            );
+        }
+    };
 
     if let Some(membership) = existing_membership {
         // User already has a relationship with this team
@@ -1079,7 +1476,19 @@ async fn invite_member_handler(
     };
 
     // Send notification e_mail to target user
-    crate::mailers::team::TeamMailer::send_invitation(&ctx, &user, &target_user, &team).await?;
+    let mailer_result =
+        crate::mailers::team::TeamMailer::send_invitation(&ctx, &user, &target_user, &team).await;
+    if let Err(e) = mailer_result {
+        // Log the error but proceed with the redirect, as the invitation was created.
+        // TODO: The error message in the UI might be confusing if the redirect happens anyway.
+        // TODO: Consider if a different approach is needed, maybe showing a success message
+        // with a warning about the email potentially not being sent.
+        tracing::error!("Failed to send invitation email: {}", e);
+        // Returning an error fragment here might prevent the redirect, which could be desired
+        // depending on the required UX. For now, we'll just log and continue.
+        // Optionally, return an error fragment:
+        // TODO: return error_fragment(&v, "Invitation created, but failed to send email notification.", "#error-container");
+    }
 
     // Redirect back to the team page
     let redirect_url = format!("/teams/{}", team_pid);
