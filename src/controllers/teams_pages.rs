@@ -421,8 +421,8 @@ async fn create_team_handler(
             team
         }
         Err(e) => {
-            tracing::error!("Failed to create team: {:?}", e);
-            return error_fragment(&v, &format!("Failed to create team: {}", e));
+            tracing::error!("Failed to create team: {}", e);
+            return error_fragment(&v, &format!("Failed to create team: {}", e), "#error-container");
         }
     };
 
@@ -432,10 +432,11 @@ async fn create_team_handler(
             tracing::info!("Team verification successful: {}", team.pid);
         }
         Err(e) => {
-            tracing::error!("Team verification failed after creation: {:?}", e);
+            tracing::error!("Team verification failed after creation: {}", e);
             return error_fragment(
                 &v,
                 &format!("Team verification failed after creation: {}", e),
+                "#error-container",
             );
         }
     }
@@ -466,7 +467,7 @@ async fn update_team_handler(
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
-            return error_fragment(&v, "Team not found");
+            return error_fragment(&v, "Team not found", "#error-container");
         }
     };
 
@@ -480,10 +481,10 @@ async fn update_team_handler(
 
     if let Some(membership) = membership {
         if membership.role != "Owner" {
-            return error_fragment(&v, "Only team owners can edit team details");
+            return error_fragment(&v, "Only team owners can edit team details", "#error-container");
         }
     } else {
-        return error_fragment(&v, "You are not a member of this team");
+        return error_fragment(&v, "You are not a member of this team", "#error-container");
     }
 
     // Update the team
@@ -668,11 +669,11 @@ async fn cancel_invitation(
     {
         Ok(value) => match value {
             Some(invitation) => invitation,
-            None => return error_fragment(&v, "Invitation not found"),
+            None => return error_fragment(&v, "Invitation not found", "#error-container"),
         },
         Err(err) => {
             tracing::error!("Failed to find invitation: {:?}", err);
-            return error_fragment(&v, "Database error while searching for invitation");
+            return error_fragment(&v, "Database error while searching for invitation", "#error-container");
         }
     };
 
@@ -725,6 +726,7 @@ async fn update_member_role(
                 "Invalid role. Valid roles are: {:?}",
                 crate::models::team_memberships::VALID_ROLES
             ),
+            "#error-container",
         );
     }
 
@@ -739,7 +741,7 @@ async fn update_member_role(
         .is_some();
 
     if !is_owner {
-        return error_fragment(&v, "Only team owners can update member roles");
+        return error_fragment(&v, "Only team owners can update member roles", "#error-container");
     }
 
     // Get membership
@@ -752,11 +754,11 @@ async fn update_member_role(
     {
         Ok(value) => match value {
             Some(membership) => membership,
-            None => return error_fragment(&v, "User is not a member of this team"),
+            None => return error_fragment(&v, "User is not a member of this team", "#error-container"),
         },
         Err(err) => {
             tracing::error!("Failed to find membership: {:?}", err);
-            return error_fragment(&v, "Database error while searching for membership");
+            return error_fragment(&v, "Database error while searching for membership", "#error-container");
         }
     };
 
@@ -770,7 +772,7 @@ async fn update_member_role(
             .await?;
 
         if owners_count <= 1 {
-            return error_fragment(&v, "Cannot change the role of the last owner");
+            return error_fragment(&v, "Cannot change the role of the last owner", "#error-container");
         }
     }
 
@@ -958,7 +960,7 @@ async fn invite_member_handler(
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to find team with pid {}: {:?}", team_pid, e);
-            return error_fragment(&v, "Team not found");
+            return error_fragment(&v, "Team not found", "#error-container");
         }
     };
 
@@ -967,15 +969,18 @@ async fn invite_member_handler(
 
     if !is_admin {
         // Return error message with HTMX
-        return error_fragment(&v, "Only team administrators can invite members");
+        return error_fragment(&v, "Only team administrators can invite members", "#error-container");
     }
 
     // Find the target user by email
     let target_user = match users::Model::find_by_email(&ctx.db, &params.email).await {
         Ok(user) => user,
-        Err(_) => {
-            // If user doesn't exist, abort with an error
-            return error_fragment(&v, &format!("No user found with e-mail {}", &params.email));
+        Err(ModelError::EntityNotFound) => {
+            return error_fragment(&v, &format!("No user found with e-mail {}", &params.email), "#error-container");
+        }
+        Err(e) => {
+            tracing::error!("Failed to find user by email: {}", e);
+            return error_fragment(&v, &format!("Error searching for user with e-mail {}", &params.email), "#error-container");
         }
     };
 
@@ -996,7 +1001,7 @@ async fn invite_member_handler(
         } else {
             format!("User {} is already a member of this team", params.email)
         };
-        return error_fragment(&v, &error_message);
+        return error_fragment(&v, &error_message, "#error-container");
     }
 
     // If we get here, the user exists but isn't a member,
@@ -1023,7 +1028,7 @@ async fn invite_member_handler(
                 "An internal error occured while creating the invitation {}",
                 &e
             );
-            return error_fragment(&v, &error_message);
+            return error_fragment(&v, &error_message, "#error-container");
         }
     };
 

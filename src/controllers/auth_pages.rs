@@ -10,6 +10,7 @@ use crate::{
 };
 use axum::{debug_handler, extract::{Form, Query, Path, State}};
 use axum::http::{HeaderMap, header::HeaderValue};
+use chrono::{Duration, Utc};
 use loco_rs::prelude::*;
 use std::collections::HashMap;
 
@@ -43,7 +44,7 @@ async fn handle_register(
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
-        return error_fragment(&v, "Password and password confirmation do not match");
+        return error_fragment(&v, "Password and password confirmation do not match", "#error-container");
     }
 
     // Convert form data to RegisterParams
@@ -111,7 +112,7 @@ async fn handle_register(
                 ModelError::Any(err) => format!("{}", err),
                 ModelError::Message(msg) => msg,
             };
-            error_fragment(&v, &format!("Could not register account: {}", err_message))
+            error_fragment(&v, &format!("Could not register account: {}", err_message), "#error-container")
         }
     }
 }
@@ -183,7 +184,7 @@ async fn handle_login(
                     message = "Invalid password in login attempt,",
                     user_email = &params.email,
                 );
-                return error_fragment(&v, "Log in failed: Invalid email or password");
+                return error_fragment(&v, "Log in failed: Invalid email or password", "#error-container");
             };
 
             // Get JWT secret, handling potential error
@@ -195,7 +196,7 @@ async fn handle_login(
                         error = err.to_string(),
                     );
                     // Use error_fragment for user-facing error
-                    return error_fragment(&v, "Log in failed: Server configuration error.");
+                    return error_fragment(&v, "Log in failed: Server configuration error.", "#error-container");
                 }
             };
 
@@ -207,7 +208,7 @@ async fn handle_login(
                         user_email = &params.email,
                         error = err.to_string(),
                     );
-                    return error_fragment(&v, "Log in failed: Failed to generate JWT token");
+                    return error_fragment(&v, "Log in failed: Failed to generate JWT token", "#error-container");
                 }
             };
 
@@ -255,7 +256,7 @@ async fn handle_login(
                 message = "Unknown user login attempt,",
                 user_email = &params.email,
             );
-            error_fragment(&v, "Log in failed: Invalid email or password")
+            error_fragment(&v, "Log in failed: Invalid email or password", "#error-container")
         }
     }
 }
@@ -472,7 +473,7 @@ async fn handle_reset_password(
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
-        return error_fragment(&v, "New password and confirmation do not match.");
+        return error_fragment(&v, "New password and confirmation do not match.", "#error-container");
     }
 
     // Find user by reset token
@@ -496,17 +497,17 @@ async fn handle_reset_password(
                             &form.token,
                             e
                         );
-                        error_fragment(&v, "Failed to reset password. Please try again.")
+                        error_fragment(&v, "Failed to reset password. Please try again.", "#error-container")
                     }
                 }
             } else {
                 // Token mismatch or already cleared - treat as invalid
-                error_fragment(&v, "Invalid or expired password reset link.")
+                error_fragment(&v, "Invalid or expired password reset link.", "#error-container")
             }
         }
         Err(_) => {
             // User not found for the token
-            error_fragment(&v, "Invalid or expired password reset link.")
+            error_fragment(&v, "Invalid or expired password reset link.", "#error-container")
         }
     }
 }

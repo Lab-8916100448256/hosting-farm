@@ -11,7 +11,7 @@ use axum::{
 use loco_rs::prelude::*;
 
 // Build an error message fragment with HTMX headers to inject it into error container of a page
-pub fn error_fragment(v: &TeraView, message: &str) -> Result<Response> {
+pub fn error_fragment(v: &TeraView, message: &str, target_selector: &str) -> Result<Response> {
     let res = format::render().view(
         v,
         "error_message.html",
@@ -21,8 +21,13 @@ pub fn error_fragment(v: &TeraView, message: &str) -> Result<Response> {
     );
     match res {
         Ok(mut view) => {
-            view.headers_mut()
-                .append("HX-Retarget", HeaderValue::from_static("#error-container"));
+            view.headers_mut().append(
+                "HX-Retarget",
+                HeaderValue::from_str(target_selector).unwrap_or_else(|_| {
+                    tracing::warn!("Invalid header value for HX-Retarget: {}", target_selector);
+                    HeaderValue::from_static("#error-container")
+                }),
+            );
             view.headers_mut()
                 .append("HX-Swap", HeaderValue::from_static("innerHTML"));
             Ok(view)
