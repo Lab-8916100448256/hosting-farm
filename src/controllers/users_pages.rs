@@ -2,9 +2,9 @@ use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
     models::{_entities::team_memberships, _entities::teams, users},
     utils::template::render_template,
-    views::redirect,
-    views::error_page,
     views::error_fragment,
+    views::error_page,
+    views::redirect,
 };
 use axum::debug_handler;
 use axum::extract::{Form, State};
@@ -13,7 +13,6 @@ use loco_rs::prelude::*;
 use sea_orm::PaginatorTrait;
 use serde::Deserialize;
 use serde_json::json;
-use tera;
 
 /// Params for updating user profile
 #[derive(Debug, Deserialize)]
@@ -98,7 +97,11 @@ async fn profile(
     let invitations = match invitations_result {
         Ok(count) => count,
         Err(e) => {
-            tracing::error!("Failed to load invitation count for user {}: {}", user.id, e);
+            tracing::error!(
+                "Failed to load invitation count for user {}: {}",
+                user.id,
+                e
+            );
             // Call error_page with 3 arguments: engine, message, error
             return error_page(
                 &v,
@@ -108,13 +111,16 @@ async fn profile(
         }
     };
 
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert("teams", &teams);
-    context.insert("active_page", "profile");
-    context.insert("invitation_count", &invitations);
-
-    render_template(&ctx, "users/profile.html", context)
+    render_template(
+        &v,
+        "users/profile.html",
+        data!({
+            "user": &user,
+            "teams": &teams,
+            "active_page": "profile",
+            "invitation_count": &invitations,
+        }),
+    )
 }
 
 /// Renders the user invitations page
@@ -174,19 +180,23 @@ async fn invitations(
     // Get pending invitations count (now derived from the collected invitations)
     let invitation_count = invitations.len();
 
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert("invitations", &invitations);
-    context.insert("active_page", "invitations");
-    context.insert("invitation_count", &invitation_count);
-
-    render_template(&ctx, "users/invitations.html", context)
+    render_template(
+        &v,
+        "users/invitations.html",
+        data!({
+            "user": &user,
+            "invitations": &invitations,
+            "active_page": "invitations",
+            "invitation_count": &invitation_count,
+        }),
+    )
 }
 
 /// Returns the HTML fragment for the invitation count badge
 #[debug_handler]
 async fn get_invitation_count(
     auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
 ) -> Result<Response> {
@@ -203,11 +213,14 @@ async fn get_invitation_count(
         .count(&ctx.db)
         .await?;
 
-    let mut context = tera::Context::new();
-    context.insert("invitation_count", &invitation_count);
-
     // Use render_template to render the fragment
-    render_template(&ctx, "users/_invitation_count_badge.html", context)
+    render_template(
+        &v,
+        "users/_invitation_count_badge.html",
+        data!({
+            "invitation_count": &invitation_count,
+        }),
+    )
 }
 
 /// Updates user profile information
@@ -232,7 +245,11 @@ async fn update_profile(
             Ok(_) => return error_fragment(&v, "Email already in use", "#error-container"),
             Err(e) => {
                 tracing::error!("Database error checking email: {}", e);
-                return error_fragment(&v, "Could not verify email availability. Please try again.", "#error-container");
+                return error_fragment(
+                    &v,
+                    "Could not verify email availability. Please try again.",
+                    "#error-container",
+                );
             }
         }
     }
@@ -253,7 +270,11 @@ async fn update_profile(
         }
         Err(e) => {
             tracing::error!("Failed to update user profile: {}", e);
-            error_fragment(&v, "Could not update profile. Please try again.", "#error-container")
+            error_fragment(
+                &v,
+                "Could not update profile. Please try again.",
+                "#error-container",
+            )
         }
     }
 }
@@ -280,7 +301,11 @@ async fn update_password(
 
     // Verify current password
     if !user.verify_password(&params.current_password) {
-        return error_fragment(&v, "Current password is incorrect", "#password-error-container");
+        return error_fragment(
+            &v,
+            "Current password is incorrect",
+            "#password-error-container",
+        );
     }
 
     // Update password - handle result with match
@@ -299,7 +324,11 @@ async fn update_password(
         Err(e) => {
             // Use error_fragment on failure, target password errors
             tracing::error!("Failed to update password: {}", e);
-            error_fragment(&v, "Could not update password. Please try again.", "#password-error-container")
+            error_fragment(
+                &v,
+                "Could not update password. Please try again.",
+                "#password-error-container",
+            )
         }
     }
 }

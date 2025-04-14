@@ -11,9 +11,9 @@ use crate::{
 use axum::{
     debug_handler,
     extract::{Form, Path, Query, State},
+    http::header::HeaderMap,
     http::StatusCode,
     response::{Html, IntoResponse},
-    http::header::HeaderMap,
 };
 use loco_rs::{app::AppContext, prelude::*};
 use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
@@ -25,6 +25,7 @@ use tracing;
 #[debug_handler]
 async fn create_team_page(
     auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
 ) -> Result<Response> {
@@ -43,18 +44,22 @@ async fn create_team_page(
         .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
         .count();
 
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert("active_page", "teams");
-    context.insert("invitation_count", &invitations);
-
-    render_template(&ctx, "teams/new.html", context)
+    render_template(
+        &v,
+        "teams/new.html",
+        data!({
+            "user": &user,
+            "active_page": "teams",
+            "invitation_count": &invitations,
+        }),
+    )
 }
 
 /// List teams page
 #[debug_handler]
 async fn list_teams(
     auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
 ) -> Result<Response> {
@@ -103,13 +108,16 @@ async fn list_teams(
         .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
         .count();
 
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert("teams", &teams_result);
-    context.insert("active_page", "teams");
-    context.insert("invitation_count", &invitations);
-
-    render_template(&ctx, "teams/list.html", context)
+    render_template(
+        &v,
+        "teams/list.html",
+        data!({
+            "user": &user,
+            "teams": &teams_result,
+            "active_page": "teams",
+            "invitation_count": &invitations,
+        }),
+    )
 }
 
 /// Team details page
@@ -227,22 +235,22 @@ async fn team_details(
         .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
         .count();
 
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert(
-        "team",
-        &json!({
-            "pid": team.pid.to_string(),
-            "name": team.name,
-            "description": team.description
+    render_template(
+        &v,
+        "teams/show.html",
+        data!({
+            "user": &user,
+            "team": {
+                "pid": team.pid.to_string(),
+                "name": team.name,
+                "description": team.description
+            },
+            "members": &members,
+            "is_admin": &is_admin,
+            "active_page": "teams",
+            "invitation_count": &invitations,
         }),
-    );
-    context.insert("members", &members);
-    context.insert("active_page", "teams");
-    context.insert("is_admin", &is_admin);
-    context.insert("invitation_count", &invitations);
-
-    render_template(&ctx, "teams/show.html", context)
+    )
 }
 
 /// Invite member page
@@ -304,20 +312,20 @@ async fn invite_member_page(
         .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
         .count();
 
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert(
-        "team",
-        &json!({
-            "pid": team.pid.to_string(),
-            "name": team.name,
-            "description": team.description
+    render_template(
+        &v,
+        "teams/invite.html",
+        data!({
+            "user": &user,
+            "team": {
+                "pid": team.pid.to_string(),
+                "name": team.name,
+                "description": team.description
+            },
+            "active_page": "teams",
+            "invitation_count": &invitations,
         }),
-    );
-    context.insert("active_page", "teams");
-    context.insert("invitation_count", &invitations);
-
-    render_template(&ctx, "teams/invite.html", context)
+    )
 }
 
 /// Edit team page
@@ -379,20 +387,20 @@ async fn edit_team_page(
         .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
         .count();
 
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert(
-        "team",
-        &json!({
-            "pid": team.pid.to_string(),
-            "name": team.name,
-            "description": team.description
+    render_template(
+        &v,
+        "teams/edit.html",
+        data!({
+            "user": &user,
+            "team": {
+                "pid": team.pid.to_string(),
+                "name": team.name,
+                "description": team.description
+            },
+            "active_page": "teams",
+            "invitation_count": &invitations,
         }),
-    );
-    context.insert("active_page", "teams");
-    context.insert("invitation_count", &invitations);
-
-    render_template(&ctx, "teams/edit.html", context)
+    )
 }
 
 /// Create team handler
@@ -422,7 +430,11 @@ async fn create_team_handler(
         }
         Err(e) => {
             tracing::error!("Failed to create team: {}", e);
-            return error_fragment(&v, &format!("Failed to create team: {}", e), "#error-container");
+            return error_fragment(
+                &v,
+                &format!("Failed to create team: {}", e),
+                "#error-container",
+            );
         }
     };
 
@@ -481,7 +493,11 @@ async fn update_team_handler(
 
     if let Some(membership) = membership {
         if membership.role != "Owner" {
-            return error_fragment(&v, "Only team owners can edit team details", "#error-container");
+            return error_fragment(
+                &v,
+                "Only team owners can edit team details",
+                "#error-container",
+            );
         }
     } else {
         return error_fragment(&v, "You are not a member of this team", "#error-container");
@@ -673,7 +689,11 @@ async fn cancel_invitation(
         },
         Err(err) => {
             tracing::error!("Failed to find invitation: {:?}", err);
-            return error_fragment(&v, "Database error while searching for invitation", "#error-container");
+            return error_fragment(
+                &v,
+                "Database error while searching for invitation",
+                "#error-container",
+            );
         }
     };
 
@@ -741,7 +761,11 @@ async fn update_member_role(
         .is_some();
 
     if !is_owner {
-        return error_fragment(&v, "Only team owners can update member roles", "#error-container");
+        return error_fragment(
+            &v,
+            "Only team owners can update member roles",
+            "#error-container",
+        );
     }
 
     // Get membership
@@ -754,11 +778,17 @@ async fn update_member_role(
     {
         Ok(value) => match value {
             Some(membership) => membership,
-            None => return error_fragment(&v, "User is not a member of this team", "#error-container"),
+            None => {
+                return error_fragment(&v, "User is not a member of this team", "#error-container")
+            }
         },
         Err(err) => {
             tracing::error!("Failed to find membership: {:?}", err);
-            return error_fragment(&v, "Database error while searching for membership", "#error-container");
+            return error_fragment(
+                &v,
+                "Database error while searching for membership",
+                "#error-container",
+            );
         }
     };
 
@@ -772,7 +802,11 @@ async fn update_member_role(
             .await?;
 
         if owners_count <= 1 {
-            return error_fragment(&v, "Cannot change the role of the last owner", "#error-container");
+            return error_fragment(
+                &v,
+                "Cannot change the role of the last owner",
+                "#error-container",
+            );
         }
     }
 
@@ -969,18 +1003,30 @@ async fn invite_member_handler(
 
     if !is_admin {
         // Return error message with HTMX
-        return error_fragment(&v, "Only team administrators can invite members", "#error-container");
+        return error_fragment(
+            &v,
+            "Only team administrators can invite members",
+            "#error-container",
+        );
     }
 
     // Find the target user by email
     let target_user = match users::Model::find_by_email(&ctx.db, &params.email).await {
         Ok(user) => user,
         Err(ModelError::EntityNotFound) => {
-            return error_fragment(&v, &format!("No user found with e-mail {}", &params.email), "#error-container");
+            return error_fragment(
+                &v,
+                &format!("No user found with e-mail {}", &params.email),
+                "#error-container",
+            );
         }
         Err(e) => {
             tracing::error!("Failed to find user by email: {}", e);
-            return error_fragment(&v, &format!("Error searching for user with e-mail {}", &params.email), "#error-container");
+            return error_fragment(
+                &v,
+                &format!("Error searching for user with e-mail {}", &params.email),
+                "#error-container",
+            );
         }
     };
 
@@ -1084,16 +1130,28 @@ async fn search_users(
     };
 
     // Security check: Ensure current user is an admin/owner of the team
-    let is_admin = match team.has_role(&ctx.db, current_user.id, "Administrator").await {
+    let is_admin = match team
+        .has_role(&ctx.db, current_user.id, "Administrator")
+        .await
+    {
         Ok(admin) => admin,
         Err(e) => {
-            tracing::error!("Failed to check role for user {} in team {}: {:?}", current_user.id, team.id, e);
+            tracing::error!(
+                "Failed to check role for user {} in team {}: {:?}",
+                current_user.id,
+                team.id,
+                e
+            );
             // Return empty HTML for HTMX on error
             return Ok(Html("".to_string()).into_response());
         }
     };
     if !is_admin {
-        tracing::warn!("Unauthorized user {} attempted to search users for team {}", current_user.pid, team.pid);
+        tracing::warn!(
+            "Unauthorized user {} attempted to search users for team {}",
+            current_user.pid,
+            team.pid
+        );
         // Return empty HTML for HTMX if unauthorized
         return Ok(Html("".to_string()).into_response());
     }
@@ -1123,7 +1181,10 @@ async fn search_users(
     let context_data = json!({ "users": &matching_users });
 
     // Render the fragment template using the view engine
-    tracing::info!("Rendering user search results with context data: {:?}", context_data);
+    tracing::info!(
+        "Rendering user search results with context data: {:?}",
+        context_data
+    );
     format::render().view(&v, "teams/_user_search_results.html", context_data)
 }
 

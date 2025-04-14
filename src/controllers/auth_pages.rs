@@ -8,9 +8,11 @@ use crate::{
     utils::template::render_template,
     views::*,
 };
-use axum::{debug_handler, extract::{Form, Query, Path, State}};
-use axum::http::{HeaderMap, header::HeaderValue};
-use chrono::{Duration, Utc};
+use axum::http::{header::HeaderValue, HeaderMap};
+use axum::{
+    debug_handler,
+    extract::{Form, Path, Query, State},
+};
 use loco_rs::prelude::*;
 use std::collections::HashMap;
 
@@ -18,7 +20,8 @@ use std::collections::HashMap;
 #[debug_handler]
 async fn register(
     auth: JWTWithUserOpt<users::Model>,
-    State(ctx): State<AppContext>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(_ctx): State<AppContext>,
     headers: HeaderMap,
 ) -> Result<Response> {
     match auth.user {
@@ -27,10 +30,7 @@ async fn register(
             tracing::info!("User is already authenticated, redirecting to home");
             redirect("/home", headers)
         }
-        None => {
-            let context = tera::Context::new();
-            render_template(&ctx, "auth/register.html", context)
-        }
+        None => render_template(&v, "auth/register.html", data!({})),
     }
 }
 
@@ -44,7 +44,11 @@ async fn handle_register(
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
-        return error_fragment(&v, "Password and password confirmation do not match", "#error-container");
+        return error_fragment(
+            &v,
+            "Password and password confirmation do not match",
+            "#error-container",
+        );
     }
 
     // Convert form data to RegisterParams
@@ -64,7 +68,8 @@ async fn handle_register(
             match AuthMailer::send_welcome(&ctx, &user).await {
                 Ok(_) => {
                     // Email sent successfully, now update verification status
-                    match user.clone()
+                    match user
+                        .clone()
                         .into_active_model()
                         .set_email_verification_sent(&ctx.db)
                         .await
@@ -75,7 +80,8 @@ async fn handle_register(
                         }
                         Err(err) => {
                             tracing::error!(
-                                message = "Failed to set email verification status after sending email",
+                                message =
+                                    "Failed to set email verification status after sending email",
                                 user_email = &user.email, // user is still available here
                                 error = err.to_string(),
                             );
@@ -92,7 +98,11 @@ async fn handle_register(
                         error = err.to_string(),
                     );
                     // Don't proceed to update verification status if email failed.
-                    error_page(&v, "Could not send welcome email.", Some(loco_rs::Error::wrap(err)))
+                    error_page(
+                        &v,
+                        "Could not send welcome email.",
+                        Some(loco_rs::Error::wrap(err)),
+                    )
                 }
             }
         }
@@ -112,7 +122,11 @@ async fn handle_register(
                 ModelError::Any(err) => format!("{}", err),
                 ModelError::Message(msg) => msg,
             };
-            error_fragment(&v, &format!("Could not register account: {}", err_message), "#error-container")
+            error_fragment(
+                &v,
+                &format!("Could not register account: {}", err_message),
+                "#error-container",
+            )
         }
     }
 }
@@ -184,7 +198,11 @@ async fn handle_login(
                     message = "Invalid password in login attempt,",
                     user_email = &params.email,
                 );
-                return error_fragment(&v, "Log in failed: Invalid email or password", "#error-container");
+                return error_fragment(
+                    &v,
+                    "Log in failed: Invalid email or password",
+                    "#error-container",
+                );
             };
 
             // Get JWT secret, handling potential error
@@ -196,7 +214,11 @@ async fn handle_login(
                         error = err.to_string(),
                     );
                     // Use error_fragment for user-facing error
-                    return error_fragment(&v, "Log in failed: Server configuration error.", "#error-container");
+                    return error_fragment(
+                        &v,
+                        "Log in failed: Server configuration error.",
+                        "#error-container",
+                    );
                 }
             };
 
@@ -208,7 +230,11 @@ async fn handle_login(
                         user_email = &params.email,
                         error = err.to_string(),
                     );
-                    return error_fragment(&v, "Log in failed: Failed to generate JWT token", "#error-container");
+                    return error_fragment(
+                        &v,
+                        "Log in failed: Failed to generate JWT token",
+                        "#error-container",
+                    );
                 }
             };
 
@@ -229,10 +255,9 @@ async fn handle_login(
                     form.email
                 )) {
                     Ok(header_value) => {
-                        response.headers_mut().append(
-                            axum::http::header::SET_COOKIE,
-                            header_value,
-                        );
+                        response
+                            .headers_mut()
+                            .append(axum::http::header::SET_COOKIE, header_value);
                     }
                     Err(e) => {
                         // Log the error but continue processing as this is not critical
@@ -256,7 +281,11 @@ async fn handle_login(
                 message = "Unknown user login attempt,",
                 user_email = &params.email,
             );
-            error_fragment(&v, "Log in failed: Invalid email or password", "#error-container")
+            error_fragment(
+                &v,
+                "Log in failed: Invalid email or password",
+                "#error-container",
+            )
         }
     }
 }
@@ -414,7 +443,7 @@ async fn verify_email(
                         tracing::info!(pid = _user.pid.to_string(), "user verified");
                         format::render().view(
                             &v,
-                            "auth/verify.html", 
+                            "auth/verify.html",
                             data!({
                                 "success": true,
                                 "message": "Your email is now verified.",
@@ -422,7 +451,11 @@ async fn verify_email(
                         )
                     }
                     Err(e) => {
-                        tracing::error!(pid = user.pid.to_string(), error = e.to_string(), "failed to mark user as verified");
+                        tracing::error!(
+                            pid = user.pid.to_string(),
+                            error = e.to_string(),
+                            "failed to mark user as verified"
+                        );
                         format::render().view(
                             &v,
                             "auth/verify.html",
@@ -473,7 +506,11 @@ async fn handle_reset_password(
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
-        return error_fragment(&v, "New password and confirmation do not match.", "#error-container");
+        return error_fragment(
+            &v,
+            "New password and confirmation do not match.",
+            "#error-container",
+        );
     }
 
     // Find user by reset token
@@ -497,17 +534,29 @@ async fn handle_reset_password(
                             &form.token,
                             e
                         );
-                        error_fragment(&v, "Failed to reset password. Please try again.", "#error-container")
+                        error_fragment(
+                            &v,
+                            "Failed to reset password. Please try again.",
+                            "#error-container",
+                        )
                     }
                 }
             } else {
                 // Token mismatch or already cleared - treat as invalid
-                error_fragment(&v, "Invalid or expired password reset link.", "#error-container")
+                error_fragment(
+                    &v,
+                    "Invalid or expired password reset link.",
+                    "#error-container",
+                )
             }
         }
         Err(_) => {
             // User not found for the token
-            error_fragment(&v, "Invalid or expired password reset link.", "#error-container")
+            error_fragment(
+                &v,
+                "Invalid or expired password reset link.",
+                "#error-container",
+            )
         }
     }
 }
