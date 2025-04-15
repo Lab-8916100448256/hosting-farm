@@ -1,17 +1,18 @@
 use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
     models::{_entities::team_memberships, _entities::teams, users},
-    utils::template::render_template,
-    views::htmx_redirect,
+    views::error_fragment,
+    views::error_page,
+    views::redirect,
+    views::render_template,
 };
 use axum::debug_handler;
-use axum::extract::Form;
-use axum::response::Redirect;
+use axum::extract::{Form, State};
+use axum::http::header::HeaderMap;
 use loco_rs::prelude::*;
 use sea_orm::PaginatorTrait;
 use serde::Deserialize;
 use serde_json::json;
-use tera;
 
 /// Params for updating user profile
 #[derive(Debug, Deserialize)]
@@ -32,19 +33,36 @@ pub struct UpdatePasswordParams {
 #[debug_handler]
 async fn profile(
     auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         // Redirect to login if not authenticated
-        return Ok(Redirect::to("/auth/login").into_response());
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+        return redirect("/auth/login", headers);
+    };
 
     // Get user's team memberships
-    let teams = teams::Entity::find()
+    let teams_result = teams::Entity::find()
         .find_with_related(team_memberships::Entity)
         .all(&ctx.db)
-        .await?
+        .await;
+
+    let teams_data = match teams_result {
+        Ok(data) => data,
+        Err(e) => {
+            tracing::error!("Failed to load teams for user {}: {}", user.id, e);
+            return error_page(
+                &v,
+                "Could not load your team information. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
+
+    let teams = teams_data
         .into_iter()
         .filter_map(|(team, memberships)| {
             let is_member = memberships
@@ -70,79 +88,123 @@ async fn profile(
         .collect::<Vec<_>>();
 
     // Get pending invitations count
-    let invitations = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await?
-        .into_iter()
-        .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-        .count();
+    let invitations_result = team_memberships::Entity::find()
+        .filter(team_memberships::Column::UserId.eq(user.id))
+        .filter(team_memberships::Column::Pending.eq(true))
+        .count(&ctx.db)
+        .await;
 
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert("teams", &teams);
-    context.insert("active_page", "profile");
-    context.insert("invitation_count", &invitations);
+    let invitations = match invitations_result {
+        Ok(count) => count,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load invitation count for user {}: {}",
+                user.id,
+                e
+            );
+            // Call error_page with 3 arguments: engine, message, error
+            return error_page(
+                &v,
+                "Could not load your invitation count. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
 
-    render_template(&ctx, "users/profile.html", context)
+    render_template(
+        &v,
+        "users/profile.html",
+        data!({
+            "user": &user,
+            "teams": &teams,
+            "active_page": "profile",
+            "invitation_count": &invitations,
+        }),
+    )
 }
 
 /// Renders the user invitations page
 #[debug_handler]
 async fn invitations(
     auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
-    if auth.user.is_none() {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
         // Redirect to login if not authenticated
-        return Ok(Redirect::to("/auth/login").into_response());
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+        return redirect("/auth/login", headers);
+    };
 
     // Get user's pending team invitations
-    let invitations = team_memberships::Entity::find()
+    let invitations_result = team_memberships::Entity::find()
         .find_with_related(teams::Entity)
         .all(&ctx.db)
-        .await?
+        .await;
+
+    let invitations_data = match invitations_result {
+        Ok(data) => data,
+        Err(e) => {
+            tracing::error!("Failed to load invitations for user {}: {}", user.id, e);
+            // Return error page on failure
+            return error_page(
+                &v,
+                "Could not load your invitations. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
+
+    let invitations = invitations_data
         .into_iter()
         .filter_map(|(membership, teams)| {
             if membership.user_id == user.id && membership.pending {
-                let team = teams.first()?;
-                Some(json!({
-                    "team_name": team.name,
-                    "team_description": team.description.clone(),
-                    "token": membership.invitation_token,
-                    "role": membership.role,
-                    "sent_at": membership.created_at.format("%Y-%m-%d").to_string()
-                }))
+                // Handle potential None from teams.first() safely
+                teams.first().map(|team| {
+                    json!({
+                        "team_name": team.name,
+                        "team_description": team.description.clone(),
+                        "token": membership.invitation_token,
+                        "role": membership.role,
+                        "sent_at": membership.created_at.format("%Y-%m-%d").to_string()
+                    })
+                })
             } else {
                 None
             }
         })
         .collect::<Vec<_>>();
 
-    // Get pending invitations count (same as above but just the count)
+    // Get pending invitations count (now derived from the collected invitations)
     let invitation_count = invitations.len();
 
-    let mut context = tera::Context::new();
-    context.insert("user", &user);
-    context.insert("invitations", &invitations);
-    context.insert("active_page", "invitations");
-    context.insert("invitation_count", &invitation_count);
-
-    render_template(&ctx, "users/invitations.html", context)
+    render_template(
+        &v,
+        "users/invitations.html",
+        data!({
+            "user": &user,
+            "invitations": &invitations,
+            "active_page": "invitations",
+            "invitation_count": &invitation_count,
+        }),
+    )
 }
 
 /// Returns the HTML fragment for the invitation count badge
 #[debug_handler]
 async fn get_invitation_count(
     auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
-    if auth.user.is_none() {
-        return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
 
     // Get pending invitations count
     let invitation_count = team_memberships::Entity::find()
@@ -151,30 +213,44 @@ async fn get_invitation_count(
         .count(&ctx.db)
         .await?;
 
-    let mut context = tera::Context::new();
-    context.insert("invitation_count", &invitation_count);
-
     // Use render_template to render the fragment
-    render_template(&ctx, "users/_invitation_count_badge.html", context)
+    render_template(
+        &v,
+        "users/_invitation_count_badge.html",
+        data!({
+            "invitation_count": &invitation_count,
+        }),
+    )
 }
 
-/// Update user profile
+/// Updates user profile information
 #[debug_handler]
 async fn update_profile(
     auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(params): Form<UpdateProfileParams>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
-        return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
 
     // Check if email already exists (if it changed)
     if user.email != params.email {
         let existing_user = users::Model::find_by_email(&ctx.db, &params.email).await;
-        if existing_user.is_ok() {
-            return bad_request("Email already in use");
+        match existing_user {
+            Ok(_) => return error_fragment(&v, "Email already in use", "#error-container"),
+            Err(e) => {
+                tracing::error!("Database error checking email: {}", e);
+                return error_fragment(
+                    &v,
+                    "Could not verify email availability. Please try again.",
+                    "#error-container",
+                );
+            }
         }
     }
 
@@ -183,50 +259,78 @@ async fn update_profile(
     user_model.name = sea_orm::ActiveValue::set(params.name);
     user_model.email = sea_orm::ActiveValue::set(params.email);
 
-    let _updated_user = user_model.update(&ctx.db).await?;
+    match user_model.update(&ctx.db).await {
+        Ok(_updated_user) => {
+            // Return a response that refreshes the page
+            let response = Response::builder()
+                .header("HX-Refresh", "true")
+                .body(axum::body::Body::empty())?;
 
-    // Return a response that refreshes the page
-    let response = Response::builder()
-        .header("HX-Refresh", "true")
-        .body(axum::body::Body::empty())?;
-
-    Ok(response)
+            Ok(response)
+        }
+        Err(e) => {
+            tracing::error!("Failed to update user profile: {}", e);
+            error_fragment(
+                &v,
+                "Could not update profile. Please try again.",
+                "#error-container",
+            )
+        }
+    }
 }
 
 /// Update user password
 #[debug_handler]
 async fn update_password(
     auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(params): Form<UpdatePasswordParams>,
 ) -> Result<Response> {
-    if auth.user.is_none() {
-        return htmx_redirect("/auth/login");
-    }
-    let user = auth.user.unwrap(); // User is guaranteed to be Some here
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
 
     // Verify passwords match
     if params.password != params.password_confirmation {
-        return bad_request("Passwords do not match");
+        return error_fragment(&v, "Passwords do not match", "#password-error-container");
     }
 
     // Verify current password
     if !user.verify_password(&params.current_password) {
-        return bad_request("Current password is incorrect");
+        return error_fragment(
+            &v,
+            "Current password is incorrect",
+            "#password-error-container",
+        );
     }
 
-    // Update password
-    let _updated_user = user
+    // Update password - handle result with match
+    match user
         .into_active_model()
         .reset_password(&ctx.db, &params.password)
-        .await?;
-
-    // Return a response that refreshes the page
-    let response = Response::builder()
-        .header("HX-Refresh", "true")
-        .body(axum::body::Body::empty())?;
-
-    Ok(response)
+        .await
+    {
+        Ok(_updated_user) => {
+            // Return a response that refreshes the page on success
+            let response = Response::builder()
+                .header("HX-Refresh", "true")
+                .body(axum::body::Body::empty())?;
+            Ok(response)
+        }
+        Err(e) => {
+            // Use error_fragment on failure, target password errors
+            tracing::error!("Failed to update password: {}", e);
+            error_fragment(
+                &v,
+                "Could not update password. Please try again.",
+                "#password-error-container",
+            )
+        }
+    }
 }
 
 /// User routes

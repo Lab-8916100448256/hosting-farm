@@ -2,12 +2,30 @@ pub mod auth;
 pub mod teams;
 pub mod users;
 
-use axum::http::header::HeaderValue;
+use axum::{
+    http::{header::HeaderValue, HeaderMap},
+    response::{IntoResponse, Redirect, Response},
+};
 
 use loco_rs::prelude::*;
 
+//use loco_rs::{controller::format, Result};
+use serde::Serialize;
+
+// Path to view templates
+// const VIEWS_DIR: &str = "assets/views";
+
+/// Renders a template with the given context
+pub fn render_template<V, S>(v: &V, template_name: &str, context: S) -> Result<Response>
+where
+    V: ViewRenderer,
+    S: Serialize,
+{
+    format::render().view(v, template_name, context)
+}
+
 // Build an error message fragment with HTMX headers to inject it into error container of a page
-pub fn error_fragment(v: &TeraView, message: &str) -> Result<Response> {
+pub fn error_fragment(v: &TeraView, message: &str, target_selector: &str) -> Result<Response> {
     let res = format::render().view(
         v,
         "error_message.html",
@@ -17,8 +35,13 @@ pub fn error_fragment(v: &TeraView, message: &str) -> Result<Response> {
     );
     match res {
         Ok(mut view) => {
-            view.headers_mut()
-                .append("HX-Retarget", HeaderValue::from_static("#error-container"));
+            view.headers_mut().append(
+                "HX-Retarget",
+                HeaderValue::from_str(target_selector).unwrap_or_else(|_| {
+                    tracing::warn!("Invalid header value for HX-Retarget: {}", target_selector);
+                    HeaderValue::from_static("#error-container")
+                }),
+            );
             view.headers_mut()
                 .append("HX-Swap", HeaderValue::from_static("innerHTML"));
             Ok(view)
@@ -47,10 +70,20 @@ pub fn error_page(v: &TeraView, message: &str, e: Option<Error>) -> Result<Respo
     )
 }
 
+pub fn redirect(url: &str, headers: HeaderMap) -> Result<Response> {
+    if headers.get("HX-Request").map_or(false, |v| v == "true") {
+        // HTMX request: Use HX-Redirect header
+        tracing::info!("Redirecting to: {} using HTMX", url);
+        htmx_redirect(url)
+    } else {
+        // Standard request: Use HTTP redirect
+        tracing::info!("Redirecting to: {} using HTTP", url);
+        Ok(Redirect::to(url).into_response())
+    }
+}
+
 pub fn htmx_redirect(url: &str) -> Result<Response> {
-    tracing::info!("Redirecting to: {}", url);
     let response = match Response::builder()
-        // TODO: Use HX-Location instead of HX-Redirect
         .header("HX-Redirect", url)
         .body(axum::body::Body::empty())
     {
@@ -60,6 +93,5 @@ pub fn htmx_redirect(url: &str) -> Result<Response> {
             return Err(e.into());
         }
     };
-
     Ok(response)
 }

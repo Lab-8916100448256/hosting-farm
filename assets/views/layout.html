@@ -93,7 +93,10 @@
 
     <footer class="bg-white mt-auto">
         <div class="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 border-t border-gray-200">
-            <p class="text-center text-sm text-gray-500">© {{ now() | date(format="%Y") }} Hosting Farm. All rights reserved.</p>
+            <p class="text-center text-sm text-gray-500 flex items-center justify-center">
+                <img src="/static/copyleft.svg" alt="Copyleft symbol" class="h-4 w-4 inline-block mr-1">
+                {{ now() | date(format="%Y") }} the NixiN project. All rights liberated.
+            </p>
         </div>
     </footer>
 

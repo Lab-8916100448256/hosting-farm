@@ -5,13 +5,14 @@ use crate::{
         users,
         users::{ForgotPasswordParams, LoginParams, RegisterParams, ResetPasswordParams},
     },
-    utils::template::render_template,
+    views::render_template,
     views::*,
 };
-use axum::debug_handler;
-use axum::extract::{Form, Query};
-use axum::http::HeaderMap;
-use axum::response::Redirect;
+use axum::http::{header::HeaderValue, HeaderMap};
+use axum::{
+    debug_handler,
+    extract::{Form, Path, Query, State},
+};
 use loco_rs::prelude::*;
 use std::collections::HashMap;
 
@@ -19,18 +20,17 @@ use std::collections::HashMap;
 #[debug_handler]
 async fn register(
     auth: JWTWithUserOpt<users::Model>,
-    State(ctx): State<AppContext>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(_ctx): State<AppContext>,
+    headers: HeaderMap,
 ) -> Result<Response> {
     match auth.user {
         Some(_user) => {
             // User is already authenticated, redirect to home using standard redirect
             tracing::info!("User is already authenticated, redirecting to home");
-            Ok(Redirect::to("/home").into_response())
+            redirect("/home", headers)
         }
-        None => {
-            let context = tera::Context::new();
-            render_template(&ctx, "auth/register.html", context)
-        }
+        None => render_template(&v, "auth/register.html", data!({})),
     }
 }
 
@@ -39,11 +39,16 @@ async fn register(
 async fn handle_register(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(form): Form<RegisterParams>,
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
-        return error_fragment(&v, "Password and password confirmation do not match");
+        return error_fragment(
+            &v,
+            "Password and password confirmation do not match",
+            "#error-container",
+        );
     }
 
     // Convert form data to RegisterParams
@@ -59,19 +64,47 @@ async fn handle_register(
 
     match res {
         Ok(user) => {
-            // Send verification email
-            let user = user
-                .into_active_model()
-                .set_email_verification_sent(&ctx.db)
-                .await?;
-
-            AuthMailer::send_welcome(&ctx, &user).await?;
-
-            // Redirect to login page with success message
-            let response = Response::builder()
-                .header("HX-Redirect", "/auth/login?registered=true")
-                .body(axum::body::Body::empty())?;
-            Ok(response)
+            // Send verification email first
+            match AuthMailer::send_welcome(&ctx, &user).await {
+                Ok(_) => {
+                    // Email sent successfully, now update verification status
+                    match user
+                        .clone()
+                        .into_active_model()
+                        .set_email_verification_sent(&ctx.db)
+                        .await
+                    {
+                        Ok(_) => {
+                            // All good, redirect to login page with success message
+                            redirect("/auth/login?registered=true", headers)
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                message =
+                                    "Failed to set email verification status after sending email",
+                                user_email = &user.email, // user is still available here
+                                error = err.to_string(),
+                            );
+                            // Although the email was sent, the DB update failed.
+                            // This is an internal error state, show error page.
+                            error_page(&v, "Account registered, but failed to finalize setup. Please contact support.", Some(loco_rs::Error::Model(err)))
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        message = "Failed to send welcome email",
+                        user_email = &user.email, // user is still available here
+                        error = err.to_string(),
+                    );
+                    // Don't proceed to update verification status if email failed.
+                    error_page(
+                        &v,
+                        "Could not send welcome email.",
+                        Some(loco_rs::Error::wrap(err)),
+                    )
+                }
+            }
         }
         Err(err) => {
             tracing::info!(
@@ -89,7 +122,11 @@ async fn handle_register(
                 ModelError::Any(err) => format!("{}", err),
                 ModelError::Message(msg) => msg,
             };
-            error_fragment(&v, &format!("Could not register account: {}", err_message))
+            error_fragment(
+                &v,
+                &format!("Could not register account: {}", err_message),
+                "#error-container",
+            )
         }
     }
 }
@@ -107,7 +144,7 @@ async fn login(
         Some(_user) => {
             // User is already authenticated, redirect to home using standard redirect
             tracing::info!("User is already authenticated, redirecting to home");
-            Ok(Redirect::to("/home").into_response())
+            redirect("/home", headers)
         }
         None => {
             let registered = params.get("registered") == Some(&"true".to_string());
@@ -139,6 +176,7 @@ async fn login(
 async fn handle_login(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(form): Form<LoginParams>,
 ) -> Result<Response> {
     // Convert form data to login params
@@ -160,10 +198,29 @@ async fn handle_login(
                     message = "Invalid password in login attempt,",
                     user_email = &params.email,
                 );
-                return error_fragment(&v, "Log in failed: Invalid email or password");
+                return error_fragment(
+                    &v,
+                    "Log in failed: Invalid email or password",
+                    "#error-container",
+                );
             };
 
-            let jwt_secret = ctx.config.get_jwt_config()?;
+            // Get JWT secret, handling potential error
+            let jwt_secret = match ctx.config.get_jwt_config() {
+                Ok(config) => config,
+                Err(err) => {
+                    tracing::error!(
+                        message = "Failed to get JWT configuration,",
+                        error = err.to_string(),
+                    );
+                    // Use error_fragment for user-facing error
+                    return error_fragment(
+                        &v,
+                        "Log in failed: Server configuration error.",
+                        "#error-container",
+                    );
+                }
+            };
 
             let token = match user.generate_jwt(&jwt_secret.secret, &jwt_secret.expiration) {
                 Ok(token) => token,
@@ -173,25 +230,46 @@ async fn handle_login(
                         user_email = &params.email,
                         error = err.to_string(),
                     );
-                    return error_fragment(&v, "Log in failed: Failed to generate JWT token");
+                    return error_fragment(
+                        &v,
+                        "Log in failed: Failed to generate JWT token",
+                        "#error-container",
+                    );
                 }
             };
 
-            // Prepare response with auth token cookie and redirect
-            let mut response_builder = Response::builder()
-                .header("HX-Redirect", "/home")
-                .header("Set-Cookie", format!("auth_token={}; Path=/", token));
+            // Redirect to home with cookies
+            let mut response = redirect("/home", headers)?;
+
+            // Add Set-Cookie header for the auth token
+            response.headers_mut().append(
+                axum::http::header::SET_COOKIE,
+                HeaderValue::from_str(&format!("auth_token={}; Path=/", token))?,
+            );
 
             // If remember me is checked, set a persistent cookie with email
             if params.remember_me.is_some() {
-                // Set a permanent cookie (Max-Age = 1 year)
-                response_builder = response_builder.header(
-                    "Set-Cookie",
-                    format!("remembered_email={}; Path=/; Max-Age=31536000", form.email),
-                );
+                // Add Set-Cookie header for the remember me email
+                match HeaderValue::from_str(&format!(
+                    "remembered_email={}; Path=/; Max-Age=31536000",
+                    form.email
+                )) {
+                    Ok(header_value) => {
+                        response
+                            .headers_mut()
+                            .append(axum::http::header::SET_COOKIE, header_value);
+                    }
+                    Err(e) => {
+                        // Log the error but continue processing as this is not critical
+                        tracing::error!(
+                            "Failed to create header value for remember_me cookie for user {}: {}",
+                            &form.email,
+                            e
+                        );
+                    }
+                }
             }
 
-            let response = response_builder.body(axum::body::Body::empty())?;
             tracing::info!(
                 message = "User login successful,",
                 user_email = &params.email,
@@ -203,7 +281,11 @@ async fn handle_login(
                 message = "Unknown user login attempt,",
                 user_email = &params.email,
             );
-            error_fragment(&v, "Log in failed: Invalid email or password")
+            error_fragment(
+                &v,
+                "Log in failed: Invalid email or password",
+                "#error-container",
+            )
         }
     }
 }
@@ -229,6 +311,7 @@ async fn render_reset_email_sent_page(
 #[debug_handler]
 async fn handle_forgot_password(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(form): Form<ForgotPasswordParams>,
 ) -> Result<Response> {
     let params = ForgotPasswordParams {
@@ -286,10 +369,7 @@ async fn handle_forgot_password(
 
     // Always redirect to the confirmation page
     // TODO: There is still someting wrong in the `auth/reset-email-sent.html` view.
-    let response = Response::builder()
-        .header("HX-Redirect", "/auth/reset-email-sent")
-        .body(axum::body::Body::empty())?;
-    Ok(response)
+    redirect("/auth/reset-email-sent", headers)
 }
 
 /// Renders the reset password page
@@ -357,17 +437,35 @@ async fn verify_email(
                     }),
                 )
             } else {
-                let active_model = user.into_active_model();
-                let _user = active_model.verified(&ctx.db).await?;
-                tracing::info!(pid = _user.pid.to_string(), "user verified");
-                format::render().view(
-                    &v,
-                    "auth/verify.html",
-                    data!({
-                        "success": true,
-                        "message": "Your email is now verified.",
-                    }),
-                )
+                let active_model = user.clone().into_active_model();
+                match active_model.verified(&ctx.db).await {
+                    Ok(_user) => {
+                        tracing::info!(pid = _user.pid.to_string(), "user verified");
+                        format::render().view(
+                            &v,
+                            "auth/verify.html",
+                            data!({
+                                "success": true,
+                                "message": "Your email is now verified.",
+                            }),
+                        )
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            pid = user.pid.to_string(),
+                            error = e.to_string(),
+                            "failed to mark user as verified"
+                        );
+                        format::render().view(
+                            &v,
+                            "auth/verify.html",
+                            data!({
+                                "success": false,
+                                "message": "Email verification failed. Please try again or contact support.",
+                            }),
+                        )
+                    }
+                }
             }
         }
         Err(_) => format::render().view(
@@ -403,11 +501,16 @@ async fn handle_logout() -> Result<Response> {
 async fn handle_reset_password(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Form(form): Form<ResetPasswordParams>,
 ) -> Result<Response> {
     // Check if passwords match
     if form.password != form.password_confirmation {
-        return error_fragment(&v, "New password and confirmation do not match.");
+        return error_fragment(
+            &v,
+            "New password and confirmation do not match.",
+            "#error-container",
+        );
     }
 
     // Find user by reset token
@@ -422,11 +525,8 @@ async fn handle_reset_password(
                     .await
                 {
                     Ok(_) => {
-                        // Redirect to login page with success message using HX-Redirect
-                        let response = Response::builder()
-                            .header("HX-Redirect", "/auth/login?reset=success")
-                            .body(axum::body::Body::empty())?;
-                        Ok(response)
+                        // Redirect to login page with success message
+                        redirect("/auth/login?reset=success", headers)
                     }
                     Err(e) => {
                         tracing::error!(
@@ -434,17 +534,29 @@ async fn handle_reset_password(
                             &form.token,
                             e
                         );
-                        error_fragment(&v, "Failed to reset password. Please try again.")
+                        error_fragment(
+                            &v,
+                            "Failed to reset password. Please try again.",
+                            "#error-container",
+                        )
                     }
                 }
             } else {
                 // Token mismatch or already cleared - treat as invalid
-                error_fragment(&v, "Invalid or expired password reset link.")
+                error_fragment(
+                    &v,
+                    "Invalid or expired password reset link.",
+                    "#error-container",
+                )
             }
         }
         Err(_) => {
             // User not found for the token
-            error_fragment(&v, "Invalid or expired password reset link.")
+            error_fragment(
+                &v,
+                "Invalid or expired password reset link.",
+                "#error-container",
+            )
         }
     }
 }

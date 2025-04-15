@@ -10,9 +10,9 @@ This rule file provides guidelines for software development of web application i
 
 ## Guidelines
 1. **UI Flow**
-   - When implmenting user interfaces always use server-side rendering with HTMX
-   - Always prefer using HTMX over adding custom javascript to the fron-end
+   - When implementing user interfaces always use server-side rendering with HTMX
    - Make minimal usage of javascript, primarily for enhancing HTMX functionality
+   - Always prefer using HTMX and Hyperscript over adding custom javascript to the front-end
 
 2  **project structure**
    - the project structure follows the classic loco-rs framework strucure
