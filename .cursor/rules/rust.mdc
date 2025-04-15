@@ -22,9 +22,9 @@ This rule file provides guidelines for software development of web application i
    - Always use Tera templates for producing HTML
    - Use Tailwind CSS for styling.
 
-4. **general coding best practices** 
-   - When generating code, prioritize readability and maintainability. 
-   - Use clear and descriptive variable names, 
+4. **general coding best practices**
+   - When generating code, prioritize readability and maintainability.
+   - Use clear and descriptive variable names,
    - avoid complex logic without proper documentation.
    - commit your changes to git regularly
 
@@ -33,16 +33,16 @@ This rule file provides guidelines for software development of web application i
    - Always run `unset ARGV0` before running `cargo` to avoid proxy errors
    - unless directly instructed to do so, do not commit the changes to git if there are any compilation error or unit test failure
 
-6. **Debuggin issues that require human interaction with the application**
+6. **Debugging issues that require human interaction with the application**
    - If testing by human interaction is needed to better understand an issue or to verify that a bug fix or new feature implementation works as expected, do not run the application yourself. Ask me to do that and to provide you with the results.
 
 7. **Use loco-rs generate features**
-   - To generate a new entity use `cargo generate model`
-   - To generate a new database migration use `cargo generate migration`
-   - To generate a new controller use `cargo generate controller`
-   - To generate a new task use `cargo generate task`
-   - To generate a new scheduler use `cargo generate scheduler`
-   - To generate a new worker use `cargo generate worker`
-   - To generate a new mailer use `cargo generate mailer`
-   - To generate a full CRUD scaffold with model, controller and API endpoints use `cargo generate scaffold`
-   
+   - To generate a new entity use `cargo loco generate model`
+   - To generate a new database migration use `cargo loco generate migration`
+   - To generate a new controller use `cargo loco generate controller`
+   - To generate a new task use `cargo loco generate task`
+   - To generate a new scheduler use `cargo loco generate scheduler`
+   - To generate a new worker use `cargo loco generate worker`
+   - To generate a new mailer use `cargo loco generate mailer`
+   - To generate a full CRUD scaffold with model, controller and API endpoints use `cargo loco generate scaffold`
+
