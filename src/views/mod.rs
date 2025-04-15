@@ -3,12 +3,26 @@ pub mod teams;
 pub mod users;
 
 use axum::{
-    http::{HeaderMap, header::HeaderValue},
+    http::{header::HeaderValue, HeaderMap},
     response::{IntoResponse, Redirect, Response},
 };
 
-
 use loco_rs::prelude::*;
+
+//use loco_rs::{controller::format, Result};
+use serde::Serialize;
+
+// Path to view templates
+// const VIEWS_DIR: &str = "assets/views";
+
+/// Renders a template with the given context
+pub fn render_template<V, S>(v: &V, template_name: &str, context: S) -> Result<Response>
+where
+    V: ViewRenderer,
+    S: Serialize,
+{
+    format::render().view(v, template_name, context)
+}
 
 // Build an error message fragment with HTMX headers to inject it into error container of a page
 pub fn error_fragment(v: &TeraView, message: &str, target_selector: &str) -> Result<Response> {
@@ -61,7 +75,6 @@ pub fn redirect(url: &str, headers: HeaderMap) -> Result<Response> {
         // HTMX request: Use HX-Redirect header
         tracing::info!("Redirecting to: {} using HTMX", url);
         htmx_redirect(url)
-
     } else {
         // Standard request: Use HTTP redirect
         tracing::info!("Redirecting to: {} using HTTP", url);

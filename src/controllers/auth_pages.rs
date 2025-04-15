@@ -5,7 +5,7 @@ use crate::{
         users,
         users::{ForgotPasswordParams, LoginParams, RegisterParams, ResetPasswordParams},
     },
-    utils::template::render_template,
+    views::render_template,
     views::*,
 };
 use axum::http::{header::HeaderValue, HeaderMap};

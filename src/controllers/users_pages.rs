@@ -1,10 +1,10 @@
 use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
     models::{_entities::team_memberships, _entities::teams, users},
-    utils::template::render_template,
     views::error_fragment,
     views::error_page,
     views::redirect,
+    views::render_template,
 };
 use axum::debug_handler;
 use axum::extract::{Form, State};

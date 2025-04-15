@@ -5,7 +5,7 @@ use crate::{
         team_memberships::{InviteMemberParams, UpdateRoleParams},
         teams::{CreateTeamParams, UpdateTeamParams},
     },
-    utils::template::render_template,
+    views::render_template,
     views::{error_fragment, error_page, redirect},
 };
 use axum::{

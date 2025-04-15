@@ -5,6 +5,5 @@ pub mod mailers;
 pub mod middleware;
 pub mod models;
 pub mod tasks;
-pub mod utils;
 pub mod views;
 pub mod workers;

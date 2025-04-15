@@ -21,19 +21,18 @@ This rule file provides guidelines related to API endpoints and human-facing end
 - Human-facing endpoints MUST return either an HTML responses or an HTMX redirect through HX_Redirect or HX_Location header.
 - Human-facing endpoints MUST be defined in files under `src/controllers/` that end with `_pages.rs`.
 - Human-facing endpoints MUST use for response an HTML viewhandler .
-- Human-facing endpoints handlers MUST never handle errors by returning an Error type. A normal an HTML response with an error messages must be returned instead. Depending on the cases it can be, for example : 
+- Human-facing endpoints handlers MUST never handle errors by returning an Error type. A normal HTML response with an error messages must be returned instead. Depending on the cases it can be : 
   - A full error page including an error messages in the places that cannot be rendered because of the failure for a standard endpoint that is serving non AJAX requests, using the template assets/views/error_page.html
   - an HTMX error fragment that will be inserted into an error container in the page from where the endpoint was called, for endpoints are serving AJAX requests. 
-- Human-facing endpoints MUST use form submissions for data input
 - Human-facing endpoints that are not returning any html fragment or full page MUST redirect to appropriate pages after successful actions. 
 - For implementing a redirect in an html controller handler, the utility function `redirect(url: &str, headers: HeaderMap) -> Result<Response>` in `src/views/mod.rs` MUST be used.
-- View rendering MUST be implemented using the `format::render().view()` function of the `loco_rs::format` module. There is no need for any custom template rendering code that would directly call the Tera engine. 
+- View rendering MUST not be implemented using any custom template rendering code that would directly call the Tera engine. There are utility functions that are doing that in src/views/mod.rs for normal pages and HTMX fragments as well as for error cases described above.
 - Human-facing endpoints MUST use the custom authentication middleware of `auth_no_error` module to extract the authentication data from the requests
-- Authenticated Human-facing endpoints MUST handle gracefully the case of a user calling them without being authenticated by redirecting the user to the login page. Once successfuly logged-in the user MUST be redirected to the endpoint he originaly called.
+- Authenticated Human-facing endpoints MUST handle gracefully the case of a user calling them without being authenticated by redirecting the user to the login page. Once successfuly logged-in the user SHOULD be redirected to the endpoint he originaly called.
 
 ## Examples
-- Example of API endpoints implementation : src/controller/auth_api.rs
-- Example of human-facing endpoints and views implementation : src/controller/auth_pages.rs, src/view/auth_pages.rs and assets/views/auth/
+- Examples of API endpoints implementation : src/controller/auth_api.rs 
+- Example of human-facing endpoints and views implementation : src/controller/auth_pages.rs and assets/views/auth/*.html
 
 ### API Endpoint (Correct)
 ```rust
