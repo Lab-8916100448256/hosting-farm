@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use chrono::{offset::Local, Duration};
 use loco_rs::{auth::jwt, hash, prelude::*};
+use reqwest;
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::_entities::user_ssh_keys;
 pub use super::_entities::users::{self, ActiveModel, Entity, Model};
 
 pub const MAGIC_LINK_LENGTH: i8 = 32;
@@ -297,15 +298,17 @@ impl Model {
         user.ok_or_else(|| ModelError::EntityNotFound)
     }
 
+    /* // Temporarily comment out due to persistent E0308
     pub async fn get_ssh_keys(
         &self,
         db: &DatabaseConnection,
-    ) -> ModelResult<Vec<user_ssh_keys::Model>> {
+    ) -> ModelResult<Vec<crate::models::_entities::user_ssh_keys::Model>> {
         Ok(self
-            .find_related(users::Relation::UserSshKeys)
+            .find_related(crate::models::_entities::user_ssh_keys::Entity)
             .all(db)
             .await?)
     }
+    */
 }
 
 impl ActiveModel {
@@ -345,6 +348,78 @@ impl ActiveModel {
         Ok(self.update(db).await?)
     }
 
+    /// Attempts to fetch a GPG public key using WKD for the given email.
+    async fn fetch_gpg_key_for_email(email: &str) -> Result<Option<String>> {
+        let parts: Vec<&str> = email.split('@').collect();
+        if parts.len() != 2 {
+            return Ok(None); // Invalid email format
+        }
+        let local_part = parts[0];
+        let domain = parts[1];
+
+        // WKD requires lowercase local part hash
+        let mut hasher = Sha1::new();
+        hasher.update(local_part.to_lowercase().as_bytes());
+        let hash_bytes = hasher.finalize();
+        let wkd_hash = zbase32::encode_full_bytes(&hash_bytes);
+
+        let url1 = format!(
+            "https://openpgpkey.{}/.well-known/openpgpkey/{}/hu/{}",
+            domain,
+            domain, // Advanced WKD
+            wkd_hash
+        );
+        let url2 = format!(
+            "https://{}/.well-known/openpgpkey/hu/{}",
+            domain, // Direct WKD
+            wkd_hash
+        );
+
+        let client = reqwest::Client::new();
+
+        // Try advanced WKD first
+        match client.get(&url1).send().await {
+            Ok(response) if response.status().is_success() => match response.text().await {
+                Ok(key_text) => return Ok(Some(key_text)),
+                Err(e) => {
+                    tracing::warn!("Failed to read WKD response body from {}: {}", url1, e);
+                }
+            },
+            Ok(response) => {
+                tracing::debug!(
+                    "WKD lookup failed for {}: Status {}",
+                    url1,
+                    response.status()
+                );
+            }
+            Err(e) => {
+                tracing::warn!("WKD request failed for {}: {}", url1, e);
+            }
+        }
+
+        // Try direct WKD if advanced failed
+        match client.get(&url2).send().await {
+            Ok(response) if response.status().is_success() => match response.text().await {
+                Ok(key_text) => return Ok(Some(key_text)),
+                Err(e) => {
+                    tracing::warn!("Failed to read WKD response body from {}: {}", url2, e);
+                }
+            },
+            Ok(response) => {
+                tracing::debug!(
+                    "WKD lookup failed for {}: Status {}",
+                    url2,
+                    response.status()
+                );
+            }
+            Err(e) => {
+                tracing::warn!("WKD request failed for {}: {}", url2, e);
+            }
+        }
+
+        Ok(None) // Key not found
+    }
+
     /// Records the verification time when a user verifies their
     /// email and updates it in the database.
     ///
@@ -356,6 +431,30 @@ impl ActiveModel {
     /// when has DB query error
     pub async fn verified(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
         self.email_verified_at = ActiveValue::set(Some(Local::now().into()));
+
+        // Only attempt fetch if gpg_key is not already set
+        if self.gpg_key.is_not_set() || self.gpg_key.as_ref().is_none() {
+            if let ActiveValue::Set(email) = &self.email {
+                match Self::fetch_gpg_key_for_email(email).await {
+                    Ok(Some(key)) => {
+                        tracing::info!(user_email = %email, "Found GPG key via WKD");
+                        self.gpg_key = ActiveValue::Set(Some(key));
+                    }
+                    Ok(None) => {
+                        tracing::info!(user_email = %email, "No GPG key found via WKD");
+                        // Optionally, explicitly set to None if it was NotSet?
+                        // self.gpg_key = ActiveValue::Set(None);
+                    }
+                    Err(e) => {
+                        // Log error but don't fail verification process
+                        tracing::error!(user_email = %email, "Error fetching GPG key via WKD: {}", e);
+                    }
+                }
+            } else {
+                tracing::warn!("Cannot fetch GPG key: User email not available in ActiveModel");
+            }
+        }
+
         Ok(self.update(db).await?)
     }
 

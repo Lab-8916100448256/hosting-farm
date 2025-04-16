@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
+    #[sea_orm(unique)] // Assuming PID should be unique
     pub pid: Uuid,
     pub name: String,
     pub key: String,
@@ -21,7 +22,15 @@ pub enum Relation {
     #[sea_orm(
         belongs_to = "super::users::Entity",
         from = "Column::UserId",
-        to = "super::users::Column::Id"
+        to = "super::users::Column::Id",
+        on_update = "Cascade",
+        on_delete = "Cascade"
     )]
     Users,
+}
+
+impl Related<super::users::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Users.def()
+    }
 }

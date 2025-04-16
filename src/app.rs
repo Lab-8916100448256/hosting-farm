@@ -56,6 +56,8 @@ impl Hooks for App {
 
     fn routes(_ctx: &AppContext) -> AppRoutes {
         AppRoutes::with_default_routes() // controller routes below
+            .add_route(controllers::user_gpg_key::routes())
+            .add_route(controllers::user_ssh_keys::routes())
             .add_route(controllers::auth_api::routes())
             .add_route(controllers::teams_api::routes())
             .add_route(controllers::home_pages::routes())
@@ -98,6 +100,9 @@ impl Hooks for App {
             magic_link_token: ActiveValue::NotSet,
             magic_link_expiration: ActiveValue::NotSet,
             gpg_key: ActiveValue::NotSet,
+            gpg_key_verification_token: ActiveValue::NotSet,
+            gpg_key_verification_sent_at: ActiveValue::NotSet,
+            gpg_key_verified_at: ActiveValue::NotSet,
         };
         user.insert(&ctx.db).await?;
         Ok(())

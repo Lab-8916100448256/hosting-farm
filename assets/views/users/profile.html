@@ -13,7 +13,7 @@
                 </p>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
-                <form action="/users/me" method="POST" hx-put="/users/me" hx-swap="outerHTML" hx-target="this" enctype="application/x-www-form-urlencoded">
+                <form id="profile-form" action="/users/me" method="POST" hx-put="/users/me" hx-swap="outerHTML" hx-target="#profile-form" enctype="application/x-www-form-urlencoded">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
                             <label for="name" class="block text-sm font-medium text-gray-700">Name</label>
@@ -23,6 +23,11 @@
                         <div class="col-span-6 sm:col-span-4">
                             <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
                             <input type="email" name="email" id="email" value="{{ user.email }}" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                            {% if user.email_verified_at is none %}
+                                <p class="mt-2 text-sm text-yellow-600">Email not verified. <a href="#" class="underline">Resend verification</a></p> {# TODO: Add resend functionality #}
+                            {% else %}
+                                <p class="mt-2 text-sm text-green-600">Email verified.</p>
+                            {% endif %}
                         </div>
                     </div>
                     <div id="error-container" class="mt-4 text-red-600"></div>
@@ -45,7 +50,7 @@
                 </p>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
-                <form action="/users/me/password" method="POST" hx-post="/users/me/password" hx-swap="outerHTML" hx-target="this" enctype="application/x-www-form-urlencoded">
+                <form id="password-form" action="/users/me/password" method="POST" hx-post="/users/me/password" hx-swap="outerHTML" hx-target="#password-form" enctype="application/x-www-form-urlencoded">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
                             <label for="current_password" class="block text-sm font-medium text-gray-700">Current Password</label>
@@ -66,6 +71,74 @@
                     <div class="mt-6 flex justify-end">
                         <button type="submit" class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                             Save
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div class="md:grid md:grid-cols-3 md:gap-6">
+            <div class="md:col-span-1">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">SSH Keys</h3>
+                <p class="mt-1 text-sm text-gray-500">
+                    Manage the SSH public keys used for server authentication.
+                </p>
+            </div>
+            <div class="mt-5 md:mt-0 md:col-span-2">
+                {# TODO: Add SSH key listing and management via API + HTMX #}
+                <p class="text-sm text-gray-500">SSH Key management coming soon.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div class="md:grid md:grid-cols-3 md:gap-6">
+            <div class="md:col-span-1">
+                <h3 class="text-lg font-medium leading-6 text-gray-900">GPG Key</h3>
+                <p class="mt-1 text-sm text-gray-500">
+                    Manage your GPG public key for receiving encrypted emails.
+                </p>
+            </div>
+            <div class="mt-5 md:mt-0 md:col-span-2">
+                <form id="gpg-form" hx-put="/api/user_gpg_key" hx-swap="outerHTML" hx-target="#gpg-form" enctype="application/json">
+                    <div class="grid grid-cols-6 gap-6">
+                        <div class="col-span-6">
+                            <label for="gpg_key" class="block text-sm font-medium text-gray-700">GPG Public Key</label>
+                            <textarea name="gpg_key" id="gpg_key" rows="8" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md font-mono">{{ user.gpg_key | default(value="") }}</textarea>
+                            <p class="mt-2 text-sm text-gray-500">Paste your full ASCII-armored GPG public key block here.</p>
+                        </div>
+                    </div>
+                    <div id="gpg-error-container" class="mt-4 text-red-600"></div>
+                    <div id="gpg-success-container" class="mt-4 text-green-600"></div> {# Container for success messages #}
+                    <div class="mt-6 flex justify-between items-center">
+                         <div>
+                            {% if user.gpg_key is some and user.gpg_key != "" %}
+                                {% if user.gpg_key_verified_at is some %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Verified</span>
+                                {% else %}
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Not Verified</span>
+                                    {% if user.email_verified_at is some %}
+                                        <button type="button" 
+                                                hx-post="/profile/trigger-gpg-verification" 
+                                                hx-target="#gpg-success-container" 
+                                                hx-swap="innerHTML"
+                                                class="ml-3 text-sm font-medium text-indigo-600 hover:text-indigo-500 focus:outline-none focus:underline">
+                                            Send Verification Email
+                                        </button>
+                                    {% else %}
+                                        <span class="ml-3 text-sm text-gray-500">(Verify email first)</span>
+                                    {% endif %}
+                                {% endif %}
+                            {% else %}
+                                <span class="text-sm text-gray-500">Set a key to enable verification.</span>
+                            {% endif %}
+                        </div>
+                        <button type="submit" 
+                                _="on htmx:configRequest(event) set event.detail.parameters to {gpg_key: document.getElementById('gpg_key').value}"
+                                class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                            Save GPG Key
                         </button>
                     </div>
                 </form>
@@ -110,4 +183,25 @@
         </div>
     </div>
 </div>
+
+{# Partial template for GPG email sent success message #}
+{% block partials %}
+<template id="_gpg_email_sent.html">
+    <p>Verification email sent. Please check your inbox (and spam folder) for an encrypted message.</p>
+</template>
+<template id="users/gpg_verify.html">
+    <div class="max-w-lg mx-auto mt-10 p-6 bg-white rounded shadow">
+        {% if success %}
+            <h2 class="text-2xl font-semibold text-green-600 mb-4">Verification Successful!</h2>
+        {% else %}
+            <h2 class="text-2xl font-semibold text-red-600 mb-4">Verification Failed</h2>
+        {% endif %}
+        <p class="text-gray-700">{{ message }}</p>
+        <div class="mt-6">
+            <a href="/profile" class="text-indigo-600 hover:text-indigo-900">Return to Profile</a>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
 {% endblock %} 

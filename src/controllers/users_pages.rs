@@ -1,6 +1,10 @@
+use crate::mailers::gpg_verification::GpgVerificationMailer;
 use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
-    models::{_entities::team_memberships, _entities::teams, users},
+    models::{
+        _entities::team_memberships, _entities::teams, _entities::users::Column as UserColumn,
+        users,
+    },
     views::error_fragment,
     views::error_page,
     views::redirect,
@@ -11,6 +15,7 @@ use axum::extract::{Form, State};
 use axum::http::header::HeaderMap;
 use loco_rs::prelude::*;
 use sea_orm::PaginatorTrait;
+use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, Set};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -333,6 +338,130 @@ async fn update_password(
     }
 }
 
+/// Trigger sending the GPG verification email
+#[debug_handler]
+async fn trigger_gpg_verification(
+    auth: JWTWithUserOpt<users::Model>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    ViewEngine(v): ViewEngine<TeraView>,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
+
+    // Ensure email is verified
+    if user.email_verified_at.is_none() {
+        return error_fragment(
+            &v,
+            "Please verify your email address first.",
+            "#gpg-error-container",
+        ); // Use a specific error container
+    }
+
+    // Ensure GPG key is set
+    if user.gpg_key.is_none() || user.gpg_key.as_ref().map_or(true, |k| k.is_empty()) {
+        return error_fragment(&v, "Please set a GPG key first.", "#gpg-error-container");
+    }
+
+    // Send the verification email
+    match GpgVerificationMailer::send_verification_email(&ctx, &user).await {
+        Ok(_) => {
+            // Optionally return a success message fragment
+            render_template(&v, "users/_gpg_email_sent.html", data!({}))
+        }
+        Err(e) => {
+            tracing::error!("Failed to send GPG verification email: {}", e);
+            error_fragment(
+                &v,
+                "Failed to send verification email. Please try again later.",
+                "#gpg-error-container",
+            )
+        }
+    }
+}
+
+/// Handle the GPG verification link click
+#[debug_handler]
+async fn verify_gpg_key(
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    axum::extract::Path(token): axum::extract::Path<String>,
+) -> Result<Response> {
+    // Find user by token
+    let user_result = users::Entity::find()
+        .filter(UserColumn::GpgKeyVerificationToken.eq(token))
+        .one(&ctx.db)
+        .await;
+
+    match user_result {
+        Ok(Some(user)) => {
+            // Check if already verified
+            if user.gpg_key_verified_at.is_some() {
+                return render_template(
+                    &v,
+                    "users/gpg_verify.html",
+                    data!({
+                        "success": true,
+                        "message": "Your GPG key has already been verified."
+                    }),
+                );
+            }
+
+            // Mark as verified
+            let mut user_active: users::ActiveModel = user.into();
+            user_active.gpg_key_verified_at = Set(Some(chrono::Local::now().into()));
+            user_active.gpg_key_verification_token = Set(None); // Clear token
+
+            match user_active.update(&ctx.db).await {
+                Ok(_) => render_template(
+                    &v,
+                    "users/gpg_verify.html",
+                    data!({
+                        "success": true,
+                        "message": "Your GPG key has been successfully verified."
+                    }),
+                ),
+                Err(e) => {
+                    tracing::error!("Failed to update GPG verification status: {}", e);
+                    render_template(
+                        &v,
+                        "users/gpg_verify.html",
+                        data!({
+                            "success": false,
+                            "message": "Failed to update verification status. Please try again."
+                        }),
+                    )
+                }
+            }
+        }
+        Ok(None) => {
+            // Token not found
+            render_template(
+                &v,
+                "users/gpg_verify.html",
+                data!({
+                    "success": false,
+                    "message": "Invalid or expired GPG verification link."
+                }),
+            )
+        }
+        Err(e) => {
+            tracing::error!("Database error during GPG verification: {}", e);
+            render_template(
+                &v,
+                "users/gpg_verify.html",
+                data!({
+                    "success": false,
+                    "message": "A database error occurred. Please try again later."
+                }),
+            )
+        }
+    }
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -342,4 +471,6 @@ pub fn routes() -> Routes {
         .add("/invitation_count", get(get_invitation_count))
         .add("/me", put(update_profile))
         .add("/me/password", post(update_password))
+        .add("/trigger-gpg-verification", post(trigger_gpg_verification))
+        .add("/verify-gpg/:token", get(verify_gpg_key))
 }

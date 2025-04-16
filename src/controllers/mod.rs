@@ -4,3 +4,6 @@ pub mod auth_pages;
 pub mod teams_pages;
 pub mod home_pages;
 pub mod users_pages;
+
+pub mod user_ssh_keys;
+pub mod user_gpg_key;

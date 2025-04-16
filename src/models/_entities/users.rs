@@ -26,24 +26,19 @@ pub struct Model {
     pub magic_link_expiration: Option<DateTimeWithTimeZone>,
     #[sea_orm(column_type = "Text", nullable)]
     pub gpg_key: Option<String>,
+    pub gpg_key_verification_token: Option<String>,
+    pub gpg_key_verification_sent_at: Option<DateTimeWithTimeZone>,
+    pub gpg_key_verified_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(has_many = "super::team_memberships::Entity")]
     TeamMemberships,
-    #[sea_orm(has_many = "super::user_ssh_keys::Entity")]
-    UserSshKeys,
 }
 
 impl Related<super::team_memberships::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::TeamMemberships.def()
-    }
-}
-
-impl Related<super::user_ssh_keys::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::UserSshKeys.def()
     }
 }
