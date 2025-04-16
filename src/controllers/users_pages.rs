@@ -1,4 +1,5 @@
 use crate::{
+    controllers::ssh_key_api::{is_valid_ssh_public_key, SshKeyPayload},
     middleware::auth_no_error::JWTWithUserOpt,
     models::{_entities::ssh_keys, _entities::team_memberships, _entities::teams, users},
     views::error_fragment,
@@ -10,8 +11,10 @@ use axum::debug_handler;
 use axum::extract::{Form, State};
 use axum::http::header::HeaderMap;
 use loco_rs::prelude::*;
+use sea_orm::ActiveValue;
 use sea_orm::PaginatorTrait;
 use sea_orm::QueryOrder;
+use sea_orm::Set;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -398,12 +401,102 @@ async fn ssh_keys_fragment(
     )
 }
 
+/// Handles adding an SSH key via HTMX form submission
+#[debug_handler]
+async fn add_ssh_key(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap, // Needed for redirect on auth failure
+    Form(params): Form<SshKeyPayload>,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers); // Redirect if not logged in
+    };
+
+    // --- Validation --- (moved from API controller, returns error fragment)
+    if params.public_key.is_empty() {
+        return error_fragment(&v, "Public key cannot be empty", "#add-key-error");
+    }
+    if !is_valid_ssh_public_key(&params.public_key) {
+        return error_fragment(&v, "Invalid SSH public key format", "#add-key-error");
+    }
+    // Check if key already exists for this user
+    match ssh_keys::Entity::find()
+        .filter(ssh_keys::Column::UserId.eq(user.id))
+        .filter(ssh_keys::Column::PublicKey.eq(params.public_key.clone()))
+        .one(&ctx.db)
+        .await
+    {
+        Ok(Some(_)) => {
+            return error_fragment(&v, "SSH Key already exists for this user", "#add-key-error");
+        }
+        Ok(None) => { /* Key does not exist, proceed */ }
+        Err(e) => {
+            tracing::error!("DB error checking for existing SSH key: {}", e);
+            return error_fragment(
+                &v,
+                "Error checking for existing key. Please try again.",
+                "#add-key-error",
+            );
+        }
+    }
+    // --- End Validation ---
+
+    // --- Insert Key --- (moved from API controller)
+    let key = ssh_keys::ActiveModel {
+        user_id: Set(user.id),
+        public_key: Set(params.public_key),
+        ..Default::default()
+    };
+    match key.insert(&ctx.db).await {
+        Ok(_) => { /* Insert successful, proceed to render */ }
+        Err(e) => {
+            tracing::error!("DB error inserting SSH key: {}", e);
+            return error_fragment(
+                &v,
+                "Failed to save the new key. Please try again.",
+                "#add-key-error",
+            );
+        }
+    }
+    // --- End Insert Key ---
+
+    // --- Fetch Updated Keys and Render Fragment --- (on success)
+    match ssh_keys::Entity::find()
+        .filter(ssh_keys::Column::UserId.eq(user.id))
+        .order_by_asc(ssh_keys::Column::CreatedAt)
+        .all(&ctx.db)
+        .await
+    {
+        Ok(ssh_keys) => render_template(
+            &v,
+            "users/_ssh_keys_list.html",
+            data!({
+                "ssh_keys": &ssh_keys,
+            }),
+        ),
+        Err(e) => {
+            tracing::error!("Failed to reload SSH keys after add: {}", e);
+            // Return error fragment even after successful add if reload fails
+            error_fragment(
+                &v,
+                "Key added, but failed to refresh list.",
+                "#ssh-keys-error-container", // Target the main list error container
+            )
+        }
+    }
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/users")
         .add("/profile", get(profile).post(update_profile))
         .add("/profile/ssh_keys_fragment", get(ssh_keys_fragment))
+        .add("/profile/ssh_keys", post(add_ssh_key))
         .add("/profile/password", post(update_password))
         .add("/invitations", get(invitations))
         .add("/invitations/count", get(get_invitation_count))

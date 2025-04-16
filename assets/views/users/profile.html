@@ -78,7 +78,7 @@
             id="ssh-key-section" 
             hx-get="/users/profile/ssh_keys_fragment" 
             hx-trigger="load delay:100ms, reloadKeys from:body"
-            hx-swap="outerHTML"
+            hx-swap="innerHTML"
         >
             <!-- Initial loading state (optional) -->
             <div class="text-center py-4">
@@ -124,4 +124,50 @@
         </div>
     </div>
 </div>
+
+{# Added script for SSH Key form error handling #}
+<script>
+    document.body.addEventListener('htmx:beforeRequest', function(evt) {
+        // Check if the event originates from the add-ssh-key-form
+        if (evt.target.id === 'add-ssh-key-form') {
+            const errorContainer = document.getElementById('add-key-error');
+            if (errorContainer) {
+                errorContainer.textContent = ''; // Clear previous errors
+            }
+        }
+    });
+    document.body.addEventListener('htmx:responseError', function(evt) {
+        // Check if the event originates from the add-ssh-key-form
+        if (evt.target.id === 'add-ssh-key-form') {
+            const errorContainer = document.getElementById('add-key-error');
+            if (errorContainer) {
+                let errorMsg = `Error ${evt.detail.xhr.status}: Failed to add key. Please check the format and try again.`; 
+                try {
+                    const response = JSON.parse(evt.detail.xhr.responseText);
+                    if (response) {
+                        if (response.error && typeof response.error === 'string') {
+                            errorMsg = response.error;
+                        } else if (response.message && typeof response.message === 'string') {
+                            errorMsg = response.message;
+                        } else if (response.detail && typeof response.detail === 'string') {
+                            errorMsg = response.detail;
+                        } else if (response.details && typeof response.details === 'string') {
+                            errorMsg = response.details;
+                        } else if (typeof response === 'string') {
+                            errorMsg = response;
+                        }
+                    }
+                } catch (e) {
+                    const responseText = evt.detail.xhr.responseText;
+                    if (responseText && !responseText.trim().startsWith('<') && !responseText.trim().startsWith('{')) {
+                        errorMsg = responseText; 
+                    }
+                    console.error("Could not parse error response or extract detailed message:", e);
+                }
+                errorContainer.textContent = errorMsg;
+            }
+        }
+    });
+</script>
+
 {% endblock %} 

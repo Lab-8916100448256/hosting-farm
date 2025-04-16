@@ -12,7 +12,7 @@ pub struct SshKeyPayload {
 }
 
 // Basic validation for SSH public key format
-fn is_valid_ssh_public_key(key: &str) -> bool {
+pub fn is_valid_ssh_public_key(key: &str) -> bool {
     let parts: Vec<&str> = key.trim().split_whitespace().collect();
     if parts.len() < 2 {
         return false;
