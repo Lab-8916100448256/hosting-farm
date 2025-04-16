@@ -57,6 +57,10 @@ impl Hooks for App {
 
     fn routes(_ctx: &AppContext) -> AppRoutes {
         AppRoutes::with_default_routes() // controller routes below
+            .add_route(controllers::gpg_key_api::routes())
+            .add_route(controllers::ssh_keys_pages::routes())
+            .add_route(controllers::ssh_keys_api::routes())
+            .add_route(controllers::gpg_key_pages::routes())
             .add_route(controllers::auth_api::routes())
             .add_route(controllers::teams_api::routes())
             .add_route(controllers::home_pages::routes())

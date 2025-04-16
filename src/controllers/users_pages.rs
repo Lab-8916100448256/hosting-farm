@@ -111,6 +111,15 @@ async fn profile(
         }
     };
 
+    // Fetch SSH keys for the user
+    let ssh_keys_result = crate::models::ssh_public_keys::Entity::find()
+        .filter(crate::models::_entities::ssh_public_keys::Column::UserId.eq(user.id))
+        .all(&ctx.db)
+        .await;
+    let (ssh_keys, ssh_keys_error) = match ssh_keys_result {
+        Ok(keys) => (keys, None),
+        Err(e) => (vec![], Some(format!("Could not load SSH keys: {}", e))),
+    };
     render_template(
         &v,
         "users/profile.html",
@@ -119,6 +128,8 @@ async fn profile(
             "teams": &teams,
             "active_page": "profile",
             "invitation_count": &invitations,
+            "ssh_keys": &ssh_keys,
+            "ssh_keys_error": ssh_keys_error,
         }),
     )
 }

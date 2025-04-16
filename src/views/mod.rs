@@ -19,7 +19,7 @@ use serde::Serialize;
 pub fn render_template<V, S>(v: &V, template_name: &str, context: S) -> Result<Response>
 where
     V: ViewRenderer,
-    S: Serialize,
+    S: serde::Serialize,
 {
     format::render().view(v, template_name, context)
 }
