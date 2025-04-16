@@ -11,15 +11,14 @@ use loco_rs::{
     Result,
 };
 use migration::Migrator;
-use std::path::Path;
 use sea_orm::{ActiveModelTrait, ActiveValue};
+use std::path::Path;
 use uuid;
 
 #[allow(unused_imports)]
 use crate::{
-    controllers,
-    initializers,
-    models::_entities::{users, teams, team_memberships},
+    controllers, initializers,
+    models::_entities::{team_memberships, teams, users},
     tasks,
     workers::downloader::DownloadWorker,
 };
@@ -59,6 +58,7 @@ impl Hooks for App {
         AppRoutes::with_default_routes() // controller routes below
             .add_route(controllers::auth_api::routes())
             .add_route(controllers::teams_api::routes())
+            .add_route(controllers::ssh_key_api::routes())
             .add_route(controllers::home_pages::routes())
             .add_route(controllers::users_pages::routes())
             .add_route(controllers::auth_pages::routes())

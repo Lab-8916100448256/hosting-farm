@@ -29,6 +29,7 @@ This rule file provides guidelines for software development of web application i
    - commit your changes to git regularly
 
 5. **Test and commit after rust code modifications**
+   - Rust linter takes time to update after saving a file. To be sure about errors in the code prefer running `cargo check` than relying on linter messages
    - Always run `cargo check` and `cargo test` after modifying or adding Rust code to check for compilation errors and unit test failures. Fix any compilation error and unit test failure that are generated. Then test again. Iterate until there are no more error or unit test failure.
    - Always run `unset ARGV0` before running `cargo` to avoid proxy errors
    - unless directly instructed to do so, do not commit the changes to git if there are any compilation error or unit test failure

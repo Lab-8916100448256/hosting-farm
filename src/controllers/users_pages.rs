@@ -1,6 +1,6 @@
 use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
-    models::{_entities::team_memberships, _entities::teams, users},
+    models::{_entities::ssh_keys, _entities::team_memberships, _entities::teams, users},
     views::error_fragment,
     views::error_page,
     views::redirect,
@@ -11,6 +11,7 @@ use axum::extract::{Form, State};
 use axum::http::header::HeaderMap;
 use loco_rs::prelude::*;
 use sea_orm::PaginatorTrait;
+use sea_orm::QueryOrder;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -111,6 +112,24 @@ async fn profile(
         }
     };
 
+    // Get user's SSH keys
+    let ssh_keys_result = ssh_keys::Entity::find()
+        .filter(ssh_keys::Column::UserId.eq(user.id))
+        .all(&ctx.db)
+        .await;
+
+    let ssh_keys = match ssh_keys_result {
+        Ok(keys) => keys,
+        Err(e) => {
+            tracing::error!("Failed to load SSH keys for user {}: {}", user.id, e);
+            return error_page(
+                &v,
+                "Could not load your SSH keys. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
+
     render_template(
         &v,
         "users/profile.html",
@@ -119,6 +138,7 @@ async fn profile(
             "teams": &teams,
             "active_page": "profile",
             "invitation_count": &invitations,
+            "ssh_keys": &ssh_keys,
         }),
     )
 }
@@ -333,13 +353,58 @@ async fn update_password(
     }
 }
 
+/// Renders the SSH keys list fragment for the profile page
+#[debug_handler]
+async fn ssh_keys_fragment(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        // Although this is a fragment, redirecting might still be appropriate
+        // if the session expired mid-use. Alternatively, return an error fragment.
+        return redirect("/auth/login", headers);
+    };
+
+    // Get user's SSH keys
+    let ssh_keys_result = ssh_keys::Entity::find()
+        .filter(ssh_keys::Column::UserId.eq(user.id))
+        .order_by_asc(ssh_keys::Column::CreatedAt) // Order for consistent display
+        .all(&ctx.db)
+        .await;
+
+    let ssh_keys = match ssh_keys_result {
+        Ok(keys) => keys,
+        Err(e) => {
+            tracing::error!("Failed to load SSH keys for user {}: {}", user.id, e);
+            // Return an error fragment instead of a full page
+            return error_fragment(
+                &v,
+                "Could not load SSH keys.",
+                "#ssh-keys-error-container", // Target for the error message
+            );
+        }
+    };
+
+    render_template(
+        &v,
+        "users/_ssh_keys_list.html",
+        data!({
+            "ssh_keys": &ssh_keys,
+        }),
+    )
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/users")
-        .add("/profile", get(profile))
+        .add("/profile", get(profile).post(update_profile))
+        .add("/profile/ssh_keys_fragment", get(ssh_keys_fragment))
+        .add("/profile/password", post(update_password))
         .add("/invitations", get(invitations))
-        .add("/invitation_count", get(get_invitation_count))
-        .add("/me", put(update_profile))
-        .add("/me/password", post(update_password))
+        .add("/invitations/count", get(get_invitation_count))
 }

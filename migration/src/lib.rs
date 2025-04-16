@@ -5,6 +5,7 @@ mod m20220101_000001_users;
 mod m20240323_000001_teams;
 mod m20240323_000002_team_memberships;
 
+mod m20250416_052930_ssh_keys;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -14,6 +15,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20220101_000001_users::Migration),
             Box::new(m20240323_000001_teams::Migration),
             Box::new(m20240323_000002_team_memberships::Migration),
+            Box::new(m20250416_052930_ssh_keys::Migration),
             // inject-above (do not remove this comment)
         ]
     }

@@ -541,6 +541,12 @@ dependencies = [
 
 [[package]]
 name = "base64"
+version = "0.21.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
+
+[[package]]
+name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
@@ -1291,7 +1297,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20b9cde6a71f9f758440470f3de16db6c09a02c443ce66850d87f5410548fb8e"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "memchr",
 ]
 
@@ -1924,6 +1930,7 @@ dependencies = [
  "async-trait",
  "axum",
  "axum-extra",
+ "base64 0.21.7",
  "chrono",
  "fluent-templates",
  "include_dir",
@@ -2410,7 +2417,7 @@ version = "9.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "js-sys",
  "pem",
  "ring",
@@ -2444,7 +2451,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "759bc2b8eabb6a30b235d6f716f7f36479f4b38cbe65b8747aefee51f89e8437"
 dependencies = [
  "async-trait",
- "base64",
+ "base64 0.22.1",
  "chumsky",
  "email-encoding",
  "email_address",
@@ -2915,7 +2922,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "backon",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "flagset",
@@ -3038,7 +3045,7 @@ version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38af38e8470ac9dee3ce1bae1af9c1671fffc44ddfd8bd1d0a3445bf349a8ef3"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "serde",
 ]
 
@@ -3629,7 +3636,7 @@ version = "0.12.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d19c46a6fdd48bc4dab94b6103fccc55d34c67cc0ad04653aad4ea2a07cd7bbb"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -4649,7 +4656,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4560278f0e00ce64938540546f59f590d60beee33fffbd3b9cd47851e5fff233"
 dependencies = [
  "atoi",
- "base64",
+ "base64 0.22.1",
  "bigdecimal",
  "bitflags",
  "byteorder",
@@ -4696,7 +4703,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5b98a57f363ed6764d5b3a12bfedf62f07aa16e1856a7ddc2a0bb190a959613"
 dependencies = [
  "atoi",
- "base64",
+ "base64 0.22.1",
  "bigdecimal",
  "bitflags",
  "byteorder",

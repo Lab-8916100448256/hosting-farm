@@ -1,0 +1,101 @@
+<div class="space-y-4">
+    <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-gray-100">SSH Public Keys</h3>
+
+    <!-- Error container for fragment-specific errors -->
+    <div id="ssh-keys-error-container" class="text-red-500"></div>
+
+    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <thead class="bg-gray-50 dark:bg-gray-800">
+            <tr>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Public Key</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Added</th>
+                <th scope="col" class="relative px-6 py-3">
+                    <span class="sr-only">Delete</span>
+                </th>
+            </tr>
+        </thead>
+        <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+            {% for key in ssh_keys %}
+            <tr>
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-gray-100" title="{{ key.public_key }}">
+                    {{ key.public_key | truncate(length=60) }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                    {{ key.created_at | date(format="%Y-%m-%d") }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button
+                        hx-delete="/api/user/ssh_keys/{{ key.id }}"
+                        hx-confirm="Are you sure you want to delete this SSH key?"
+                        hx-swap="none"
+                        _="on htmx:afterRequest if event.detail.successful trigger reloadKeys on body"
+                        class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                    >
+                        Delete
+                    </button>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
+                    You haven't added any SSH keys yet.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <form 
+        id="add-ssh-key-form"
+        hx-post="/api/user/ssh_keys"
+        hx-swap="none"
+        _="on htmx:afterRequest if event.detail.successful then reset() me trigger reloadKeys on body end"
+        class="space-y-4"
+    >
+        <div>
+            <label for="public_key" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Add New SSH Key</label>
+            <textarea 
+                id="public_key" 
+                name="public_key" 
+                rows="4" 
+                required 
+                placeholder="Paste your public key here (e.g., ssh-rsa AAA...)"
+                class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md"
+            ></textarea>
+        </div>
+
+        <!-- Generic error display for the form -->
+        <div id="add-key-error" class="text-red-500 text-sm"></div>
+
+        <script>
+            document.body.addEventListener('htmx:beforeRequest', function(evt) {
+                if (evt.detail.elt.id === 'add-ssh-key-form') {
+                    // Clear previous errors
+                    document.getElementById('add-key-error').textContent = '';
+                }
+            });
+            document.body.addEventListener('htmx:responseError', function(evt) {
+                if (evt.detail.elt.id === 'add-ssh-key-form') {
+                    let errorMsg = "Failed to add key. Please check the format and try again.";
+                    try {
+                        const response = JSON.parse(evt.detail.xhr.responseText);
+                        if (response && response.message) {
+                            errorMsg = response.message;
+                        } else if (response && response.error) {
+                             errorMsg = response.error;
+                        }
+                    } catch (e) {
+                        console.error("Could not parse error response:", e);
+                    }
+                    document.getElementById('add-key-error').textContent = errorMsg;
+                }
+            });
+        </script>
+
+        <div class="flex justify-end">
+             <button type="submit" class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                Add Key
+            </button>
+        </div>
+    </form>
+</div> 
