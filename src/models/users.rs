@@ -298,6 +298,14 @@ impl Model {
 }
 
 impl ActiveModel {
+    /// Sets the email verification token for the user and
+    /// updates it in the database.
+    ///
+    /// This method is used to generate a unique verification token for the user.
+    ///
+    /// # Errors
+    ///
+    /// when has DB query error
     pub async fn generate_email_verification_token(
         mut self,
         db: &DatabaseConnection,
@@ -306,11 +314,11 @@ impl ActiveModel {
         Ok(self.update(db).await?)
     }
 
-    /// Sets the email verification information for the user and
+    /// Sets the email verification send timestamp for the user and
     /// updates it in the database.
     ///
     /// This method is used to record the timestamp when the email verification
-    /// was sent and generate a unique verification token for the user.
+    /// was sent.
     ///
     /// # Errors
     ///
