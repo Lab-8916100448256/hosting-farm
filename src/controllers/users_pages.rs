@@ -548,7 +548,7 @@ async fn resend_verification_email(
                                 "fragments/success_message.html",
                                 data!({
                                     "message": "Verification email sent successfully.",
-                                    "target": "#notification-container",
+                                    "target": "notification-container",
                                 }),
                             )
                         }
