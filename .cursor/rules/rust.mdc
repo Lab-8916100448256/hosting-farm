@@ -37,8 +37,8 @@ This rule file provides guidelines for software development of web application i
    - If testing by human interaction is needed to better understand an issue or to verify that a bug fix or new feature implementation works as expected, do not run the application yourself. Ask me to do that and to provide you with the results.
 
 7. **Use loco-rs generate features**
-   - To generate a new entity use `cargo loco generate model`
-   - To generate a new database migration use `cargo loco generate migration`
+   - To generate a new entity and the associated database migration use `cargo loco generate model ...`. For this to work well you need to pass the new model name and its fileds as parameters. Example : `cargo loco generate model posts title:string! content:text user:references`. Refer to the doc for all the data types : https://loco.rs/docs/the-app/models/
+   - To generate a new database migration to alter an existing model use `cargo loco generate migration <name of migration> [name:type, name:type ...]`
    - To generate a new controller use `cargo loco generate controller`
    - To generate a new task use `cargo loco generate task`
    - To generate a new scheduler use `cargo loco generate scheduler`
