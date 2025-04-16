@@ -13,7 +13,7 @@
                 </p>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
-                <form action="/users/profile" hx-post="/users/profile" hx-target="#main-content" hx-swap="innerHTML" class="space-y-4">
+                <form action="/users/profile" hx-post="/users/profile" hx-target="#error-container" hx-swap="innerHTML" class="space-y-4">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
                             <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
@@ -45,7 +45,7 @@
                 </p>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
-                 <form id="password-form" action="/users/profile/password" hx-post="/users/profile/password" hx-target="#main-content" hx-swap="innerHTML" class="space-y-4">
+                 <form id="password-form" action="/users/profile/password" hx-post="/users/profile/password" hx-target="#password-error-container" hx-swap="innerHTML" class="space-y-4">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
                             <label for="current_password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Current Password</label>
@@ -124,50 +124,5 @@
         </div>
     </div>
 </div>
-
-{# Added script for SSH Key form error handling #}
-<script>
-    document.body.addEventListener('htmx:beforeRequest', function(evt) {
-        // Check if the event originates from the add-ssh-key-form
-        if (evt.target.id === 'add-ssh-key-form') {
-            const errorContainer = document.getElementById('add-key-error');
-            if (errorContainer) {
-                errorContainer.textContent = ''; // Clear previous errors
-            }
-        }
-    });
-    document.body.addEventListener('htmx:responseError', function(evt) {
-        // Check if the event originates from the add-ssh-key-form
-        if (evt.target.id === 'add-ssh-key-form') {
-            const errorContainer = document.getElementById('add-key-error');
-            if (errorContainer) {
-                let errorMsg = `Error ${evt.detail.xhr.status}: Failed to add key. Please check the format and try again.`; 
-                try {
-                    const response = JSON.parse(evt.detail.xhr.responseText);
-                    if (response) {
-                        if (response.error && typeof response.error === 'string') {
-                            errorMsg = response.error;
-                        } else if (response.message && typeof response.message === 'string') {
-                            errorMsg = response.message;
-                        } else if (response.detail && typeof response.detail === 'string') {
-                            errorMsg = response.detail;
-                        } else if (response.details && typeof response.details === 'string') {
-                            errorMsg = response.details;
-                        } else if (typeof response === 'string') {
-                            errorMsg = response;
-                        }
-                    }
-                } catch (e) {
-                    const responseText = evt.detail.xhr.responseText;
-                    if (responseText && !responseText.trim().startsWith('<') && !responseText.trim().startsWith('{')) {
-                        errorMsg = responseText; 
-                    }
-                    console.error("Could not parse error response or extract detailed message:", e);
-                }
-                errorContainer.textContent = errorMsg;
-            }
-        }
-    });
-</script>
 
 {% endblock %} 

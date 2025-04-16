@@ -664,7 +664,6 @@ _**Assistant**_
 
 ---
 
-
         
 
 ---
@@ -2454,8 +2453,6 @@ _**Assistant**_
 
 
 
-
-
 ---
 
 
@@ -2961,6 +2958,164 @@ Now the form submits to the correct endpoint (`/users/profile/ssh_keys`). The `a
 _**User**_
 
 I fixed a couple things inthe code, but it is now working fine. A small improvement that could be done is that the i the user adds the same key with some spaces or new line char at the end, it is not detected as a duplicate. The keys typed by the user should be trimmed before being further processed
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Excellent suggestion! Trimming whitespace ensures that variations in user input don't lead to unintentional duplicates or validation failures.
+
+I'll modify the `add_ssh_key` handler in `src/controllers/users_pages.rs` to trim the `public_key` field from the form parameters before performing validation and database operations.
+
+
+
+---
+
+```diff
+      };
+  
+-     // --- Validation --- (moved from API controller, returns error fragment)
+-     if params.public_key.is_empty() {
++     // Trim whitespace from the key input
++     let trimmed_key = params.public_key.trim().to_string();
++ 
++     // --- Validation --- (using trimmed_key)
++     if trimmed_key.is_empty() {
+          return error_fragment(&v, "Public key cannot be empty", "#add-key-error");
+      }
+-     if !is_valid_ssh_public_key(&params.public_key) {
++     if !is_valid_ssh_public_key(&trimmed_key) {
+          return error_fragment(&v, "Invalid SSH public key format", "#add-key-error");
+      }
+-     // Check if key already exists for this user
++     // Check if trimmed key already exists for this user
+      match ssh_keys::Entity::find()
+          .filter(ssh_keys::Column::UserId.eq(user.id))
+-         .filter(ssh_keys::Column::PublicKey.eq(params.public_key.clone()))
++         .filter(ssh_keys::Column::PublicKey.eq(trimmed_key.clone())) // Use cloned trimmed_key
+          .one(&ctx.db)
+          .await
+      // --- End Validation ---
+  
+-     // --- Insert Key --- (moved from API controller)
++     // --- Insert Key --- (using trimmed_key)
+      let key = ssh_keys::ActiveModel {
+          user_id: Set(user.id),
+-         public_key: Set(params.public_key),
++         public_key: Set(trimmed_key), // Use trimmed_key
+          ..Default::default()
+      };
+```
+
+---
+
+The handler now trims the input key before using it. This should correctly detect duplicates even if the user adds extra spaces or newlines.
+
+---
+
+_**User**_
+
+In @profile.html , is the  added script for SSH Key form error handling still used? 
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+You are sharp to question that!
+
+Based on the latest changes where the "Add Key" form now submits to the user-facing endpoint `/users/profile/ssh_keys` and that endpoint handles validation errors by returning HTML fragments directly using `error_fragment` and `HX-Retarget`, the JavaScript `htmx:responseError` listener in `profile.html` is **no longer used for those specific validation errors**.
+
+The backend now returns a 200 OK response with the HTML fragment for errors like "Invalid format" or "Key already exists", so the `htmx:responseError` event (which triggers on non-2xx responses) won't fire for those cases. The error message is displayed because the backend targets the `#add-key-error` div.
+
+While the script *might* catch an unexpected 500 error from the server during the POST request, the primary validation errors are handled server-side now, making the script largely redundant for the intended error flow.
+
+**Recommendation:** You can safely remove the `<script>...</script>` block that was added to `assets/views/users/profile.html`. It's no longer necessary for handling errors from the "Add SSH Key" form.
+
+Would you like me to remove it?
+
+---
+
+_**User**_
+
+yes
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Okay, I will remove the now-redundant JavaScript error handling script from `assets/views/users/profile.html`.
+
+
+
+---
+
+```diff
+      </div>
+  </div>
+- 
+- {# Added script for SSH Key form error handling #}
+- <script>
+-     document.body.addEventListener('htmx:beforeRequest', function(evt) {
+-         // Check if the event originates from the add-ssh-key-form
+-         if (evt.target.id === 'add-ssh-key-form') {
+-             const errorContainer = document.getElementById('add-key-error');
+-             if (errorContainer) {
+-                 errorContainer.textContent = ''; // Clear previous errors
+-             }
+-         }
+-     });
+-     document.body.addEventListener('htmx:responseError', function(evt) {
+-         // Check if the event originates from the add-ssh-key-form
+-         if (evt.target.id === 'add-ssh-key-form') {
+-             const errorContainer = document.getElementById('add-key-error');
+-             if (errorContainer) {
+-                 let errorMsg = `Error ${evt.detail.xhr.status}: Failed to add key. Please check the format and try again.`; 
+-                 try {
+-                     const response = JSON.parse(evt.detail.xhr.responseText);
+-                     if (response) {
+-                         if (response.error && typeof response.error === 'string') {
+-                             errorMsg = response.error;
+-                         } else if (response.message && typeof response.message === 'string') {
+-                             errorMsg = response.message;
+-                         } else if (response.detail && typeof response.detail === 'string') {
+-                             errorMsg = response.detail;
+-                         } else if (response.details && typeof response.details === 'string') {
+-                             errorMsg = response.details;
+-                         } else if (typeof response === 'string') {
+-                             errorMsg = response;
+-                         }
+-                     }
+-                 } catch (e) {
+-                     const responseText = evt.detail.xhr.responseText;
+-                     if (responseText && !responseText.trim().startsWith('<') && !responseText.trim().startsWith('{')) {
+-                         errorMsg = responseText; 
+-                     }
+-                     console.error("Could not parse error response or extract detailed message:", e);
+-                 }
+-                 errorContainer.textContent = errorMsg;
+-             }
+-         }
+-     });
+- </script>
+  
+  {% endblock %} 
+```
+
+---
+
+The script has been removed. The profile page is now cleaner and relies solely on the server-side rendering of error fragments for handling SSH key form errors.
 
 ---
 
