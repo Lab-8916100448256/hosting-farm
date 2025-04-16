@@ -279,7 +279,11 @@ impl Model {
     ///
     /// when could not convert user claims to jwt token
     pub fn generate_jwt(&self, secret: &str, expiration: &u64) -> ModelResult<String> {
-        Ok(jwt::JWT::new(secret).generate_token(*expiration, self.pid.to_string(), serde_json::Map::new())?)
+        Ok(jwt::JWT::new(secret).generate_token(
+            *expiration,
+            self.pid.to_string(),
+            serde_json::Map::new(),
+        )?)
     }
 
     /// finds a user by the provided id
@@ -288,14 +292,20 @@ impl Model {
     ///
     /// When could not find user or DB query error
     pub async fn find_by_id(db: &DatabaseConnection, id: i32) -> ModelResult<Self> {
-        let user = users::Entity::find_by_id(id)
-            .one(db)
-            .await?;
+        let user = users::Entity::find_by_id(id).one(db).await?;
         user.ok_or_else(|| ModelError::EntityNotFound)
     }
 }
 
 impl ActiveModel {
+    pub async fn generate_email_verification_token(
+        mut self,
+        db: &DatabaseConnection,
+    ) -> ModelResult<Model> {
+        self.email_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
+        Ok(self.update(db).await?)
+    }
+
     /// Sets the email verification information for the user and
     /// updates it in the database.
     ///
@@ -310,7 +320,6 @@ impl ActiveModel {
         db: &DatabaseConnection,
     ) -> ModelResult<Model> {
         self.email_verification_sent_at = ActiveValue::set(Some(Local::now().into()));
-        self.email_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
         Ok(self.update(db).await?)
     }
 

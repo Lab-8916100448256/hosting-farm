@@ -64,44 +64,68 @@ async fn handle_register(
 
     match res {
         Ok(user) => {
-            // Send verification email first
-            match AuthMailer::send_welcome(&ctx, &user).await {
-                Ok(_) => {
-                    // Email sent successfully, now update verification status
-                    match user
-                        .clone()
-                        .into_active_model()
-                        .set_email_verification_sent(&ctx.db)
-                        .await
-                    {
+            // Generate email verification token
+            match user
+                .clone()
+                .into_active_model()
+                .generate_email_verification_token(&ctx.db)
+                .await
+            {
+                Ok(user) => {
+                    // Send verification email first
+                    match AuthMailer::send_welcome(&ctx, &user).await {
                         Ok(_) => {
-                            // All good, redirect to login page with success message
-                            redirect("/auth/login?registered=true", headers)
+                            // Email sent successfully, now update verification status
+                            match user
+                                .clone()
+                                .into_active_model()
+                                .set_email_verification_sent(&ctx.db)
+                                .await
+                            {
+                                Ok(_) => {
+                                    // All good, redirect to login page with success message
+                                    redirect("/auth/login?registered=true", headers)
+                                }
+                                Err(err) => {
+                                    tracing::error!(
+                                        message =
+                                            "Failed to set email verification status after sending email",
+                                        user_email = &user.email, // user is still available here
+                                        error = err.to_string(),
+                                    );
+                                    // Although the email was sent, the DB update failed.
+                                    // This is an internal error state, show error page.
+                                    error_page(&v, "Account registered, but failed to finalize setup. Please contact support.", Some(loco_rs::Error::Model(err)))
+                                }
+                            }
                         }
                         Err(err) => {
                             tracing::error!(
-                                message =
-                                    "Failed to set email verification status after sending email",
+                                message = "Failed to send welcome email",
                                 user_email = &user.email, // user is still available here
                                 error = err.to_string(),
                             );
-                            // Although the email was sent, the DB update failed.
-                            // This is an internal error state, show error page.
-                            error_page(&v, "Account registered, but failed to finalize setup. Please contact support.", Some(loco_rs::Error::Model(err)))
+                            // Don't proceed to update verification status if email failed.
+                            error_page(
+                                &v,
+                                "Could not send welcome email.",
+                                Some(loco_rs::Error::wrap(err)),
+                            )
                         }
                     }
                 }
                 Err(err) => {
                     tracing::error!(
-                        message = "Failed to send welcome email",
+                        message = "Failed to generate email verification token",
                         user_email = &user.email, // user is still available here
                         error = err.to_string(),
                     );
-                    // Don't proceed to update verification status if email failed.
+                    // Although the email was sent, the DB update failed.
+                    // This is an internal error state, show error page.
                     error_page(
                         &v,
-                        "Could not send welcome email.",
-                        Some(loco_rs::Error::wrap(err)),
+                        "Account registered, but failed to finalize setup. Please contact support.",
+                        Some(loco_rs::Error::Model(err)),
                     )
                 }
             }

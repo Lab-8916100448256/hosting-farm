@@ -59,6 +59,11 @@ async fn register(
 
     let user = user
         .into_active_model()
+        .generate_email_verification_token(&ctx.db)
+        .await?;
+
+    let user = user
+        .into_active_model()
         .set_email_verification_sent(&ctx.db)
         .await?;
 
@@ -220,7 +225,10 @@ async fn logout() -> Result<Response> {
     // TODO: This is not the correct way to implement this. APIs do not use Session cookies.
     // - Instead of clearing the session cookie, the bearer token must be removed from the DB
     let response = Response::builder()
-        .header("Set-Cookie", "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+        .header(
+            "Set-Cookie",
+            "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+        )
         .body(axum::body::Body::empty())?;
     Ok(response)
 }
