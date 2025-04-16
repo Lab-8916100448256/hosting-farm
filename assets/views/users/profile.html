@@ -4,6 +4,9 @@
 
 {% block content %}
 <div class="space-y-6">
+    <!-- Notification Container -->
+    <div id="notification-container"></div>
+
     <div class="bg-white dark:bg-gray-800 shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div class="md:grid md:grid-cols-3 md:gap-6">
             <div class="md:col-span-1">
@@ -35,6 +38,34 @@
             </div>
         </div>
     </div>
+
+    <!-- Email Verification Section -->
+    {% if not user.email_verified_at %}
+    <div class="bg-yellow-50 dark:bg-yellow-900 border-l-4 border-yellow-400 p-4 shadow">
+        <div class="flex">
+            <div class="flex-shrink-0">
+                <svg class="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM10 13a1 1 0 110-2 1 1 0 010 2zm0-4a1 1 0 01-1-1V6a1 1 0 112 0v2a1 1 0 01-1 1z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="ml-3">
+                <p class="text-sm text-yellow-700 dark:text-yellow-200">
+                    Your email address is not verified. Please check your inbox for the verification link.
+                </p>
+                <div class="mt-2 text-sm">
+                    <button 
+                        hx-post="/users/profile/resend-verification"
+                        hx-target="#notification-container"
+                        hx-swap="innerHTML"
+                        class="font-medium text-yellow-700 dark:text-yellow-200 hover:text-yellow-600 dark:hover:text-yellow-100"
+                    >
+                        Resend verification email
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <div class="bg-white dark:bg-gray-800 shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div class="md:grid md:grid-cols-3 md:gap-6">

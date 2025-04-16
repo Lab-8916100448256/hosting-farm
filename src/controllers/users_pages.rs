@@ -1,17 +1,21 @@
 use crate::{
     controllers::ssh_key_api::{is_valid_ssh_public_key, SshKeyPayload},
+    mailers::auth::AuthMailer,
     middleware::auth_no_error::JWTWithUserOpt,
     models::{_entities::ssh_keys, _entities::team_memberships, _entities::teams, users},
-    views::error_fragment,
-    views::error_page,
-    views::redirect,
-    views::render_template,
+    views::{self, error_fragment, error_page, redirect, render_template},
 };
-use axum::debug_handler;
-use axum::extract::{Form, State};
-use axum::http::header::HeaderMap;
+use axum::http::HeaderMap;
+use axum::response::Response;
+use axum::{
+    debug_handler,
+    extract::{Form, State},
+    response::IntoResponse,
+    routing::{get, post},
+};
 use loco_rs::prelude::*;
-use sea_orm::ActiveValue;
+use loco_rs::prelude::{ModelError, Result};
+use loco_rs::prelude::{TeraView, ViewEngine};
 use sea_orm::PaginatorTrait;
 use sea_orm::QueryOrder;
 use sea_orm::Set;
@@ -493,6 +497,105 @@ async fn add_ssh_key(
     }
 }
 
+/// Resend verification email
+#[debug_handler]
+async fn resend_verification_email(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
+
+    if user.email_verified_at.is_some() {
+        return format::render().view(
+            &v,
+            "user/profile.html",
+            data!({
+                "user": user,
+                "error_message": None::<String>,
+                "success_message": None::<String>,
+            }),
+        );
+    }
+
+    // Generate email verification token
+    match user
+        .clone()
+        .into_active_model()
+        .generate_email_verification_token(&ctx.db)
+        .await
+    {
+        Ok(user_with_token) => {
+            // Send verification email first
+            match AuthMailer::send_welcome(&ctx, &user_with_token).await {
+                Ok(_) => {
+                    // Email sent successfully, now update verification status
+                    match user_with_token
+                        .clone()
+                        .into_active_model()
+                        .set_email_verification_sent(&ctx.db)
+                        .await
+                    {
+                        Ok(_) => {
+                            // All good, render success message
+                            format::render().view(
+                                &v,
+                                "fragments/success_message.html",
+                                data!({
+                                    "message": "Verification email sent successfully.",
+                                    "target": "#notification-container",
+                                }),
+                            )
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                message =
+                                    "Failed to set email verification status after sending email",
+                                user_email = &user_with_token.email,
+                                error = err.to_string(),
+                            );
+                            error_fragment(
+                                &v,
+                                "Failed to update verification status. Please try again.",
+                                "#notification-container",
+                            )
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        message = "Failed to send welcome email",
+                        user_email = &user_with_token.email,
+                        error = err.to_string(),
+                    );
+                    error_fragment(
+                        &v,
+                        "Could not send verification email. Please try again.",
+                        "#notification-container",
+                    )
+                }
+            }
+        }
+        Err(err) => {
+            tracing::error!(
+                message = "Failed to generate email verification token",
+                user_email = &user.email,
+                error = err.to_string(),
+            );
+            error_fragment(
+                &v,
+                "Could not generate verification token. Please try again.",
+                "#notification-container",
+            )
+        }
+    }
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -503,4 +606,8 @@ pub fn routes() -> Routes {
         .add("/profile/password", post(update_password))
         .add("/invitations", get(invitations))
         .add("/invitations/count", get(get_invitation_count))
+        .add(
+            "/profile/resend-verification",
+            post(resend_verification_email),
+        )
 }
