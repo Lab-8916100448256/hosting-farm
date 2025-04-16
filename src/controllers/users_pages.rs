@@ -416,17 +416,20 @@ async fn add_ssh_key(
         return redirect("/auth/login", headers); // Redirect if not logged in
     };
 
-    // --- Validation --- (moved from API controller, returns error fragment)
-    if params.public_key.is_empty() {
+    // Trim whitespace from the key input
+    let trimmed_key = params.public_key.trim().to_string();
+
+    // --- Validation --- (using trimmed_key)
+    if trimmed_key.is_empty() {
         return error_fragment(&v, "Public key cannot be empty", "#add-key-error");
     }
-    if !is_valid_ssh_public_key(&params.public_key) {
+    if !is_valid_ssh_public_key(&trimmed_key) {
         return error_fragment(&v, "Invalid SSH public key format", "#add-key-error");
     }
-    // Check if key already exists for this user
+    // Check if trimmed key already exists for this user
     match ssh_keys::Entity::find()
         .filter(ssh_keys::Column::UserId.eq(user.id))
-        .filter(ssh_keys::Column::PublicKey.eq(params.public_key.clone()))
+        .filter(ssh_keys::Column::PublicKey.eq(trimmed_key.clone())) // Use cloned trimmed_key
         .one(&ctx.db)
         .await
     {
@@ -445,10 +448,10 @@ async fn add_ssh_key(
     }
     // --- End Validation ---
 
-    // --- Insert Key --- (moved from API controller)
+    // --- Insert Key --- (using trimmed_key)
     let key = ssh_keys::ActiveModel {
         user_id: Set(user.id),
-        public_key: Set(params.public_key),
+        public_key: Set(trimmed_key), // Use trimmed_key
         ..Default::default()
     };
     match key.insert(&ctx.db).await {

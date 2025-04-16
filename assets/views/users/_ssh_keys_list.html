@@ -47,9 +47,9 @@
 
     <form 
         id="add-ssh-key-form"
-        hx-post="/api/user/ssh_keys"
-        hx-swap="none"
-        _="on htmx:afterRequest if event.detail.successful then reset() me trigger reloadKeys on body end"
+        hx-post="/users/profile/ssh_keys"
+        hx-target="#ssh-key-section"
+        hx-swap="innerHTML"
         class="space-y-4"
     >
         <div>
@@ -64,7 +64,7 @@
             ></textarea>
         </div>
 
-        <!-- Generic error display for the form -->
+        <!-- Generic error display for the form - Populated by backend via error_fragment -->
         <div id="add-key-error" class="text-red-500 text-sm"></div>
 
         <div class="flex justify-end">
