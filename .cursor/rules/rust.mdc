@@ -19,6 +19,12 @@ This rule file provides guidelines for software development of web application i
    - The tera templates for the views are placed in assets/views/
    - loco-rs follows the classic Model View Controller project structure. But keep in mind that the models should contain the logic and operations of the app, not the controllers. The controllers should contain only the code that is specific to API or HTML calls. The actual business logic of the app should be placed in the models. This allow sharing more code between controllers, tasks ar other kind of workers, and not duplicating it everywhere.
 
+3. **project dependencies**
+   - Add new dependencies in Cargo.toml only for complex code where adding a new dependencies is really worth it.
+   - Do not add any new dependency for anything that is already provided by the loco-rs framework. Look in other places of the code and in the alredy defined dependencies to check if there isn't already something available to implement something before adding a new dependency.
+   - You MUST NEVER change any dependencies that are already in Cargo.toml. Doing so would break many things. 
+   - Dependencies versions that are set in Cargo.toml MUST NOT be changed! 
+
 3. **HTML Pages generation**
    - Always use Tera templates for producing HTML
    - Use Tailwind CSS for styling.
@@ -34,6 +40,7 @@ This rule file provides guidelines for software development of web application i
    - Always run `cargo check` and `cargo test` after modifying or adding Rust code to check for compilation errors and unit test failures. Fix any compilation error and unit test failure that are generated. Then test again. Iterate until there are no more error or unit test failure.
    - If you get a proxy error when running cargo, try doing `unset ARGV0` before running `cargo`
    - unless directly instructed to do so, do not commit the changes to git if there is any compilation error or unit test failure
+   - If a test fails ALWAYS assume that the fault is in the tested code, not in the test code or test framework.
 
 6. **Debugging issues that require human interaction with the application**
    - If testing by human interaction is needed to better understand an issue or to verify that a bug fix or new feature implementation works as expected, do not run the application yourself. Ask me to do that and to provide you with the results.
