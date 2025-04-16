@@ -44,13 +44,28 @@ pub struct Validator {
     pub name: String,
     #[validate(custom(function = "validation::is_valid_email"))]
     pub email: String,
+    pub pgp_key: Option<String>,
 }
 
 impl Validatable for ActiveModel {
     fn validator(&self) -> Box<dyn Validate> {
+        let name = match &self.name {
+            ActiveValue::Set(n) | ActiveValue::Unchanged(n) => n.clone(),
+            _ => "".to_string(),
+        };
+        let email = match &self.email {
+            ActiveValue::Set(e) | ActiveValue::Unchanged(e) => e.clone(),
+            _ => "".to_string(),
+        };
+        let pgp_key = match &self.pgp_key {
+            ActiveValue::Set(pk) | ActiveValue::Unchanged(pk) => pk.clone(),
+            _ => None,
+        };
+
         Box::new(Validator {
-            name: self.name.as_ref().to_owned(),
-            email: self.email.as_ref().to_owned(),
+            name,
+            email,
+            pgp_key,
         })
     }
 }

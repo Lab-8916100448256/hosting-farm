@@ -1331,6 +1331,23 @@ Okay, the `#notification-container` div has now been moved in `assets/views/user
 
 ---
 
+_**User**_
+
+The edit left a duplicated notification container in the original place. I have removed it. 
+All is good for that new feature now. thanks
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Ah, good catch! Thanks for removing the duplicate container. I'm glad everything is working as expected now. Happy to help!
+
+---
+
 
 
 ---
