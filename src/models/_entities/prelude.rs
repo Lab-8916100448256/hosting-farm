@@ -2,4 +2,5 @@
 
 pub use super::team_memberships::Entity as TeamMemberships;
 pub use super::teams::Entity as Teams;
+pub use super::user_ssh_keys::Entity as UserSshKeys;
 pub use super::users::Entity as Users;

@@ -11,15 +11,14 @@ use loco_rs::{
     Result,
 };
 use migration::Migrator;
-use std::path::Path;
 use sea_orm::{ActiveModelTrait, ActiveValue};
+use std::path::Path;
 use uuid;
 
 #[allow(unused_imports)]
 use crate::{
-    controllers,
-    initializers,
-    models::_entities::{users, teams, team_memberships},
+    controllers, initializers,
+    models::_entities::{team_memberships, teams, users},
     tasks,
     workers::downloader::DownloadWorker,
 };
@@ -98,6 +97,7 @@ impl Hooks for App {
             email_verified_at: ActiveValue::NotSet,
             magic_link_token: ActiveValue::NotSet,
             magic_link_expiration: ActiveValue::NotSet,
+            gpg_key: ActiveValue::NotSet,
         };
         user.insert(&ctx.db).await?;
         Ok(())

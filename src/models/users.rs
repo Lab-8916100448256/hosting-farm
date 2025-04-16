@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
+use super::_entities::user_ssh_keys;
 pub use super::_entities::users::{self, ActiveModel, Entity, Model};
 
 pub const MAGIC_LINK_LENGTH: i8 = 32;
@@ -279,7 +280,11 @@ impl Model {
     ///
     /// when could not convert user claims to jwt token
     pub fn generate_jwt(&self, secret: &str, expiration: &u64) -> ModelResult<String> {
-        Ok(jwt::JWT::new(secret).generate_token(*expiration, self.pid.to_string(), serde_json::Map::new())?)
+        Ok(jwt::JWT::new(secret).generate_token(
+            *expiration,
+            self.pid.to_string(),
+            serde_json::Map::new(),
+        )?)
     }
 
     /// finds a user by the provided id
@@ -288,10 +293,18 @@ impl Model {
     ///
     /// When could not find user or DB query error
     pub async fn find_by_id(db: &DatabaseConnection, id: i32) -> ModelResult<Self> {
-        let user = users::Entity::find_by_id(id)
-            .one(db)
-            .await?;
+        let user = users::Entity::find_by_id(id).one(db).await?;
         user.ok_or_else(|| ModelError::EntityNotFound)
+    }
+
+    pub async fn get_ssh_keys(
+        &self,
+        db: &DatabaseConnection,
+    ) -> ModelResult<Vec<user_ssh_keys::Model>> {
+        Ok(self
+            .find_related(users::Relation::UserSshKeys)
+            .all(db)
+            .await?)
     }
 }
 
