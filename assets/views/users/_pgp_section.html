@@ -26,4 +26,9 @@
             </svg>
         </div>
     </div>
+    {% if notification_message %}
+    <div id="pgp-notification" class="mt-2 text-sm text-green-600 dark:text-green-400">
+        {{ notification_message }}
+    </div>
+    {% endif %}
 </div> 

@@ -6,6 +6,7 @@ use crate::{
     views::{error_fragment, error_page, redirect, render_template},
 };
 use axum::http::HeaderMap;
+use axum::http::{header, StatusCode};
 use axum::response::Response;
 use axum::{
     debug_handler,
@@ -628,15 +629,28 @@ async fn refresh_pgp(
             let pgp_fingerprint = updated_user.pgp_fingerprint();
             let pgp_validity = updated_user.pgp_validity();
 
-            // Render the partial template for the PGP section
-            render_template(
-                &v,
+            // Determine the notification message
+            let notification_message = if updated_user.pgp_key.is_some() {
+                "PGP key updated successfully from server."
+            } else {
+                "No PGP key found on server for your email."
+            }
+            .to_string();
+
+            // Render the PGP section partial, now including the notification
+            let pgp_section_html = v.render(
                 "users/_pgp_section.html",
                 data!({
                     "pgp_fingerprint": &pgp_fingerprint,
                     "pgp_validity": &pgp_validity,
+                    "notification_message": &notification_message, // Pass message
                 }),
-            )
+            )?;
+
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/html")
+                .body(axum::body::Body::from(pgp_section_html))?)
         }
         Err(e) => {
             tracing::error!(user_id = user.id, error = ?e, "Error fetching/updating PGP key.");

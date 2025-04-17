@@ -1477,8 +1477,6 @@ bdz-dev%
 
 ---
 
-
-
 I need to fix the final compilation errors:
 
 1.  **`E0432: unresolved import sequoia_openpgp::PacketParser`**: The import path is incorrect. It should be `sequoia_openpgp::parse::PacketParser`. I'll fix this in `src/controllers/users_pages.rs`.
@@ -2211,11 +2209,1091 @@ Let's start by adding the new method to the model (`src/models/users.rs`).
 
 ---
 
-Cancelled
+```diff
+  use chrono::{offset::Local, DateTime, Duration, Utc};
+  use loco_rs::{auth::jwt, hash, prelude::*};
+- use sea_orm::{ActiveValue, ConnectionTrait, DbErr, EntityTrait, QueryFilter};
++ use sea_orm::{ActiveValue, ConnectionTrait, DbErr, EntityTrait, QueryFilter, Set};
+  use sequoia_openpgp::{self as openpgp, parse::Parse, policy::StandardPolicy};
+  use serde::{Deserialize, Serialize};
+  use uuid::Uuid;
+  use validator::Validate;
++ use reqwest;
+  
+  pub use super::_entities::users::{self, ActiveModel, Entity, Model};
+          Ok(self.update(db).await?)
+      }
++ 
++     /// Fetches PGP key from keys.openpgp.org based on the user's email,
++     /// validates it, and updates the user record.
++     /// Returns the updated Model if successful.
++     pub async fn fetch_and_update_pgp_key(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
++         let email = match &self.email {
++             ActiveValue::Set(e) | ActiveValue::Unchanged(e) => e.clone(),
++             _ => return Err(ModelError::msg("User email not set in ActiveModel"))
++         };
++         let user_pid_str = match &self.pid {
++             ActiveValue::Set(p) | ActiveValue::Unchanged(p) => p.to_string(),
++              _ => "unknown_pid".to_string()
++         };
++ 
++         let pgp_key_url = format!("https://keys.openpgp.org/vks/v1/by-email/{}", email);
++         let mut key_found_and_valid = false;
++         let mut fetched_key_text: Option<String> = None;
++ 
++         tracing::debug!(user_email = %email, url = %pgp_key_url, "Attempting PGP key lookup");
++ 
++         match reqwest::get(&pgp_key_url).await {
++             Ok(response) => {
++                 if response.status().is_success() {
++                     match response.text().await {
++                         Ok(key_text) => {
++                             if !key_text.is_empty() {
++                                 // Basic validation: Check if it looks like an armored key
++                                 // More robust validation happens on parsing
++                                 if key_text.contains("-----BEGIN PGP PUBLIC KEY BLOCK-----") {
++                                      // Further validate by trying to parse it
++                                      match Cert::from_bytes(key_text.as_bytes()) {
++                                          Ok(_) => {
++                                              key_found_and_valid = true;
++                                              fetched_key_text = Some(key_text);
++                                              tracing::info!(user_email = %email, "Successfully found and validated PGP key.");
++                                          }
++                                          Err(parse_err) => {
++                                              tracing::warn!(user_email = %email, error = ?parse_err, "Found key text, but failed to parse as valid PGP key.");
++                                          }
++                                      }
++                                 } else {
++                                     tracing::info!(user_email = %email, "No valid PGP key found on keyserver (invalid response format).");
++                                 }
++                             } else {
++                                 tracing::info!(user_email = %email, "No PGP key found on keyserver (empty response).");
++                             }
++                         }
++                         Err(text_err) => {
++                              tracing::warn!(user_email = %email, error = ?text_err, "Failed to read PGP key response body.");
++                         }
++                     }
++                 } else if response.status() == reqwest::StatusCode::NOT_FOUND {
++                      tracing::info!(user_email = %email, "No PGP key found on keyserver (404).");
++                 } else {
++                     tracing::warn!(user_email = %email, status = ?response.status(), "Unexpected status code when fetching PGP key.");
++                 }
++             }
++             Err(req_err) => {
++                 // Log error but don't fail the whole operation, just proceed without updating the key
++                 tracing::error!(user_email = %email, error = ?req_err, "Failed to query PGP keyserver.");
++             }
++         }
++ 
++         // Update the model only if a valid key was found
++         if key_found_and_valid {
++             self.pgp_key = Set(fetched_key_text);
++         } else {
++             // Explicitly set to None if no valid key was found, or keep existing?
++             // Let's set to None to reflect the failed fetch attempt accurately.
++             // However, maybe we should only update if found, and leave it otherwise?
++             // Let's leave it unchanged if not found/invalid.
++             // self.pgp_key = Set(None);
++         }
++ 
++         // Save changes regardless of whether key was updated (e.g., other fields might have changed before calling this)
++         // Or should we only save if self.pgp_key was actually modified?
++         // Let's only update if the key was found to avoid unnecessary DB writes.
++         if key_found_and_valid {
++             tracing::debug!(user_pid=%user_pid_str, "Updating user PGP key in database.");
++             self.update(db).await
++         } else {
++              tracing::debug!(user_pid=%user_pid_str, "No valid PGP key found/fetched, skipping database update.");
++             // Need to convert self back to Model without saving
++             // This is tricky because self is consumed by update().
++             // Rework: This function should probably only *fetch* and return Option<String>.
++             // The *caller* should decide whether to Set() and update().
++             // Let's stick to updating within the method for now, returning the updated Model.
++             // If no key found, just return the original model state by refetching? No, that's wasteful.
++             // Let's return the result of update() only if called.
++             // How to return Model if update wasn't called? Find by PID? Seems bad.
++ 
++             // Revisit Decision: Let's update self.pgp_key to None if not found/invalid.
++             // This makes the state consistent with the fetch result.
++             self.pgp_key = Set(None);
++             tracing::debug!(user_pid=%user_pid_str, "Setting user PGP key to None in database.");
++             self.update(db).await
++         }
++     }
+  }
+  
+```
+
+---
+
+Model updated with the new `fetch_and_update_pgp_key` method. I decided to update the key to `None` if no valid key is found during the fetch, ensuring the database reflects the outcome of the operation.
+
+Now, let's refactor `verify_email` in `src/controllers/auth_pages.rs` to use this new model method.
+
+---
+
+```diff
+  use sea_orm::Set;
+  use std::collections::HashMap;
++ use sequoia_openpgp::Cert;
++ use reqwest;
+  
+  /// Renders the registration page
+      match user_result {
+          Ok(user) => {
+-             // Check if already verified before attempting to verify again
+              if user.email_verified_at.is_some() {
+                  tracing::info!(pid = user.pid.to_string(), "user already verified");
+                          "success": true,
+                          "message": "Your email has already been verified.",
+-                         // We don't attempt PGP key search if already verified previously
+                      }),
+                  );
+              let user_active_model = user.clone().into_active_model();
+              match user_active_model.verified(&ctx.db).await {
+-                 Ok(updated_user_model) => {
+-                     let email = updated_user_model.email.clone();
+-                     let pgp_key_url = format!("https://keys.openpgp.org/vks/v1/by-email/{}", email);
+-                     let mut pgp_key_found = false;
+- 
+-                     match reqwest::get(&pgp_key_url).await {
+-                         Ok(response) => {
+-                             if response.status().is_success() {
+-                                 match response.text().await {
+-                                     Ok(key_text) => {
+-                                         if !key_text.is_empty()
+-                                             && key_text
+-                                                 .contains("-----BEGIN PGP PUBLIC KEY BLOCK-----")
+-                                         {
+-                                             let mut updated_user_active =
+-                                                 updated_user_model.clone().into_active_model();
+-                                             updated_user_active.pgp_key = Set(Some(key_text));
+-                                             match updated_user_active.update(&ctx.db).await {
+-                                                 Ok(_) => {
+-                                                     pgp_key_found = true;
+-                                                     tracing::info!(user_email = %email, "Successfully found and saved PGP key.");
+-                                                 }
+-                                                 Err(db_err) => {
+-                                                     tracing::error!(user_email = %email, error = ?db_err, "Failed to save PGP key to database.");
+-                                                 }
+-                                             }
+-                                         } else {
+-                                             tracing::info!(user_email = %email, "No PGP key found on keyserver (empty or invalid response).");
+-                                         }
+-                                     }
+-                                     Err(text_err) => {
+-                                         tracing::warn!(user_email = %email, error = ?text_err, "Failed to read PGP key response body.");
+-                                     }
+-                                 }
+-                             } else if response.status() == reqwest::StatusCode::NOT_FOUND {
+-                                 tracing::info!(user_email = %email, "No PGP key found on keyserver (404).");
++                 Ok(verified_user_model) => {
++                     // Now try to fetch and update the PGP key using the new model method
++                     let fetch_result = verified_user_model
++                                         .clone()
++                                         .into_active_model()
++                                         .fetch_and_update_pgp_key(&ctx.db)
++                                         .await;
++ 
++                     let message = match fetch_result {
++                         Ok(final_user_model) => {
++                             if final_user_model.pgp_key.is_some() {
++                                 "Your email is now verified. We found and saved a PGP key for your account.".to_string()
+                              } else {
+-                                 tracing::warn!(user_email = %email, status = ?response.status(), "Unexpected status code when fetching PGP key.");
++                                 "Your email is now verified. We could not find a PGP key for your email.".to_string()
+                              }
+                          }
+-                         Err(req_err) => {
+-                             tracing::error!(user_email = %email, error = ?req_err, "Failed to query PGP keyserver.");
+-                         }
+-                     }
+- 
+-                     // Construct success message based on PGP key result
+-                     let message = if pgp_key_found {
+-                         "Your email is now verified. We found a PGP key and added it to your profile. Please review it on your profile page.".to_string()
+-                     } else {
+-                         "Your email is now verified. We could not automatically find a PGP key. You can add one manually on your profile page.".to_string()
++                         Err(e) => {
++                              // Log the error, but proceed with verification success message
++                              tracing::error!(user_email = %verified_user_model.email, error = ?e, "Failed during PGP key fetch/update after verification.");
++                              "Your email is now verified, but there was an issue checking for a PGP key.".to_string()
++                         }
+                      };
+  
+```
+
+---
+
+`auth_pages.rs` refactored.
+
+Now, refactor `refresh_pgp` in `src/controllers/users_pages.rs` to use the model method and remove the old WKD helper.
+
+---
+
+```diff
+  use loco_rs::prelude::*;
+  use loco_rs::prelude::{TeraView, ViewEngine};
+- use reqwest::StatusCode;
+  use sea_orm::QueryOrder;
+  use sea_orm::Set;
+      };
+  
+-     let new_pgp_key_str = match fetch_pgp_key_wkd(&user.email).await {
+-         Ok(Some(key_data)) => {
+-             // Validate if the fetched key is a valid PGP key before saving
+-             match Cert::from_bytes(key_data.as_bytes()) {
+-                 Ok(_) => Some(key_data),
+-                 Err(e) => {
+-                     tracing::error!("Fetched key for user {} is not valid PGP: {}", user.id, e);
+-                     return error_fragment(
+-                         &v,
+-                         "Fetched key is not a valid PGP key.",
+-                         "#pgp-section",
+-                     );
+-                 }
+-             }
+-         }
+-         Ok(None) => {
+-             tracing::warn!("No PGP key found via WKD for user {}", user.id);
+-             None // Set key to None if not found
+-         }
+-         Err(e) => {
+-             tracing::error!("Error fetching PGP key via WKD for user {}: {}", user.id, e);
+-             return error_fragment(
+-                 &v,
+-                 &format!("Error fetching PGP key: {}", e),
+-                 "#pgp-section",
+-             );
+-         }
+-     };
+- 
+-     // Update the user record
+-     let db = ctx.db.clone();
+-     let user_id_for_log = user.id; // Clone ID before move for logging
+-     let mut active_user: users::ActiveModel = user.into();
+-     active_user.pgp_key = Set(new_pgp_key_str);
+- 
+-     let updated_user = match active_user.update(&db).await {
+-         Ok(u) => u,
+-         Err(e) => {
+-             tracing::error!(
+-                 "Failed to update PGP key for user {}: {}",
+-                 user_id_for_log,
+-                 e
+-             );
+-             return error_fragment(&v, "Failed to save the updated PGP key.", "#pgp-section");
+-         }
+-     };
+- 
+-     // Get updated details
++     // Use the new model method to fetch and update the key
++     let fetch_result = user
++         .clone() // Clone user to get ActiveModel without consuming original
++         .into_active_model()
++         .fetch_and_update_pgp_key(&ctx.db)
++         .await;
++ 
++     match fetch_result {
++         Ok(updated_user) => {
++             // Get updated details from the returned model
+              let pgp_fingerprint = updated_user.pgp_fingerprint();
+              let pgp_validity = updated_user.pgp_validity();
+                  }),
+              )
++         }
++         Err(e) => {
++              tracing::error!(user_id = user.id, error = ?e, "Error fetching/updating PGP key.");
++              error_fragment(
++                  &v,
++                  &format!("Error refreshing PGP key: {}", e),
++                  "#pgp-section",
++              )
++         }
++     }
+  }
+  
+          .add("/profile/refresh-pgp", post(refresh_pgp))
+  }
+- 
+- // Helper function to fetch PGP key using WKD
+- async fn fetch_pgp_key_wkd(email: &str) -> Result<Option<String>, String> {
+-     let parts: Vec<&str> = email.split('@').collect();
+-     if parts.len() != 2 {
+-         return Err("Invalid email address format".to_string());
+-     }
+-     let local_part = parts[0];
+-     let domain = parts[1];
+- 
+-     // Calculate WKD hash: z-base32 encode SHA1 hash of local part
+-     let mut hasher = Sha1::new();
+-     hasher.update(local_part.as_bytes());
+-     let sha1_hash = hasher.finalize();
+-     let wkd_hash = zbase32::encode_full_bytes(&sha1_hash);
+- 
+-     let wkd_url = format!(
+-         "https://openpgpkey.{}/.well-known/openpgpkey/{}/hu/{}",
+-         domain, domain, wkd_hash
+-     );
+- 
+-     tracing::debug!("Attempting WKD lookup for {} at {}", email, wkd_url);
+- 
+-     match reqwest::get(&wkd_url).await {
+-         Ok(response) => {
+-             match response.status() {
+-                 StatusCode::OK => match response.text().await {
+-                     Ok(text) => Ok(Some(text)),
+-                     Err(e) => Err(format!("Failed to read WKD response body: {}", e)),
+-                 },
+-                 StatusCode::NOT_FOUND => Ok(None), // Key not found via WKD
+-                 status => Err(format!("WKD request failed with status: {}", status)),
+-             }
+-         }
+-         Err(e) => Err(format!("WKD request network error: {}", e)),
+-     }
+- }
+  
+```
+
+---
+
+`users_pages.rs` refactored.
+
+The PGP key fetching logic is now centralized in `src/models/users.rs` and used by both controllers.
+
+Please run `cargo check` and `cargo test` to verify the changes.
+
+---
+
+```bash
+cargo check
+```
+
+```
+bdz-dev% cargo check
+    Blocking waiting for file lock on build directory
+    Checking hosting-farm v0.1.6 (/home/douzeb/gits/nixin/hosting-farm)
+error[E0433]: failed to resolve: use of undeclared type `Cert`
+   --> src/models/users.rs:507:43
+    |
+507 | ...                   match Cert::from_bytes(key_text.as_bytes()) {
+    |                             ^^^^ use of undeclared type `Cert`
+    |
+help: consider importing one of these structs
+    |
+1   + use crate::models::users::openpgp::Cert;
+    |
+1   + use sequoia_openpgp::Cert;
+    |
+
+warning: unused import: `reqwest`
+  --> src/controllers/auth_pages.rs:17:5
+   |
+17 | use reqwest;
+   |     ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `sea_orm::Set`
+  --> src/controllers/auth_pages.rs:18:5
+   |
+18 | use sea_orm::Set;
+   |     ^^^^^^^^^^^^
+
+warning: unused import: `sequoia_openpgp::Cert`
+  --> src/controllers/auth_pages.rs:19:5
+   |
+19 | use sequoia_openpgp::Cert;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `sequoia_openpgp::parse::Parse`
+  --> src/controllers/users_pages.rs:21:5
+   |
+21 | use sequoia_openpgp::parse::Parse;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `sequoia_openpgp::Cert`
+  --> src/controllers/users_pages.rs:22:5
+   |
+22 | use sequoia_openpgp::Cert;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Sha1`
+  --> src/controllers/users_pages.rs:25:20
+   |
+25 | use sha1::{Digest, Sha1};
+   |                    ^^^^
+
+warning: unused import: `zbase32`
+  --> src/controllers/users_pages.rs:26:5
+   |
+26 | use zbase32;
+   |     ^^^^^^^
+
+error[E0308]: mismatched types
+   --> src/models/users.rs:556:13
+    |
+556 |             self.update(db).await
+    |             ^^^^^^^^^^^^^^^^^^^^^ expected `Result<Model, ...>`, found `Result<Model
+, DbErr>`
+    |
+    = note: expected enum `std::result::Result<_, loco_rs::prelude::ModelError>`
+               found enum `std::result::Result<_, sea_orm::DbErr>`
+
+error[E0308]: mismatched types
+   --> src/models/users.rs:572:13
+    |
+572 |             self.update(db).await
+    |             ^^^^^^^^^^^^^^^^^^^^^ expected `Result<Model, ...>`, found `Result<Model
+, DbErr>`
+    |
+    = note: expected enum `std::result::Result<_, loco_rs::prelude::ModelError>`
+               found enum `std::result::Result<_, sea_orm::DbErr>`
+
+warning: unused import: `Digest`
+  --> src/controllers/users_pages.rs:25:12
+   |
+25 | use sha1::{Digest, Sha1};
+   |            ^^^^^^
+
+Some errors have detailed explanations: E0308, E0433.
+For more information about an error, try `rustc --explain E0308`.
+warning: `hosting-farm` (lib) generated 8 warnings
+error: could not compile `hosting-farm` (lib) due to 3 previous errors; 8 warnings emitted
+bdz-dev%
+```
+
+---
+
+Okay, `cargo check` failed with a few issues:
+
+1.  **Unused Imports**: Several imports related to `reqwest`, `Cert`, `Parse`, `sha1`, `zbase32`, and `sea_orm::Set` are now unused in the controller files (`auth_pages.rs`, `users_pages.rs`) because the logic moved to the model. I will remove these.
+2.  **`E0433: use of undeclared type Cert` in `src/models/users.rs`**: The `Cert::from_bytes` call within the new `fetch_and_update_pgp_key` method is missing the `openpgp::` prefix (since we aliased `sequoia_openpgp` as `openpgp`). It should be `openpgp::Cert::from_bytes(...)`.
+3.  **`E0308: mismatched types` in `src/models/users.rs`**: The `self.update(db).await` calls return `Result<Model, sea_orm::DbErr>`, but the function signature requires `ModelResult<Model>` (which is `Result<Model, loco_rs::model::ModelError>`). I need to map the `DbErr` to a `ModelError` using `.map_err(ModelError::DbErr)`.
+
+Let's fix these. First, remove the unused imports from the controllers.
+
+---
+
+```diff
+  };
+  use loco_rs::prelude::*;
+- use reqwest;
+- use sea_orm::Set;
+- use sequoia_openpgp::Cert;
+  use std::collections::HashMap;
+  
+```
+
+---
+
+```diff
+  use sea_orm::Set;
+  use sea_orm::{ActiveModelTrait, PaginatorTrait};
+- use sequoia_openpgp::parse::Parse;
+- use sequoia_openpgp::Cert;
+  use serde::Deserialize;
+  use serde_json::json;
+- use sha1::{Digest, Sha1};
+- use zbase32;
+  
+  /// Params for updating user profile
+```
+
+---
+
+Controller imports cleaned up.
+
+Now, fix the errors in the model file (`src/models/users.rs`): Use `openpgp::Cert` and map the `DbErr` to `ModelError`.
+
+---
+
+```diff
+                                  if key_text.contains("-----BEGIN PGP PUBLIC KEY BLOCK-----") {
+                                      // Further validate by trying to parse it
+-                                     match Cert::from_bytes(key_text.as_bytes()) {
++                                     match openpgp::Cert::from_bytes(key_text.as_bytes()) {
+                                          Ok(_) => {
+                                              key_found_and_valid = true;
+          if key_found_and_valid {
+              self.pgp_key = Set(fetched_key_text);
+-         } else {
+-             // Explicitly set to None if no valid key was found, or keep existing?
+-             // Let's set to None to reflect the failed fetch attempt accurately.
+-             // However, maybe we should only update if found, and leave it otherwise?
+-             // Let's leave it unchanged if not found/invalid.
+-             // self.pgp_key = Set(None);
+-         }
+- 
+-         // Save changes regardless of whether key was updated (e.g., other fields might have changed before calling this)
+-         // Or should we only save if self.pgp_key was actually modified?
+-         // Let's only update if the key was found to avoid unnecessary DB writes.
+-         if key_found_and_valid {
+              tracing::debug!(user_pid=%user_pid_str, "Updating user PGP key in database.");
+-             self.update(db).await
++             self.update(db).await.map_err(ModelError::DbErr)
+          } else {
+              tracing::debug!(user_pid=%user_pid_str, "No valid PGP key found/fetched, skipping database update.");
+-             // Need to convert self back to Model without saving
+-             // This is tricky because self is consumed by update().
+-             // Rework: This function should probably only *fetch* and return Option<String>.
+-             // The *caller* should decide whether to Set() and update().
+-             // Let's stick to updating within the method for now, returning the updated Model.
+-             // If no key found, just return the original model state by refetching? No, that's wasteful.
+-             // Let's return the result of update() only if called.
+-             // How to return Model if update wasn't called? Find by PID? Seems bad.
+- 
+-             // Revisit Decision: Let's update self.pgp_key to None if not found/invalid.
++             // Let's update self.pgp_key to None if not found/invalid.
+              // This makes the state consistent with the fetch result.
+              self.pgp_key = Set(None);
+              tracing::debug!(user_pid=%user_pid_str, "Setting user PGP key to None in database.");
+-             self.update(db).await
++             self.update(db).await.map_err(ModelError::DbErr)
+          }
+      }
+```
+
+---
+
+Model file fixed.
+
+All identified errors should now be resolved. Let's run `cargo check` to confirm.
+
+---
+
+```bash
+cargo check
+```
+
+```
+bdz-dev% cargo check
+    Blocking waiting for file lock on build directory
+    Checking hosting-farm v0.1.6 (/home/douzeb/gits/nixin/hosting-farm)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 31.15s
+bdz-dev%
+```
+
+---
+
+Excellent, `cargo check` passes!
+
+The refactoring is complete:
+*   PGP key fetching logic using `keys.openpgp.org` is now centralized in `users::ActiveModel::fetch_and_update_pgp_key`.
+*   Both the email verification (`src/controllers/auth_pages.rs::verify_email`) and the profile refresh (`src/controllers/users_pages.rs::refresh_pgp`) handlers now use this model method.
+*   The incorrect WKD logic has been removed.
+
+Please run `cargo test` now to ensure all tests pass with these changes.
+
+---
+
+_**User**_
+
+Fetching a PGP key using the button on the profile page now works correctly, if a key is found on the public PGP server. But if no key is found, there is no indication displayed on the page to inform the user about that.
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+You are right, the current implementation updates the UI to show "No PGP key configured" when a key isn't found, but it doesn't explicitly *tell* the user that the refresh attempt finished and no key was found. This can indeed look like nothing happened.
+
+We can improve this by providing a temporary notification message, similar to how other actions provide feedback. We'll modify the `refresh_pgp` handler to return both the updated PGP section *and* a notification message indicating the outcome (key updated, or key not found).
+
+1.  **Modify `src/controllers/users_pages.rs::refresh_pgp`**:
+    *   When the key fetch/update is successful (`Ok(updated_user)`), determine if a key was actually found (`updated_user.pgp_key.is_some()`).
+    *   Render the PGP section partial (`users/_pgp_section.html`) as before.
+    *   Render a notification partial (`fragments/success_message.html`) with an appropriate message ("PGP key updated successfully." or "No PGP key found on server.") targeting the `#notification-container`.
+    *   Combine the HTML from both partials into a single response body. HTMX can handle multiple elements returned this way.
+    *   The error case already renders an error fragment, which is sufficient feedback for failure.
+
+---
+
+```diff
+      middleware::auth_no_error::JWTWithUserOpt,
+      models::{_entities::ssh_keys, _entities::team_memberships, _entities::teams, users},
+-     views::{error_fragment, error_page, redirect, render_template},
++     views::{error_fragment, error_page, redirect, render_template, render_response_with_fragment},
+  };
+  use axum::http::HeaderMap;
+              let pgp_validity = updated_user.pgp_validity();
+  
+-             // Render the partial template for the PGP section
+-             render_template(
++             // Determine the notification message
++             let notification_message = if updated_user.pgp_key.is_some() {
++                 "PGP key updated successfully from server."
++             } else {
++                 "No PGP key found on server for your email."
++             };
++ 
++             // Render both the PGP section update and a notification message
++             let pgp_section_html = render_template(
+                  &v,
+                  "users/_pgp_section.html",
+                      "pgp_validity": &pgp_validity,
+                  }),
+-             )
++             )?.into_body();
++ 
++             let notification_html = render_template(
++                 &v,
++                 "fragments/success_message.html", // Re-use success for info
++                 data!({
++                     "message": notification_message,
++                     "target": "#notification-container", // Target the notification area
++                 }),
++             )?.into_body();
++ 
++             // Combine fragments into a single response
++             render_response_with_fragment(pgp_section_html, notification_html)
+          }
+          Err(e) => {
+```
+
+---
+
+Okay, the `refresh_pgp` handler is updated. I used a helper function `render_response_with_fragment` which likely exists in `src/views/mod.rs` to combine the HTML fragments. If it doesn't exist, we might need to create it or manually construct the `Response` body.
+
+Let's assume `render_response_with_fragment` exists for now. This change should provide explicit feedback to the user in the notification area whether the key was successfully updated or if no key was found on the server.
+
+Please run `cargo check` to ensure this compiles.
+
+---
+
+```bash
+cargo check
+```
+
+```
+error: unknown proxy name: 'Cursor-0.48.9-x86_64'; valid proxy names are 'rustc'
+, 'rustdoc
+', 'cargo', 'rust-lldb', 'rust-gdb', 'rust-gdbgui', 'rls', 'cargo-clippy', 'clip
+py-driver', 'cargo-miri', 'rust-analyzer', 'rustfmt', 'cargo-fmt'
+                    
+```
+
+---
+
+It seems like there was a proxy error unrelated to the code itself. Let's try running `cargo check` again using the `unset ARGV0` workaround mentioned in the rules.
+
+---
+
+```bash
+unset ARGV0 && cargo check
+```
+
+```
+bdz-dev% unset ARGV0 && cargo check
+    Blocking waiting for file lock on build directory
+    Checking hosting-farm v0.1.6 (/home/douzeb/gits/nixin/hosting-farm)
+error[E0432]: unresolved import `crate::views::render_response_with_fragment`
+ --> src/controllers/users_pages.rs:6:51
+  |
+6 | ...rror_page, redirect, render_response_with_fragment, render_template},
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `render_response_with_fragmen
+t` in `views`
+
+For more information about this error, try `rustc --explain E0432`.
+error: could not compile `hosting-farm` (lib) due to 1 previous error
+bdz-dev%
+```
+
+---
+
+Ah, it seems the helper function `render_response_with_fragment` I assumed existed in `src/views/mod.rs` is not actually there.
+
+We need to either create this helper or manually construct the response body containing both HTML fragments. Manually constructing it is straightforward.
+
+I'll modify `src/controllers/users_pages.rs::refresh_pgp` again to manually combine the HTML strings and return a standard `Response`.
+
+---
+
+```diff
+      middleware::auth_no_error::JWTWithUserOpt,
+      models::{_entities::ssh_keys, _entities::team_memberships, _entities::teams, users},
+-     views::{error_fragment, error_page, redirect, render_response_with_fragment, render_template},
++     views::{error_fragment, error_page, redirect, render_template},
+  };
++ use axum::http::{header, StatusCode};
+  use axum::http::HeaderMap;
+  use axum::response::Response;
+  
+              // Combine fragments into a single response
+-             render_response_with_fragment(pgp_section_html, notification_html)
++             // render_response_with_fragment(pgp_section_html, notification_html)
++             // Manually combine HTML fragments
++             let combined_body = format!("{}\n{}", 
++                 String::from_utf8_lossy(&pgp_section_html.into_inner()), 
++                 String::from_utf8_lossy(&notification_html.into_inner()));
++ 
++             Ok(Response::builder()
++                 .status(StatusCode::OK)
++                 .header(header::CONTENT_TYPE, "text/html")
++                 .body(axum::body::Body::from(combined_body))?)
+          }
+          Err(e) => {
+```
+
+---
+
+Okay, the controller is updated to manually combine the HTML fragments for the response.
+
+Let's run `cargo check` again.
+
+---
+
+```bash
+unset ARGV0 && cargo check
+```
+
+```
+bdz-dev% unset ARGV0 && cargo check
+    Blocking waiting for file lock on build directory
+    Checking hosting-farm v0.1.6 (/home/douzeb/gits/nixin/hosting-farm)
+error[E0599]: no method named `into_inner` found for struct `axum::body::Body` in the curr
+ent scope
+   --> src/controllers/users_pages.rs:665:59
+    |
+665 |                 String::from_utf8_lossy(&pgp_section_html.into_inner()),
+    |                                                           ^^^^^^^^^^
+    |
+help: there is a method `into_either` with a similar name, but with different arguments
+   --> /home/douzeb/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/either-1.15.0/src
+/into_either.rs:29:5
+    |
+29  |     fn into_either(self, into_left: bool) -> Either<Self, Self> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `into_inner` found for struct `axum::body::Body` in the curr
+ent scope
+   --> src/controllers/users_pages.rs:666:60
+    |
+666 |                 String::from_utf8_lossy(&notification_html.into_inner())
+    |                                                            ^^^^^^^^^^
+    |
+help: there is a method `into_either` with a similar name, but with different arguments
+   --> /home/douzeb/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/either-1.15.0/src
+/into_either.rs:29:5
+    |
+29  |     fn into_either(self, into_left: bool) -> Either<Self, Self> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `hosting-farm` (lib) due to 6 previous errors
+bdz-dev%
+```
+
+---
+
+Ah, right. `render_template` returns a `Result<Response>`, and the `Response` body is an `axum::body::Body`, not something with an `into_inner()` method to get the raw bytes directly like I assumed.
+
+We need to get the rendered HTML content *before* it's put into the `Response` body. The `TeraView` engine likely has a method for this. Looking at the `loco-rs` or `tera` docs, the common way is to use `TeraView::render`.
+
+Let's modify `src/controllers/users_pages.rs::refresh_pgp` one more time to use `v.render()` to get the HTML strings, combine them, and then create the `Response`.
+
+---
+
+```diff
+  
+              // Render both the PGP section update and a notification message
+-             let pgp_section_html = render_template(
+-                 &v,
++             let pgp_section_html = v.render(
+                  "users/_pgp_section.html",
+-                 data!({
++                 tera::Context::from_serialize(data!({
+                      "pgp_fingerprint": &pgp_fingerprint,
+                      "pgp_validity": &pgp_validity,
+-                 }),
+-             )?
+-             .into_body();
++                 }))?
++             );
+  
+-             let notification_html = render_template(
+-                 &v,
++             let notification_html = v.render(
+                  "fragments/success_message.html", // Re-use success for info
+-                 data!({
++                 tera::Context::from_serialize(data!({
+                      "message": notification_message,
+                      "target": "#notification-container", // Target the notification area
+-                 }),
+-             )?
+-             .into_body();
++                 }))?
++             );
+  
+-             // Combine fragments into a single response
+-             // render_response_with_fragment(pgp_section_html, notification_html)
+              // Manually combine HTML fragments
+-             let combined_body = format!(
+-                 "{}\n{}",
+-                 String::from_utf8_lossy(&pgp_section_html.into_inner()),
+-                 String::from_utf8_lossy(&notification_html.into_inner())
+-             );
++             let combined_body = format!("{}\n{}", 
++                 pgp_section_html, 
++                 notification_html);
+  
+              Ok(Response::builder()
+```
+
+---
+
+Okay, that should correctly render the templates to strings and combine them for the response body.
+
+Let's run `cargo check` one more time to be sure.
+
+---
+
+```bash
+unset ARGV0 && cargo check
+```
+
+```
+    Blocking waiting for file lock on build directory
+    Checking hosting-farm v0.1.6 (/home/douzeb/gits/nixin/hosting-farm)
+error[E0277]: the trait bound `tera::Context: auth_api::_::_serde::Serialize` is not satis
+fied
+   --> src/controllers/users_pages.rs:642:17
+    |
+640 |               let pgp_section_html = v.render(
+    |                                        ------ required by a bound introduced by this
+ call
+641 |                   "users/_pgp_section.html",
+642 | /                 tera::Context::from_serialize(data!({
+643 | |                     "pgp_fingerprint": &pgp_fingerprint,
+644 | |                     "pgp_validity": &pgp_validity,
+645 | |                 }))?,
+    | |____________________^ the trait `auth_api::_::_serde::Serialize` is not implemented
+ for `tera::Context`
+    |
+    = note: for local types consider adding `#[derive(serde::Serialize)]` to your `tera::C
+ontext` type
+    = note: for types from other crates check whether the crate offers a `serde` feature f
+lag
+    = help: the following other types implement trait `auth_api::_::_serde::Serialize`:
+              &'a T
+              &'a mut T
+              ()
+              (T,)
+              (T0, T1)
+              (T0, T1, T2)
+              (T0, T1, T2, T3)
+              (T0, T1, T2, T3, T4)
+            and 409 others
+note: required by a bound in `loco_rs::prelude::ViewRenderer::render`
+   --> /home/douzeb/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/loco-rs-0.15.0/sr
+c/controller/views/mod.rs:16:18
+    |
+16  |     fn render<S: Serialize>(&self, key: &str, data: S) -> Result<String>;
+    |                  ^^^^^^^^^ required by this bound in `ViewRenderer::render`
+
+error[E0277]: the trait bound `tera::Context: auth_api::_::_serde::Serialize` is not satis
+fied
+   --> src/controllers/users_pages.rs:650:17
+    |
+648 |               let notification_html = v.render(
+    |                                         ------ required by a bound introduced by thi
+s call
+649 |                   "fragments/success_message.html", // Re-use success for info
+650 | /                 tera::Context::from_serialize(data!({
+651 | |                     "message": notification_message,
+652 | |                     "target": "#notification-container", // Target the notifica...
+653 | |                 }))?,
+    | |____________________^ the trait `auth_api::_::_serde::Serialize` is not implemented
+ for `tera::Context`
+    |
+    = note: for local types consider adding `#[derive(serde::Serialize)]` to your `tera::C
+ontext` type
+    = note: for types from other crates check whether the crate offers a `serde` feature f
+lag
+    = help: the following other types implement trait `auth_api::_::_serde::Serialize`:
+              &'a T
+              &'a mut T
+              ()
+              (T,)
+              (T0, T1)
+              (T0, T1, T2)
+              (T0, T1, T2, T3)
+              (T0, T1, T2, T3, T4)
+            and 409 others
+note: required by a bound in `loco_rs::prelude::ViewRenderer::render`
+   --> /home/douzeb/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/loco-rs-0.15.0/sr
+c/controller/views/mod.rs:16:18
+    |
+16  |     fn render<S: Serialize>(&self, key: &str, data: S) -> Result<String>;
+    |                  ^^^^^^^^^ required by this bound in `ViewRenderer::render`
+
+error[E0277]: `std::result::Result<std::string::String, loco_rs::Error>` doesn't implement
+ `std::fmt::Display`
+   --> src/controllers/users_pages.rs:657:51
+    |
+657 | ...body = format!("{}\n{}", pgp_section_html, notification_html);
+    |                             ^^^^^^^^^^^^^^^^ `std::result::Result<std::string::Strin
+g, loco_rs::Error>` cannot be formatted with the default formatter
+    |
+    = help: the trait `std::fmt::Display` is not implemented for `std::result::Result<std:
+:string::String, loco_rs::Error>`
+    = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) in
+stead
+    = note: this error originates in the macro `$crate::__export::format_args` which comes
+ from the expansion of the macro `format` (in Nightly builds, run with -Z macro-backtrace
+for more info)
+
+error[E0277]: `std::result::Result<std::string::String, loco_rs::Error>` doesn't implement
+ `std::fmt::Display`
+   --> src/controllers/users_pages.rs:657:69
+    |
+657 | ...\n{}", pgp_section_html, notification_html);
+    |                             ^^^^^^^^^^^^^^^^^ `std::result::Result<std::string::Stri
+ng, loco_rs::Error>` cannot be formatted with the default formatter
+    |
+    = help: the trait `std::fmt::Display` is not implemented for `std::result::Result<std:
+:string::String, loco_rs::Error>`
+    = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) in
+stead
+    = note: this error originates in the macro `$crate::__export::format_args` which comes
+ from the expansion of the macro `format` (in Nightly builds, run with -Z macro-backtrace
+for more info)
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `hosting-farm` (lib) due to 12 previous errors
+
+```
+
+---
+
+You're right, I made a mistake in how I used `v.render()`.
+
+1.  **`E0277: the trait bound tera::Context: ...Serialize is not satisfied`**: The `v.render()` method expects data that implements `serde::Serialize`, but `tera::Context::from_serialize` actually *creates* a `tera::Context`, which doesn't implement `Serialize`. We should just pass the `data!` macro directly to `v.render()`, as `data!` creates a serializable map (`serde_json::Value`).
+2.  **`E0277: Result<String, loco_rs::Error> doesn't implement std::fmt::Display`**: The `v.render()` calls return `Result<String, Error>`. I need to handle this `Result` (using `?` or a `match`) before trying to use the `String` in the `format!` macro.
+
+Let's fix the `refresh_pgp` function in `src/controllers/users_pages.rs` again.
+
+---
+
+```diff
+              let pgp_section_html = v.render(
+                  "users/_pgp_section.html",
+-                 tera::Context::from_serialize(data!({
++                 data!({
+                      "pgp_fingerprint": &pgp_fingerprint,
+                      "pgp_validity": &pgp_validity,
+-                 }))?,
+-             );
++                 })
++             )?;
+  
+              let notification_html = v.render(
+                  "fragments/success_message.html", // Re-use success for info
+-                 tera::Context::from_serialize(data!({
++                 data!({
+                      "message": notification_message,
+                      "target": "#notification-container", // Target the notification area
+-                 }))?,
+-             );
++                 })
++             )?;
+  
+              // Manually combine HTML fragments
+```
 
 ---
 
 
+
+---
+
+Okay, the template rendering calls are corrected.
+
+Let's run `cargo check` again.
+
+---
+
+```bash
+unset ARGV0 && cargo check
+```
+
+```
+bdz-dev% unset ARGV0 && cargo check
+    Checking hosting-farm v0.1.6 (/home/douzeb/gits/nixin/hosting-farm)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.72s
+bdz-dev%
+```
+
+---
+
+Great, `cargo check` passes!
+
+The `refresh_pgp` handler in `src/controllers/users_pages.rs` should now correctly:
+1.  Call the model method `fetch_and_update_pgp_key`.
+2.  Render the updated PGP section partial.
+3.  Render a notification message partial indicating whether a key was found/updated or not.
+4.  Combine both HTML fragments into the response body for HTMX to process.
+
+This provides the explicit feedback that was missing when no key was found on the server.
+
+---
+
+_**User**_
+
+The notification message is displayed, but it is not correctly placed. See the attached creenshot
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Read file: assets/views/users/profile.html
+
+---
+
+You're right. The template `assets/views/users/profile.html` has the `<div id="notification-container"></div>` placed *between* the main profile section and the password/SSH/team sections (around line 75).
+
+The screenshot shows the notification appearing within the "Profile Information" section's grid layout (`md:grid md:grid-cols-3`). This suggests the notification content might be getting inserted *inside* the profile information section's `div` instead of the dedicated `notification-container`.
+
+However, the HTMX target in the controller is correctly set to `#notification-container`. This points to a potential issue with how the browser/HTMX is handling the insertion when two fragments are returned, or perhaps a CSS issue with the `#notification-container` itself.
+
+Let's try a simpler approach first: Instead of returning two separate fragments, we can modify the `_pgp_section.html` partial to *include* a place for the notification message *within* that section. Then, the `refresh_pgp` handler will just render this updated partial, passing the notification message along with the fingerprint/validity.
+
+1.  **Modify `assets/views/users/_pgp_section.html`**:
+    *   Add a new `div` (e.g., `<div id="pgp-notification" class="text-sm mt-2">...</div>`) inside the main `#pgp-section` div.
+    *   Inside this new div, conditionally display the `notification_message` if it's passed in the context.
+2.  **Modify `src/controllers/users_pages.rs::refresh_pgp`**:
+    *   Remove the rendering of `fragments/success_message.html`.
+    *   Pass the `notification_message` string (or an `Option<String>`) into the context for rendering `users/_pgp_section.html`.
+    *   Return only the rendered `_pgp_section.html` content.
+
+Let's modify the partial template first.
+
+---
+
+```diff
+          </div>
+      </div>
++     {% if notification_message %}
++     <div id="pgp-notification" class="mt-2 text-sm text-green-600 dark:text-green-400">
++         {{ notification_message }}
++     </div>
++     {% endif %}
+  </div> 
+```
+
+---
+
+Partial template updated.
+
+Now, modify the `refresh_pgp` handler in `src/controllers/users_pages.rs` to pass the message to this partial and return only its rendered HTML.
 
 ---
 
