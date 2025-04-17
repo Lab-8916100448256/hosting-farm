@@ -155,6 +155,17 @@ async fn can_verification_token() {
 
     let result = user
         .into_active_model()
+        .generate_email_verification_token(&boot.app_context.db)
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Failed to generate email verification token"
+    );
+
+    let result = result
+        .unwrap()
+        .into_active_model()
         .set_email_verification_sent(&boot.app_context.db)
         .await;
 

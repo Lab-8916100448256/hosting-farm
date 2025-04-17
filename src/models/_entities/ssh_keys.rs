@@ -4,31 +4,19 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
-#[sea_orm(table_name = "team_memberships")]
+#[sea_orm(table_name = "ssh_keys")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub pid: Uuid,
-    pub team_id: i32,
+    #[sea_orm(column_type = "Text")]
+    pub public_key: String,
     pub user_id: i32,
-    pub role: String,
-    pub pending: bool,
-    pub invitation_token: Option<String>,
-    pub invitation_sent_at: Option<DateTimeWithTimeZone>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::teams::Entity",
-        from = "Column::TeamId",
-        to = "super::teams::Column::Id",
-        on_update = "NoAction",
-        on_delete = "NoAction"
-    )]
-    Teams,
     #[sea_orm(
         belongs_to = "super::users::Entity",
         from = "Column::UserId",
@@ -37,12 +25,6 @@ pub enum Relation {
         on_delete = "NoAction"
     )]
     Users,
-}
-
-impl Related<super::teams::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Teams.def()
-    }
 }
 
 impl Related<super::users::Entity> for Entity {

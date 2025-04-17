@@ -28,7 +28,7 @@ where
 pub fn error_fragment(v: &TeraView, message: &str, target_selector: &str) -> Result<Response> {
     let res = format::render().view(
         v,
-        "error_message.html",
+        "_inline_error.html",
         data!({
             "message": message
         }),

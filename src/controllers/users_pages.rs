@@ -1,16 +1,24 @@
 use crate::{
+    controllers::ssh_key_api::{is_valid_ssh_public_key, SshKeyPayload},
+    mailers::auth::AuthMailer,
     middleware::auth_no_error::JWTWithUserOpt,
-    models::{_entities::team_memberships, _entities::teams, users},
-    views::error_fragment,
-    views::error_page,
-    views::redirect,
-    views::render_template,
+    models::{_entities::ssh_keys, _entities::team_memberships, _entities::teams, users},
+    views::{error_fragment, error_page, redirect, render_template},
 };
-use axum::debug_handler;
-use axum::extract::{Form, State};
-use axum::http::header::HeaderMap;
+use axum::http::HeaderMap;
+use axum::http::{header, StatusCode};
+use axum::response::Response;
+use axum::{
+    debug_handler,
+    extract::{Form, State},
+    routing::{get, post},
+};
+use loco_rs::prelude::Result;
 use loco_rs::prelude::*;
-use sea_orm::PaginatorTrait;
+use loco_rs::prelude::{TeraView, ViewEngine};
+use sea_orm::QueryOrder;
+use sea_orm::Set;
+use sea_orm::{ActiveModelTrait, PaginatorTrait};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -43,6 +51,10 @@ async fn profile(
         // Redirect to login if not authenticated
         return redirect("/auth/login", headers);
     };
+
+    // Get PGP key details
+    let pgp_fingerprint = user.pgp_fingerprint();
+    let pgp_validity = user.pgp_validity();
 
     // Get user's team memberships
     let teams_result = teams::Entity::find()
@@ -111,6 +123,24 @@ async fn profile(
         }
     };
 
+    // Get user's SSH keys
+    let ssh_keys_result = ssh_keys::Entity::find()
+        .filter(ssh_keys::Column::UserId.eq(user.id))
+        .all(&ctx.db)
+        .await;
+
+    let ssh_keys = match ssh_keys_result {
+        Ok(keys) => keys,
+        Err(e) => {
+            tracing::error!("Failed to load SSH keys for user {}: {}", user.id, e);
+            return error_page(
+                &v,
+                "Could not load your SSH keys. Please try again later.",
+                Some(e.into()),
+            );
+        }
+    };
+
     render_template(
         &v,
         "users/profile.html",
@@ -119,6 +149,9 @@ async fn profile(
             "teams": &teams,
             "active_page": "profile",
             "invitation_count": &invitations,
+            "ssh_keys": &ssh_keys,
+            "pgp_fingerprint": &pgp_fingerprint,
+            "pgp_validity": &pgp_validity,
         }),
     )
 }
@@ -333,13 +366,316 @@ async fn update_password(
     }
 }
 
+/// Renders the SSH keys list fragment for the profile page
+#[debug_handler]
+async fn ssh_keys_fragment(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        // Although this is a fragment, redirecting might still be appropriate
+        // if the session expired mid-use. Alternatively, return an error fragment.
+        return redirect("/auth/login", headers);
+    };
+
+    // Get user's SSH keys
+    let ssh_keys_result = ssh_keys::Entity::find()
+        .filter(ssh_keys::Column::UserId.eq(user.id))
+        .order_by_asc(ssh_keys::Column::CreatedAt) // Order for consistent display
+        .all(&ctx.db)
+        .await;
+
+    let ssh_keys = match ssh_keys_result {
+        Ok(keys) => keys,
+        Err(e) => {
+            tracing::error!("Failed to load SSH keys for user {}: {}", user.id, e);
+            // Return an error fragment instead of a full page
+            return error_fragment(
+                &v,
+                "Could not load SSH keys.",
+                "#ssh-keys-error-container", // Target for the error message
+            );
+        }
+    };
+
+    render_template(
+        &v,
+        "users/_ssh_keys_list.html",
+        data!({
+            "ssh_keys": &ssh_keys,
+        }),
+    )
+}
+
+/// Handles adding an SSH key via HTMX form submission
+#[debug_handler]
+async fn add_ssh_key(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap, // Needed for redirect on auth failure
+    Form(params): Form<SshKeyPayload>,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers); // Redirect if not logged in
+    };
+
+    // Trim whitespace from the key input
+    let trimmed_key = params.public_key.trim().to_string();
+
+    // --- Validation --- (using trimmed_key)
+    if trimmed_key.is_empty() {
+        return error_fragment(&v, "Public key cannot be empty", "#add-key-error");
+    }
+    if !is_valid_ssh_public_key(&trimmed_key) {
+        return error_fragment(&v, "Invalid SSH public key format", "#add-key-error");
+    }
+    // Check if trimmed key already exists for this user
+    match ssh_keys::Entity::find()
+        .filter(ssh_keys::Column::UserId.eq(user.id))
+        .filter(ssh_keys::Column::PublicKey.eq(trimmed_key.clone())) // Use cloned trimmed_key
+        .one(&ctx.db)
+        .await
+    {
+        Ok(Some(_)) => {
+            return error_fragment(&v, "SSH Key already exists for this user", "#add-key-error");
+        }
+        Ok(None) => { /* Key does not exist, proceed */ }
+        Err(e) => {
+            tracing::error!("DB error checking for existing SSH key: {}", e);
+            return error_fragment(
+                &v,
+                "Error checking for existing key. Please try again.",
+                "#add-key-error",
+            );
+        }
+    }
+    // --- End Validation ---
+
+    // --- Insert Key --- (using trimmed_key)
+    let key = ssh_keys::ActiveModel {
+        user_id: Set(user.id),
+        public_key: Set(trimmed_key), // Use trimmed_key
+        ..Default::default()
+    };
+    match key.insert(&ctx.db).await {
+        Ok(_) => { /* Insert successful, proceed to render */ }
+        Err(e) => {
+            tracing::error!("DB error inserting SSH key: {}", e);
+            return error_fragment(
+                &v,
+                "Failed to save the new key. Please try again.",
+                "#add-key-error",
+            );
+        }
+    }
+    // --- End Insert Key ---
+
+    // --- Fetch Updated Keys and Render Fragment --- (on success)
+    match ssh_keys::Entity::find()
+        .filter(ssh_keys::Column::UserId.eq(user.id))
+        .order_by_asc(ssh_keys::Column::CreatedAt)
+        .all(&ctx.db)
+        .await
+    {
+        Ok(ssh_keys) => render_template(
+            &v,
+            "users/_ssh_keys_list.html",
+            data!({
+                "ssh_keys": &ssh_keys,
+            }),
+        ),
+        Err(e) => {
+            tracing::error!("Failed to reload SSH keys after add: {}", e);
+            // Return error fragment even after successful add if reload fails
+            error_fragment(
+                &v,
+                "Key added, but failed to refresh list.",
+                "#ssh-keys-error-container", // Target the main list error container
+            )
+        }
+    }
+}
+
+/// Resend verification email
+#[debug_handler]
+async fn resend_verification_email(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
+
+    if user.email_verified_at.is_some() {
+        return format::render().view(
+            &v,
+            "user/profile.html",
+            data!({
+                "user": user,
+                "error_message": None::<String>,
+                "success_message": None::<String>,
+            }),
+        );
+    }
+
+    // Generate email verification token
+    match user
+        .clone()
+        .into_active_model()
+        .generate_email_verification_token(&ctx.db)
+        .await
+    {
+        Ok(user_with_token) => {
+            // Send verification email first
+            match AuthMailer::send_welcome(&ctx, &user_with_token).await {
+                Ok(_) => {
+                    // Email sent successfully, now update verification status
+                    match user_with_token
+                        .clone()
+                        .into_active_model()
+                        .set_email_verification_sent(&ctx.db)
+                        .await
+                    {
+                        Ok(_) => {
+                            // All good, render success message
+                            format::render().view(
+                                &v,
+                                "fragments/success_message.html",
+                                data!({
+                                    "message": "Verification email sent successfully.",
+                                    "target": "notification-container",
+                                }),
+                            )
+                        }
+                        Err(err) => {
+                            tracing::error!(
+                                message =
+                                    "Failed to set email verification status after sending email",
+                                user_email = &user_with_token.email,
+                                error = err.to_string(),
+                            );
+                            error_fragment(
+                                &v,
+                                "Failed to update verification status. Please try again.",
+                                "#notification-container",
+                            )
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        message = "Failed to send welcome email",
+                        user_email = &user_with_token.email,
+                        error = err.to_string(),
+                    );
+                    error_fragment(
+                        &v,
+                        "Could not send verification email. Please try again.",
+                        "#notification-container",
+                    )
+                }
+            }
+        }
+        Err(err) => {
+            tracing::error!(
+                message = "Failed to generate email verification token",
+                user_email = &user.email,
+                error = err.to_string(),
+            );
+            error_fragment(
+                &v,
+                "Could not generate verification token. Please try again.",
+                "#notification-container",
+            )
+        }
+    }
+}
+
+/// Refreshes the user's PGP key from a keyserver
+#[debug_handler]
+async fn refresh_pgp(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers); // Redirect if not logged in
+    };
+
+    // Use the new model method to fetch and update the key
+    let fetch_result = user
+        .clone() // Clone user to get ActiveModel without consuming original
+        .into_active_model()
+        .fetch_and_update_pgp_key(&ctx.db)
+        .await;
+
+    match fetch_result {
+        Ok(updated_user) => {
+            // Get updated details from the returned model
+            let pgp_fingerprint = updated_user.pgp_fingerprint();
+            let pgp_validity = updated_user.pgp_validity();
+
+            // Determine the notification message
+            let notification_message = if updated_user.pgp_key.is_some() {
+                "PGP key updated successfully from server."
+            } else {
+                "No PGP key found on server for your email."
+            }
+            .to_string();
+
+            // Render the PGP section partial, now including the notification
+            let pgp_section_html = v.render(
+                "users/_pgp_section.html",
+                data!({
+                    "pgp_fingerprint": &pgp_fingerprint,
+                    "pgp_validity": &pgp_validity,
+                    "notification_message": &notification_message, // Pass message
+                }),
+            )?;
+
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/html")
+                .body(axum::body::Body::from(pgp_section_html))?)
+        }
+        Err(e) => {
+            tracing::error!(user_id = user.id, error = ?e, "Error fetching/updating PGP key.");
+            error_fragment(
+                &v,
+                &format!("Error refreshing PGP key: {}", e),
+                "#pgp-section",
+            )
+        }
+    }
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("/users")
-        .add("/profile", get(profile))
+        .add("/profile", get(profile).post(update_profile))
+        .add("/profile/ssh_keys_fragment", get(ssh_keys_fragment))
+        .add("/profile/ssh_keys", post(add_ssh_key))
+        .add("/profile/password", post(update_password))
         .add("/invitations", get(invitations))
-        .add("/invitation_count", get(get_invitation_count))
-        .add("/me", put(update_profile))
-        .add("/me/password", post(update_password))
+        .add("/invitations/count", get(get_invitation_count))
+        .add(
+            "/profile/resend-verification",
+            post(resend_verification_email),
+        )
+        .add("/profile/refresh-pgp", post(refresh_pgp))
 }

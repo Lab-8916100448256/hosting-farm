@@ -64,44 +64,68 @@ async fn handle_register(
 
     match res {
         Ok(user) => {
-            // Send verification email first
-            match AuthMailer::send_welcome(&ctx, &user).await {
-                Ok(_) => {
-                    // Email sent successfully, now update verification status
-                    match user
-                        .clone()
-                        .into_active_model()
-                        .set_email_verification_sent(&ctx.db)
-                        .await
-                    {
+            // Generate email verification token
+            match user
+                .clone()
+                .into_active_model()
+                .generate_email_verification_token(&ctx.db)
+                .await
+            {
+                Ok(user) => {
+                    // Send verification email first
+                    match AuthMailer::send_welcome(&ctx, &user).await {
                         Ok(_) => {
-                            // All good, redirect to login page with success message
-                            redirect("/auth/login?registered=true", headers)
+                            // Email sent successfully, now update verification status
+                            match user
+                                .clone()
+                                .into_active_model()
+                                .set_email_verification_sent(&ctx.db)
+                                .await
+                            {
+                                Ok(_) => {
+                                    // All good, redirect to login page with success message
+                                    redirect("/auth/login?registered=true", headers)
+                                }
+                                Err(err) => {
+                                    tracing::error!(
+                                        message =
+                                            "Failed to set email verification status after sending email",
+                                        user_email = &user.email, // user is still available here
+                                        error = err.to_string(),
+                                    );
+                                    // Although the email was sent, the DB update failed.
+                                    // This is an internal error state, show error page.
+                                    error_page(&v, "Account registered, but failed to finalize setup. Please contact support.", Some(loco_rs::Error::Model(err)))
+                                }
+                            }
                         }
                         Err(err) => {
                             tracing::error!(
-                                message =
-                                    "Failed to set email verification status after sending email",
+                                message = "Failed to send welcome email",
                                 user_email = &user.email, // user is still available here
                                 error = err.to_string(),
                             );
-                            // Although the email was sent, the DB update failed.
-                            // This is an internal error state, show error page.
-                            error_page(&v, "Account registered, but failed to finalize setup. Please contact support.", Some(loco_rs::Error::Model(err)))
+                            // Don't proceed to update verification status if email failed.
+                            error_page(
+                                &v,
+                                "Could not send welcome email.",
+                                Some(loco_rs::Error::wrap(err)),
+                            )
                         }
                     }
                 }
                 Err(err) => {
                     tracing::error!(
-                        message = "Failed to send welcome email",
+                        message = "Failed to generate email verification token",
                         user_email = &user.email, // user is still available here
                         error = err.to_string(),
                     );
-                    // Don't proceed to update verification status if email failed.
+                    // Although the email was sent, the DB update failed.
+                    // This is an internal error state, show error page.
                     error_page(
                         &v,
-                        "Could not send welcome email.",
-                        Some(loco_rs::Error::wrap(err)),
+                        "Account registered, but failed to finalize setup. Please contact support.",
+                        Some(loco_rs::Error::Model(err)),
                     )
                 }
             }
@@ -415,7 +439,7 @@ async fn reset_password(
     }
 }
 
-/// Renders the email verification page
+/// Handles the email verification link
 #[debug_handler]
 async fn verify_email(
     ViewEngine(v): ViewEngine<TeraView>,
@@ -428,54 +452,79 @@ async fn verify_email(
         Ok(user) => {
             if user.email_verified_at.is_some() {
                 tracing::info!(pid = user.pid.to_string(), "user already verified");
-                format::render().view(
+                return render_template(
                     &v,
                     "auth/verify.html",
                     data!({
                         "success": true,
                         "message": "Your email has already been verified.",
                     }),
-                )
-            } else {
-                let active_model = user.clone().into_active_model();
-                match active_model.verified(&ctx.db).await {
-                    Ok(_user) => {
-                        tracing::info!(pid = _user.pid.to_string(), "user verified");
-                        format::render().view(
-                            &v,
-                            "auth/verify.html",
-                            data!({
-                                "success": true,
-                                "message": "Your email is now verified.",
-                            }),
-                        )
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            pid = user.pid.to_string(),
-                            error = e.to_string(),
-                            "failed to mark user as verified"
-                        );
-                        format::render().view(
-                            &v,
-                            "auth/verify.html",
-                            data!({
-                                "success": false,
-                                "message": "Email verification failed. Please try again or contact support.",
-                            }),
-                        )
-                    }
+                );
+            }
+
+            let user_active_model = user.clone().into_active_model();
+            match user_active_model.verified(&ctx.db).await {
+                Ok(verified_user_model) => {
+                    // Now try to fetch and update the PGP key using the new model method
+                    let fetch_result = verified_user_model
+                        .clone()
+                        .into_active_model()
+                        .fetch_and_update_pgp_key(&ctx.db)
+                        .await;
+
+                    let message = match fetch_result {
+                        Ok(final_user_model) => {
+                            if final_user_model.pgp_key.is_some() {
+                                "Your email is now verified. We found and saved a PGP key for your account.".to_string()
+                            } else {
+                                "Your email is now verified. We could not find a PGP key for your email. Ensure your PGP key is published on public PGP servers and try again to fetch it from your profile page".to_string()
+                            }
+                        }
+                        Err(e) => {
+                            // Log the error, but proceed with verification success message
+                            tracing::error!(user_email = %verified_user_model.email, error = ?e, "Failed during PGP key fetch/update after verification.");
+                            "Your email is now verified, but there was an issue checking for a PGP key.".to_string()
+                        }
+                    };
+
+                    render_template(
+                        &v,
+                        "auth/verify.html",
+                        data!({ "success": true, "message": message }),
+                    )
+                }
+                Err(err) => {
+                    tracing::error!(
+                        message = "Failed to mark email as verified",
+                        user_email = &user.email,
+                        error = err.to_string(),
+                    );
+                    render_template(
+                        &v,
+                        "auth/verify.html",
+                        data!({
+                            "success": false,
+                            "message": "Email verification failed. Please try again or contact support.",
+                        }),
+                    )
                 }
             }
         }
-        Err(_) => format::render().view(
-            &v,
-            "auth/verify.html",
-            data!({
-                "success": false,
-                "message": "Invalid or expired verification token.",
-            }),
-        ),
+        Err(err) => {
+            tracing::error!(
+                message = "Invalid or expired email verification token",
+                token = token,
+                error = err.to_string(),
+            );
+            render_template(
+                &v,
+                "auth/verify.html",
+                data!({
+                    "success": false,
+                    "message": "Invalid or expired email verification link.",
+                }),
+            )
+        }
     }
 }
 

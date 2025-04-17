@@ -2,7 +2,7 @@
 
 [package]
 name = "hosting-farm"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 publish = false
 default-run = "hosting_farm-cli"
@@ -41,6 +41,12 @@ fluent-templates = { version = "0.8.0", features = ["tera"] }
 unic-langid = { version = "0.9.4" }
 tera = { version = "1.19.1" }
 # /view engine
+base64 = "0.21"
+reqwest = "0.12.15"
+sequoia-openpgp = { version = "2", default-features = false, features = ["crypto-openssl"] }
+sha1 = "0.10"
+zbase32 = "0.1.2"
+
 
 [[bin]]
 name = "hosting_farm-cli"

@@ -4,31 +4,65 @@
 
 {% block content %}
 <div class="space-y-6">
-    <div class="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+
+    <div class="bg-white dark:bg-gray-800 shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div class="md:grid md:grid-cols-3 md:gap-6">
             <div class="md:col-span-1">
-                <h3 class="text-lg font-medium leading-6 text-gray-900">Profile Information</h3>
-                <p class="mt-1 text-sm text-gray-500">
+                <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-gray-100">Profile Information</h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     Update your account's profile information.
                 </p>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
-                <form action="/users/me" method="POST" hx-put="/users/me" hx-swap="outerHTML" hx-target="this" enctype="application/x-www-form-urlencoded">
+                <form action="/users/profile" hx-post="/users/profile" hx-target="#error-container" hx-swap="innerHTML" class="space-y-4">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
-                            <label for="name" class="block text-sm font-medium text-gray-700">Name</label>
-                            <input type="text" name="name" id="name" value="{{ user.name }}" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                            <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
+                            <input type="text" name="name" id="name" value="{{ user.name }}" required class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md">
                         </div>
 
                         <div class="col-span-6 sm:col-span-4">
-                            <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
-                            <input type="email" name="email" id="email" value="{{ user.email }}" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                            <label for="email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Email address</label>
+                            <input type="email" name="email" id="email" value="{{ user.email }}" required class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md">
                         </div>
+                        
+                        <!-- PGP Key Section -->
+                        <div id="pgp-section" class="col-span-6 sm:col-span-4">
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">PGP Key</label>
+                            <div class="mt-1 flex items-center space-x-4">
+                                {% if pgp_fingerprint %}
+                                    <div class="text-sm">
+                                        <p class="text-gray-900 dark:text-gray-100">Fingerprint: <code class="font-mono">{{ pgp_fingerprint }}</code></p>
+                                        <p class="text-gray-500 dark:text-gray-400">Expires: {{ pgp_validity | default(value='Never') }}</p>
+                                    </div>
+                                {% else %}
+                                    <p class="text-sm text-gray-500 dark:text-gray-400">No PGP key configured.</p>
+                                {% endif %}
+                                <button 
+                                    type="button"
+                                    hx-post="/users/profile/refresh-pgp"
+                                    hx-target="#pgp-section"
+                                    hx-swap="outerHTML"
+                                    hx-indicator="#pgp-refresh-spinner"
+                                    class="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                >
+                                    Refresh Key from Server
+                                </button>
+                                <div id="pgp-refresh-spinner" class="htmx-indicator">
+                                    <svg class="animate-spin h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- End PGP Key Section -->
+
                     </div>
-                    <div id="error-container" class="mt-4 text-red-600"></div>
-                    <div class="mt-6 flex justify-end">
+                    <div id="error-container" class="mt-4 text-red-500 dark:text-red-400 text-sm"></div>
+                    <div class="flex justify-end">
                         <button type="submit" class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                            Save
+                            Save Profile
                         </button>
                     </div>
                 </form>
@@ -36,36 +70,74 @@
         </div>
     </div>
 
-    <div class="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+    <div id="notification-container"></div>
+
+    <!-- Email Verification Section -->
+    {% if not user.email_verified_at %}
+    <div class="bg-yellow-50 dark:bg-yellow-900 border-l-4 border-yellow-400 p-4 shadow">
+        <div class="flex">
+            <div class="flex-shrink-0">
+                <svg class="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM10 13a1 1 0 110-2 1 1 0 010 2zm0-4a1 1 0 01-1-1V6a1 1 0 112 0v2a1 1 0 01-1 1z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="ml-3">
+                <p class="text-sm text-yellow-700 dark:text-yellow-200">
+                    Your email address is not verified. Please check your inbox for the verification link.
+                </p>
+                <div class="mt-2 text-sm flex items-center space-x-2">
+                    <button 
+                        id="resend-verification-button"
+                        hx-post="/users/profile/resend-verification"
+                        hx-target="#notification-container"
+                        hx-swap="innerHTML"
+                        hx-indicator="#resend-spinner"
+                        class="py-1 px-3 border border-yellow-400 rounded-md shadow-sm text-sm font-medium text-yellow-700 dark:text-yellow-200 bg-yellow-100 dark:bg-yellow-800 hover:bg-yellow-200 dark:hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+                    >
+                        Resend verification email
+                    </button>
+                    <div id="resend-spinner" class="htmx-indicator">
+                        <svg class="animate-spin h-4 w-4 text-yellow-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="bg-white dark:bg-gray-800 shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div class="md:grid md:grid-cols-3 md:gap-6">
             <div class="md:col-span-1">
-                <h3 class="text-lg font-medium leading-6 text-gray-900">Change Password</h3>
-                <p class="mt-1 text-sm text-gray-500">
+                <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-gray-100">Change Password</h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     Ensure your account is using a long, random password to stay secure.
                 </p>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
-                <form action="/users/me/password" method="POST" hx-post="/users/me/password" hx-swap="outerHTML" hx-target="this" enctype="application/x-www-form-urlencoded">
+                 <form id="password-form" action="/users/profile/password" hx-post="/users/profile/password" hx-target="#password-error-container" hx-swap="innerHTML" class="space-y-4">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
-                            <label for="current_password" class="block text-sm font-medium text-gray-700">Current Password</label>
-                            <input type="password" name="current_password" id="current_password" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                            <label for="current_password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Current Password</label>
+                            <input type="password" name="current_password" id="current_password" required class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md">
                         </div>
 
                         <div class="col-span-6 sm:col-span-4">
-                            <label for="password" class="block text-sm font-medium text-gray-700">New Password</label>
-                            <input type="password" name="password" id="password" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                            <label for="password" class="block text-sm font-medium text-gray-700 dark:text-gray-300">New Password</label>
+                            <input type="password" name="password" id="password" required class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md">
                         </div>
 
                         <div class="col-span-6 sm:col-span-4">
-                            <label for="password_confirmation" class="block text-sm font-medium text-gray-700">Confirm Password</label>
-                            <input type="password" name="password_confirmation" id="password_confirmation" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
+                            <label for="password_confirmation" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Confirm Password</label>
+                            <input type="password" name="password_confirmation" id="password_confirmation" required class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md">
                         </div>
                     </div>
-                    <div id="password-error-container" class="mt-4 text-red-600"></div>
-                    <div class="mt-6 flex justify-end">
+                    <div id="password-error-container" class="mt-4 text-red-500 dark:text-red-400 text-sm"></div>
+                    <div class="flex justify-end">
                         <button type="submit" class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                            Save
+                            Save Password
                         </button>
                     </div>
                 </form>
@@ -73,11 +145,25 @@
         </div>
     </div>
 
-    <div class="bg-white shadow px-4 py-5 sm:rounded-lg sm:p-6">
+    <div class="bg-white dark:bg-gray-800 shadow px-4 py-5 sm:rounded-lg sm:p-6">
+        <div 
+            id="ssh-key-section" 
+            hx-get="/users/profile/ssh_keys_fragment" 
+            hx-trigger="load delay:100ms, reloadKeys from:body"
+            hx-swap="innerHTML"
+        >
+            <!-- Initial loading state (optional) -->
+            <div class="text-center py-4">
+                <p class="text-sm text-gray-500 dark:text-gray-400">Loading SSH keys...</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white dark:bg-gray-800 shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div class="md:grid md:grid-cols-3 md:gap-6">
             <div class="md:col-span-1">
-                <h3 class="text-lg font-medium leading-6 text-gray-900">Team Memberships</h3>
-                <p class="mt-1 text-sm text-gray-500">
+                <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-gray-100">Team Memberships</h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     Teams you are a member of.
                 </p>
                 <div class="mt-4">
@@ -88,26 +174,27 @@
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
                 {% if teams and teams|length > 0 %}
-                <ul class="divide-y divide-gray-200">
+                <ul class="divide-y divide-gray-200 dark:divide-gray-700">
                     {% for team in teams %}
-                    <li class="py-4 flex justify-between">
+                    <li class="py-4 flex justify-between items-center">
                         <div>
-                            <span class="text-sm font-medium text-gray-900">{{ team.name }}</span>
-                            <p class="text-sm text-gray-500">{{ team.role }}</p>
+                            <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ team.name }}</span>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">{{ team.role }}</p>
                         </div>
-                        <a href="/teams/{{ team.pid }}" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                            View
+                        <a href="/teams/{{ team.pid }}" class="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                            View Team
                         </a>
                     </li>
                     {% endfor %}
                 </ul>
                 {% else %}
                 <div class="text-center py-4">
-                    <p class="text-sm text-gray-500">You are not a member of any teams.</p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">You are not a member of any teams.</p>
                 </div>
                 {% endif %}
             </div>
         </div>
     </div>
 </div>
+
 {% endblock %} 
