@@ -477,7 +477,7 @@ async fn verify_email(
                             if final_user_model.pgp_key.is_some() {
                                 "Your email is now verified. We found and saved a PGP key for your account.".to_string()
                             } else {
-                                "Your email is now verified. We could not find a PGP key for your email.".to_string()
+                                "Your email is now verified. We could not find a PGP key for your email. Ensure your PGP key is published on public PGP servers and try again to fetch it from your profile page".to_string()
                             }
                         }
                         Err(e) => {
@@ -626,4 +626,3 @@ pub fn routes() -> Routes {
         .add("/verify/{token}", get(verify_email))
         .add("/logout", post(handle_logout))
 }
-
