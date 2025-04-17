@@ -14,7 +14,6 @@ use axum::{
     extract::{Form, Path, Query, State},
 };
 use loco_rs::prelude::*;
-use sea_orm::Set;
 use std::collections::HashMap;
 
 /// Renders the registration page
@@ -451,7 +450,6 @@ async fn verify_email(
 
     match user_result {
         Ok(user) => {
-            // Check if already verified before attempting to verify again
             if user.email_verified_at.is_some() {
                 tracing::info!(pid = user.pid.to_string(), "user already verified");
                 return render_template(
@@ -460,63 +458,33 @@ async fn verify_email(
                     data!({
                         "success": true,
                         "message": "Your email has already been verified.",
-                        // We don't attempt PGP key search if already verified previously
                     }),
                 );
             }
 
             let user_active_model = user.clone().into_active_model();
             match user_active_model.verified(&ctx.db).await {
-                Ok(updated_user_model) => {
-                    let email = updated_user_model.email.clone();
-                    let pgp_key_url = format!("https://keys.openpgp.org/vks/v1/by-email/{}", email);
-                    let mut pgp_key_found = false;
+                Ok(verified_user_model) => {
+                    // Now try to fetch and update the PGP key using the new model method
+                    let fetch_result = verified_user_model
+                        .clone()
+                        .into_active_model()
+                        .fetch_and_update_pgp_key(&ctx.db)
+                        .await;
 
-                    match reqwest::get(&pgp_key_url).await {
-                        Ok(response) => {
-                            if response.status().is_success() {
-                                match response.text().await {
-                                    Ok(key_text) => {
-                                        if !key_text.is_empty()
-                                            && key_text
-                                                .contains("-----BEGIN PGP PUBLIC KEY BLOCK-----")
-                                        {
-                                            let mut updated_user_active =
-                                                updated_user_model.clone().into_active_model();
-                                            updated_user_active.pgp_key = Set(Some(key_text));
-                                            match updated_user_active.update(&ctx.db).await {
-                                                Ok(_) => {
-                                                    pgp_key_found = true;
-                                                    tracing::info!(user_email = %email, "Successfully found and saved PGP key.");
-                                                }
-                                                Err(db_err) => {
-                                                    tracing::error!(user_email = %email, error = ?db_err, "Failed to save PGP key to database.");
-                                                }
-                                            }
-                                        } else {
-                                            tracing::info!(user_email = %email, "No PGP key found on keyserver (empty or invalid response).");
-                                        }
-                                    }
-                                    Err(text_err) => {
-                                        tracing::warn!(user_email = %email, error = ?text_err, "Failed to read PGP key response body.");
-                                    }
-                                }
-                            } else if response.status() == reqwest::StatusCode::NOT_FOUND {
-                                tracing::info!(user_email = %email, "No PGP key found on keyserver (404).");
+                    let message = match fetch_result {
+                        Ok(final_user_model) => {
+                            if final_user_model.pgp_key.is_some() {
+                                "Your email is now verified. We found and saved a PGP key for your account.".to_string()
                             } else {
-                                tracing::warn!(user_email = %email, status = ?response.status(), "Unexpected status code when fetching PGP key.");
+                                "Your email is now verified. We could not find a PGP key for your email.".to_string()
                             }
                         }
-                        Err(req_err) => {
-                            tracing::error!(user_email = %email, error = ?req_err, "Failed to query PGP keyserver.");
+                        Err(e) => {
+                            // Log the error, but proceed with verification success message
+                            tracing::error!(user_email = %verified_user_model.email, error = ?e, "Failed during PGP key fetch/update after verification.");
+                            "Your email is now verified, but there was an issue checking for a PGP key.".to_string()
                         }
-                    }
-
-                    // Construct success message based on PGP key result
-                    let message = if pgp_key_found {
-                        "Your email is now verified. We found a PGP key and added it to your profile. Please review it on your profile page.".to_string()
-                    } else {
-                        "Your email is now verified. We could not automatically find a PGP key. You can add one manually on your profile page.".to_string()
                     };
 
                     render_template(
@@ -658,3 +626,4 @@ pub fn routes() -> Routes {
         .add("/verify/{token}", get(verify_email))
         .add("/logout", post(handle_logout))
 }
+

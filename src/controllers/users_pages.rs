@@ -3,22 +3,21 @@ use crate::{
     mailers::auth::AuthMailer,
     middleware::auth_no_error::JWTWithUserOpt,
     models::{_entities::ssh_keys, _entities::team_memberships, _entities::teams, users},
-    views::{self, error_fragment, error_page, redirect, render_template},
+    views::{error_fragment, error_page, redirect, render_template},
 };
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::{
     debug_handler,
     extract::{Form, State},
-    response::IntoResponse,
     routing::{get, post},
 };
+use loco_rs::prelude::Result;
 use loco_rs::prelude::*;
-use loco_rs::prelude::{ModelError, Result};
 use loco_rs::prelude::{TeraView, ViewEngine};
-use sea_orm::PaginatorTrait;
 use sea_orm::QueryOrder;
 use sea_orm::Set;
+use sea_orm::{ActiveModelTrait, PaginatorTrait};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -51,6 +50,10 @@ async fn profile(
         // Redirect to login if not authenticated
         return redirect("/auth/login", headers);
     };
+
+    // Get PGP key details
+    let pgp_fingerprint = user.pgp_fingerprint();
+    let pgp_validity = user.pgp_validity();
 
     // Get user's team memberships
     let teams_result = teams::Entity::find()
@@ -146,6 +149,8 @@ async fn profile(
             "active_page": "profile",
             "invitation_count": &invitations,
             "ssh_keys": &ssh_keys,
+            "pgp_fingerprint": &pgp_fingerprint,
+            "pgp_validity": &pgp_validity,
         }),
     )
 }
@@ -596,6 +601,54 @@ async fn resend_verification_email(
     }
 }
 
+/// Refreshes the user's PGP key from a keyserver
+#[debug_handler]
+async fn refresh_pgp(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers); // Redirect if not logged in
+    };
+
+    // Use the new model method to fetch and update the key
+    let fetch_result = user
+        .clone() // Clone user to get ActiveModel without consuming original
+        .into_active_model()
+        .fetch_and_update_pgp_key(&ctx.db)
+        .await;
+
+    match fetch_result {
+        Ok(updated_user) => {
+            // Get updated details from the returned model
+            let pgp_fingerprint = updated_user.pgp_fingerprint();
+            let pgp_validity = updated_user.pgp_validity();
+
+            // Render the partial template for the PGP section
+            render_template(
+                &v,
+                "users/_pgp_section.html",
+                data!({
+                    "pgp_fingerprint": &pgp_fingerprint,
+                    "pgp_validity": &pgp_validity,
+                }),
+            )
+        }
+        Err(e) => {
+            tracing::error!(user_id = user.id, error = ?e, "Error fetching/updating PGP key.");
+            error_fragment(
+                &v,
+                &format!("Error refreshing PGP key: {}", e),
+                "#pgp-section",
+            )
+        }
+    }
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -610,4 +663,5 @@ pub fn routes() -> Routes {
             "/profile/resend-verification",
             post(resend_verification_email),
         )
+        .add("/profile/refresh-pgp", post(refresh_pgp))
 }

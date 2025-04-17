@@ -1,6 +1,9 @@
 use async_trait::async_trait;
-use chrono::{offset::Local, Duration};
+use chrono::{offset::Local, DateTime, Duration, Utc};
 use loco_rs::{auth::jwt, hash, prelude::*};
+use reqwest;
+use sea_orm::{ActiveValue, ConnectionTrait, DbErr, EntityTrait, QueryFilter, Set};
+use sequoia_openpgp::{self as openpgp, parse::Parse, policy::StandardPolicy};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
@@ -310,6 +313,50 @@ impl Model {
         let user = users::Entity::find_by_id(id).one(db).await?;
         user.ok_or_else(|| ModelError::EntityNotFound)
     }
+
+    /// Parses the user's PGP key string.
+    fn parse_pgp_key(key_str: &str) -> openpgp::Result<openpgp::Cert> {
+        openpgp::Cert::from_bytes(key_str.as_bytes())
+    }
+
+    /// Parses the user's PGP key and returns its fingerprint.
+    pub fn pgp_fingerprint(&self) -> Option<String> {
+        self.pgp_key
+            .as_ref()
+            .and_then(|key_str| match Self::parse_pgp_key(key_str) {
+                Ok(cert) => Some(cert.fingerprint().to_hex()),
+                Err(e) => {
+                    tracing::warn!("Failed to parse PGP key for fingerprint: {}", e);
+                    None
+                }
+            })
+    }
+
+    /// Parses the user's PGP key and returns its expiration date string.
+    pub fn pgp_validity(&self) -> Option<String> {
+        self.pgp_key
+            .as_ref()
+            .and_then(|key_str| match Self::parse_pgp_key(key_str) {
+                Ok(cert) => {
+                    let policy = &StandardPolicy::new();
+                    match cert.with_policy(policy, None) {
+                        Ok(cert_verifier) => cert_verifier
+                            .primary_key()
+                            .key_expiration_time()
+                            .map(|st| DateTime::<Utc>::from(st))
+                            .map(|dt| dt.format("%Y-%m-%d").to_string()),
+                        Err(e) => {
+                            tracing::warn!("Failed policy check for PGP key validity: {}", e);
+                            None
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse PGP key for validity: {}", e);
+                    None
+                }
+            })
+    }
 }
 
 impl ActiveModel {
@@ -426,5 +473,82 @@ impl ActiveModel {
         self.magic_link_token = ActiveValue::set(None);
         self.magic_link_expiration = ActiveValue::set(None);
         Ok(self.update(db).await?)
+    }
+
+    /// Fetches PGP key from keys.openpgp.org based on the user's email,
+    /// validates it, and updates the user record.
+    /// Returns the updated Model if successful.
+    pub async fn fetch_and_update_pgp_key(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
+        let email = match &self.email {
+            ActiveValue::Set(e) | ActiveValue::Unchanged(e) => e.clone(),
+            _ => return Err(ModelError::msg("User email not set in ActiveModel")),
+        };
+        let user_pid_str = match &self.pid {
+            ActiveValue::Set(p) | ActiveValue::Unchanged(p) => p.to_string(),
+            _ => "unknown_pid".to_string(),
+        };
+
+        let pgp_key_url = format!("https://keys.openpgp.org/vks/v1/by-email/{}", email);
+        let mut key_found_and_valid = false;
+        let mut fetched_key_text: Option<String> = None;
+
+        tracing::debug!(user_email = %email, url = %pgp_key_url, "Attempting PGP key lookup");
+
+        match reqwest::get(&pgp_key_url).await {
+            Ok(response) => {
+                if response.status().is_success() {
+                    match response.text().await {
+                        Ok(key_text) => {
+                            if !key_text.is_empty() {
+                                // Basic validation: Check if it looks like an armored key
+                                // More robust validation happens on parsing
+                                if key_text.contains("-----BEGIN PGP PUBLIC KEY BLOCK-----") {
+                                    // Further validate by trying to parse it
+                                    match openpgp::Cert::from_bytes(key_text.as_bytes()) {
+                                        Ok(_) => {
+                                            key_found_and_valid = true;
+                                            fetched_key_text = Some(key_text);
+                                            tracing::info!(user_email = %email, "Successfully found and validated PGP key.");
+                                        }
+                                        Err(parse_err) => {
+                                            tracing::warn!(user_email = %email, error = ?parse_err, "Found key text, but failed to parse as valid PGP key.");
+                                        }
+                                    }
+                                } else {
+                                    tracing::info!(user_email = %email, "No valid PGP key found on keyserver (invalid response format).");
+                                }
+                            } else {
+                                tracing::info!(user_email = %email, "No PGP key found on keyserver (empty response).");
+                            }
+                        }
+                        Err(text_err) => {
+                            tracing::warn!(user_email = %email, error = ?text_err, "Failed to read PGP key response body.");
+                        }
+                    }
+                } else if response.status() == reqwest::StatusCode::NOT_FOUND {
+                    tracing::info!(user_email = %email, "No PGP key found on keyserver (404).");
+                } else {
+                    tracing::warn!(user_email = %email, status = ?response.status(), "Unexpected status code when fetching PGP key.");
+                }
+            }
+            Err(req_err) => {
+                // Log error but don't fail the whole operation, just proceed without updating the key
+                tracing::error!(user_email = %email, error = ?req_err, "Failed to query PGP keyserver.");
+            }
+        }
+
+        // Update the model only if a valid key was found
+        if key_found_and_valid {
+            self.pgp_key = Set(fetched_key_text);
+            tracing::debug!(user_pid=%user_pid_str, "Updating user PGP key in database.");
+            self.update(db).await.map_err(ModelError::DbErr)
+        } else {
+            tracing::debug!(user_pid=%user_pid_str, "No valid PGP key found/fetched, skipping database update.");
+            // Let's update self.pgp_key to None if not found/invalid.
+            // This makes the state consistent with the fetch result.
+            self.pgp_key = Set(None);
+            tracing::debug!(user_pid=%user_pid_str, "Setting user PGP key to None in database.");
+            self.update(db).await.map_err(ModelError::DbErr)
+        }
     }
 }

@@ -43,6 +43,10 @@ tera = { version = "1.19.1" }
 # /view engine
 base64 = "0.21"
 reqwest = "0.12.15"
+sequoia-openpgp = { version = "2", default-features = false, features = ["crypto-openssl"] }
+sha1 = "0.10"
+zbase32 = "0.1.2"
+
 
 [[bin]]
 name = "hosting_farm-cli"
