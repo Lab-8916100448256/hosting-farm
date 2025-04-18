@@ -602,6 +602,96 @@ async fn resend_verification_email(
     }
 }
 
+/// Sends a PGP-encrypted verification email to the user
+#[debug_handler]
+async fn send_pgp_verification_email(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
+
+    // Only allow if PGP key is configured
+    if user.pgp_key.is_none() {
+        return error_fragment(
+            &v,
+            "No PGP key configured. Please add one first.",
+            "#pgp-section",
+        );
+    }
+
+    // Generate new PGP verification token
+    match user
+        .clone()
+        .into_active_model()
+        .generate_pgp_verification_token(&ctx.db)
+        .await
+    {
+        Ok(user_with_token) => {
+            // Send PGP verification email
+            match AuthMailer::send_pgp_verification(&ctx, &user_with_token).await {
+                Ok(_) => {
+                    // Mark sent timestamp
+                    match user_with_token
+                        .clone()
+                        .into_active_model()
+                        .set_pgp_verification_sent(&ctx.db)
+                        .await
+                    {
+                        Ok(_) => {
+                            // Render updated PGP section with success message
+                            let pgp_fingerprint = user_with_token.pgp_fingerprint();
+                            let pgp_validity = user_with_token.pgp_validity();
+                            let notification_message = "PGP verification email sent successfully.";
+                            let pgp_section_html = v.render(
+                                "users/_pgp_section.html",
+                                data!({
+                                    "pgp_fingerprint": &pgp_fingerprint,
+                                    "pgp_validity": &pgp_validity,
+                                    "notification_message": &notification_message,
+                                }),
+                            )?;
+                            Ok(Response::builder()
+                                .status(StatusCode::OK)
+                                .header(header::CONTENT_TYPE, "text/html")
+                                .body(axum::body::Body::from(pgp_section_html))?)
+                        }
+                        Err(e) => {
+                            tracing::error!(user_id = user_with_token.id, error = ?e, "Failed to set PGP verification sent timestamp");
+                            error_fragment(
+                                &v,
+                                "Failed to update verification status. Please try again.",
+                                "#pgp-section",
+                            )
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(user_id = user_with_token.id, error = ?e, "Failed to send PGP verification email");
+                    error_fragment(
+                        &v,
+                        "Could not send verification email. Please try again.",
+                        "#pgp-section",
+                    )
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!(user_id = user.id, error = ?e, "Failed to generate PGP verification token");
+            error_fragment(
+                &v,
+                "Could not generate verification token. Please try again.",
+                "#pgp-section",
+            )
+        }
+    }
+}
+
 /// Refreshes the user's PGP key from a keyserver
 #[debug_handler]
 async fn refresh_pgp(
@@ -676,6 +766,10 @@ pub fn routes() -> Routes {
         .add(
             "/profile/resend-verification",
             post(resend_verification_email),
+        )
+        .add(
+            "/profile/send-pgp-verification",
+            post(send_pgp_verification_email),
         )
         .add("/profile/refresh-pgp", post(refresh_pgp))
 }

@@ -19,6 +19,17 @@
         >
             Refresh Key from Server
         </button>
+        {% if pgp_fingerprint %}
+            <button
+                type="button"
+                hx-post="/users/profile/send-pgp-verification"
+                hx-target="#pgp-section"
+                hx-swap="outerHTML"
+                class="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+            >
+                Send PGP Verification Email
+            </button>
+        {% endif %}
         <div id="pgp-refresh-spinner" class="htmx-indicator">
             <svg class="animate-spin h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>

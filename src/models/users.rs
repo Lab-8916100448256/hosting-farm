@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use chrono::{offset::Local, DateTime, Duration, Utc};
 use loco_rs::{auth::jwt, hash, prelude::*};
+use openpgp::serialize::stream::Recipient;
 use reqwest;
 use sea_orm::{ActiveValue, ConnectionTrait, DbErr, EntityTrait, QueryFilter, Set};
 use sequoia_openpgp::{self as openpgp, parse::Parse, policy::StandardPolicy};
@@ -145,6 +146,26 @@ impl Model {
             .filter(
                 model::query::condition()
                     .eq(users::Column::EmailVerificationToken, token)
+                    .build(),
+            )
+            .one(db)
+            .await?;
+        user.ok_or_else(|| ModelError::EntityNotFound)
+    }
+
+    /// finds a user by the provided PGP verification token
+    ///
+    /// # Errors
+    ///
+    /// When could not find user by the given token or DB query error
+    pub async fn find_by_pgp_verification_token(
+        db: &DatabaseConnection,
+        token: &str,
+    ) -> ModelResult<Self> {
+        let user = users::Entity::find()
+            .filter(
+                model::query::condition()
+                    .eq(users::Column::PgpVerificationToken, token)
                     .build(),
             )
             .one(db)
@@ -357,6 +378,32 @@ impl Model {
                 }
             })
     }
+
+    /// Parses the user's PGP key and encrypts a plaintext message, returning ascii-armored ciphertext.
+    pub fn encrypt_for_pgp(&self, plaintext: &str) -> openpgp::Result<String> {
+        let policy = &StandardPolicy::new();
+        let key_data = self.pgp_key.as_ref().expect("PGP key not set");
+        let cert = Self::parse_pgp_key(key_data)?;
+        let mut sink = Vec::new();
+        use openpgp::serialize::stream::{Armorer, Encryptor, LiteralWriter};
+        let message = sequoia_openpgp::serialize::stream::Message::new(&mut sink);
+        let message = Armorer::new(message).build()?;
+        let recipients = cert
+            .keys()
+            .with_policy(policy, None)
+            .supported()
+            .alive()
+            .revoked(false)
+            .for_transport_encryption()
+            .map(Into::<Recipient>::into)
+            .collect::<Vec<Recipient>>();
+        let message = Encryptor::for_recipients(message, recipients).build()?;
+        let mut writer = LiteralWriter::new(message).build()?;
+        use std::io::Write;
+        writer.write_all(plaintext.as_bytes())?;
+        writer.finalize()?;
+        Ok(String::from_utf8(sink).expect("Invalid UTF-8 in PGP armored message"))
+    }
 }
 
 impl ActiveModel {
@@ -550,5 +597,29 @@ impl ActiveModel {
             tracing::debug!(user_pid=%user_pid_str, "Setting user PGP key to None in database.");
             self.update(db).await.map_err(ModelError::DbErr)
         }
+    }
+
+    /// Sets the PGP verification token for the user and updates it in the database.
+    pub async fn generate_pgp_verification_token(
+        mut self,
+        db: &DatabaseConnection,
+    ) -> ModelResult<Model> {
+        self.pgp_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
+        Ok(self.update(db).await?)
+    }
+
+    /// Sets the PGP verification sent timestamp and updates it in the database.
+    pub async fn set_pgp_verification_sent(
+        mut self,
+        db: &DatabaseConnection,
+    ) -> ModelResult<Model> {
+        self.pgp_verification_sent_at = ActiveValue::Set(Some(Local::now().into()));
+        Ok(self.update(db).await?)
+    }
+
+    /// Marks the PGP as verified by setting the timestamp and updates it in the database.
+    pub async fn mark_pgp_verified(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
+        self.pgp_verified_at = ActiveValue::Set(Some(Local::now().into()));
+        Ok(self.update(db).await?)
     }
 }

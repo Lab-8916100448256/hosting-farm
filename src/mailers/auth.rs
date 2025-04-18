@@ -9,6 +9,7 @@ use crate::models::users;
 static welcome: Dir<'_> = include_dir!("src/mailers/auth/welcome");
 static forgot: Dir<'_> = include_dir!("src/mailers/auth/forgot");
 static magic_link: Dir<'_> = include_dir!("src/mailers/auth/magic_link");
+static pgp_verification: Dir<'_> = include_dir!("src/mailers/auth/pgp_verification");
 // #[derive(Mailer)] // -- disabled for faster build speed. it works. but lets
 // move on for now.
 
@@ -108,6 +109,30 @@ impl AuthMailer {
 
         Self::mail_template(ctx, &magic_link, args).await?;
 
+        Ok(())
+    }
+
+    /// Sends a PGP-encrypted verification email to the user.
+    pub async fn send_pgp_verification(ctx: &AppContext, user: &users::Model) -> Result<()> {
+        let mut args = mailer::Args {
+            to: user.email.to_string(),
+            locals: json!({
+              "name": user.name,
+              "token": user.pgp_verification_token.clone(),
+              "domain": &ctx.config.server.host,
+            }),
+            from: Some("test@example.com".to_string()),
+            ..Default::default()
+        };
+        // configure from if SMTP auth present
+        if let Some(mailer_config) = &ctx.config.mailer {
+            if let Some(smtp) = &mailer_config.smtp {
+                if let Some(auth) = &smtp.auth {
+                    args.from = Some(auth.user.clone());
+                }
+            }
+        }
+        Self::mail_template(ctx, &pgp_verification, args).await?;
         Ok(())
     }
 }

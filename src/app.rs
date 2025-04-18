@@ -99,7 +99,10 @@ impl Hooks for App {
             email_verified_at: ActiveValue::NotSet,
             magic_link_token: ActiveValue::NotSet,
             magic_link_expiration: ActiveValue::NotSet,
-            pgp_key: Default::default(),
+            pgp_key: ActiveValue::NotSet,
+            pgp_verification_token: ActiveValue::NotSet,
+            pgp_verification_sent_at: ActiveValue::NotSet,
+            pgp_verified_at: ActiveValue::NotSet,
         };
         user.insert(&ctx.db).await?;
         Ok(())

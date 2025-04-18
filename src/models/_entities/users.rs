@@ -25,6 +25,9 @@ pub struct Model {
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
     pub pgp_key: Option<String>,
+    pub pgp_verification_token: Option<String>,
+    pub pgp_verification_sent_at: Option<DateTimeWithTimeZone>,
+    pub pgp_verified_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

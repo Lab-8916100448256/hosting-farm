@@ -528,6 +528,58 @@ async fn verify_email(
     }
 }
 
+/// Handles the PGP key verification link
+#[debug_handler]
+async fn verify_pgp(
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    Path(token): Path<String>,
+) -> Result<Response> {
+    let user_result = users::Model::find_by_pgp_verification_token(&ctx.db, &token).await;
+    match user_result {
+        Ok(user) => {
+            if user.pgp_verified_at.is_some() {
+                // Already verified
+                return render_template(
+                    &v,
+                    "auth/verify-pgp.html",
+                    data!({
+                        "success": true,
+                        "message": "Your PGP key has already been verified.",
+                    }),
+                );
+            }
+            let user_active = user.clone().into_active_model();
+            match user_active.mark_pgp_verified(&ctx.db).await {
+                Ok(_) => render_template(
+                    &v,
+                    "auth/verify-pgp.html",
+                    data!({
+                        "success": true,
+                        "message": "Your PGP key was verified successfully.",
+                    }),
+                ),
+                Err(_) => render_template(
+                    &v,
+                    "auth/verify-pgp.html",
+                    data!({
+                        "success": false,
+                        "message": "PGP verification failed. Please contact support.",
+                    }),
+                ),
+            }
+        }
+        Err(_) => render_template(
+            &v,
+            "auth/verify-pgp.html",
+            data!({
+                "success": false,
+                "message": "Invalid or expired PGP verification link.",
+            }),
+        ),
+    }
+}
+
 /// Handles user logout by clearing the auth token cookie
 #[debug_handler]
 async fn handle_logout() -> Result<Response> {
@@ -624,5 +676,6 @@ pub fn routes() -> Routes {
         .add("/reset-password/{token}", get(reset_password))
         .add("/reset-password", post(handle_reset_password))
         .add("/verify/{token}", get(verify_email))
+        .add("/verify-pgp/{token}", get(verify_pgp))
         .add("/logout", post(handle_logout))
 }
