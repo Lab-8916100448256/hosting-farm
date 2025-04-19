@@ -3,11 +3,20 @@
 
 use crate::models::users;
 use lettre::message::{header::ContentType, Mailbox, Message as LettreMessage};
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::client::{Tls, TlsParameters};
+use lettre::transport::smtp::AsyncSmtpTransport;
 use lettre::AsyncTransport; // Import transport trait
+use lettre::Tokio1Executor;
 use loco_rs::prelude::*;
 use sequoia_openpgp::{
-    armor::Kind, cert::CertParser, message::Message, parse::Parse, policy::StandardPolicy,
-    serialize::Serialize,
+    cert::CertParser,
+    parse::Parse,
+    policy::StandardPolicy,
+    // Import stream components and Recipient
+    serialize::stream::{Armorer, Encryptor, LiteralWriter, Message as StreamMessage, Recipient},
+    // Remove unused Serialize import if Message is not used directly
+    // serialize::Serialize,
 };
 use serde_json::json;
 use std::io::Write;
@@ -131,14 +140,12 @@ impl AuthMailer {
         token: &str,
     ) -> Result<()> {
         // 1. Get and parse the user's PGP key
-        let _pgp_key_str = user
+        let pgp_key_str = user
             .pgp_key
             .as_ref()
             .ok_or_else(|| Error::string("User does not have a PGP key configured."))?;
 
-        // --- Temporarily Commented Out PGP Logic ---
-        /*
-        let recipient_cert = CertParser::from_bytes(_pgp_key_str.as_bytes())
+        let recipient_cert = CertParser::from_bytes(pgp_key_str.as_bytes())
             .map_err(|e| {
                 tracing::error!("Failed to parse PGP key for user {}: {}", user.email, e);
                 Error::string("Invalid PGP key format.")
@@ -147,11 +154,15 @@ impl AuthMailer {
                 certs
                     .next()
                     .ok_or_else(|| Error::string("No valid PGP certificate found in key data."))
+            })?
+            .map_err(|e| {
+                tracing::error!("Failed to parse PGP key for user {}: {}", user.email, e);
+                Error::string("Invalid PGP key format.")
             })?;
 
         // 2. Construct the verification URL and email body
         let verification_url = format!(
-            "https://{}/pgp/verify/{}", // Assuming https and new /pgp route
+            "{}/pgp/verify/{}", // Assuming https and new /pgp route
             &ctx.config.server.host, token
         );
 
@@ -161,27 +172,58 @@ impl AuthMailer {
             verification_url
         );
 
-        // 3. Encrypt the email body using Sequoia
+        // 3. Encrypt the email body using Sequoia stream API (following example)
         let policy = &StandardPolicy::new();
-        let mut encrypted_bytes = Vec::new();
+        let mut sink = Vec::new();
 
-        let mut armored_writer = sequoia_openpgp::armor::Writer::new(&mut encrypted_bytes, Kind::Message)?;
+        // Create the initial message sink targeting the output vector
+        let message_sink = StreamMessage::new(&mut sink);
 
-        // Create a MessageWriter for encryption - Path needs verification
-        let message_writer = sequoia_openpgp::MessageWriter::encrypt(
-            &mut armored_writer, // Write to the armored writer
-            &[&recipient_cert], // Pass certs as a slice
-            policy,
-            None, // No signing key
-        )?;
+        // Wrap the sink in an Armorer
+        let message_armorer = Armorer::new(message_sink)
+            .build()
+            .map_err(|e| Error::string(&format!("Failed to build Armorer: {}", e)))?;
 
-        use std::io::Write;
-        message_writer.into_message_writer()?
+        // Extract valid recipient keys from the Cert
+        let recipients: Vec<Recipient> = recipient_cert
+            .keys()
+            .with_policy(policy, None) // Apply policy to filter keys
+            .supported()
+            .alive()
+            .revoked(false)
+            .for_transport_encryption() // Filter for keys usable for encryption
+            .map(Into::into) // Convert valid keys/subkeys into Recipient
+            .collect();
+
+        if recipients.is_empty() {
+            return Err(Error::string(
+                "No valid PGP key found for encryption in the provided certificate.",
+            ));
+        }
+
+        // Create an encryptor targeting the Armorer, for the collected recipients
+        let message_encryptor = Encryptor::for_recipients(message_armorer, recipients)
+            .build()
+            .map_err(|e| Error::string(&format!("Failed to build encryptor: {}", e)))?;
+
+        // Create a literal writer targeting the encryptor
+        let mut literal_writer = LiteralWriter::new(message_encryptor)
+            .build()
+            .map_err(|e| Error::string(&format!("Failed to build literal writer: {}", e)))?;
+
+        // Write the plaintext body to the literal writer
+        literal_writer
             .write_all(email_body.as_bytes())
             .map_err(|e| Error::string(&format!("Failed to write encrypted message: {}", e)))?;
 
-        let encrypted_message_str = String::from_utf8(encrypted_bytes)
-            .map_err(|_| Error::string("Encrypted message is not valid UTF-8"))?;
+        // Finalize the literal writer to finish encryption/armoring
+        literal_writer
+            .finalize()
+            .map_err(|e| Error::string(&format!("Failed to finalize literal writer: {}", e)))?;
+
+        let encrypted_message_str =
+            String::from_utf8(sink) // Use sink directly
+                .map_err(|_| Error::string("Encrypted message is not valid UTF-8"))?;
 
         // 4. Prepare and send the email using lettre directly (raw email)
         let from_mailbox: Mailbox = ctx
@@ -213,18 +255,43 @@ impl AuthMailer {
             .body(encrypted_message_str)
             .map_err(|e| Error::string(&format!("Failed to build email: {}", e)))?;
 
-        // Get the mailer instance from context and use AsyncTransport::send
-        let mailer = ctx.mailer.as_ref().ok_or_else(|| Error::string("Mailer not configured"))?;
-        mailer.send(email).await?; // Use AsyncTransport::send
-        */
-        // --- End Temporarily Commented Out ---
+        // Manually build and use lettre transport
+        let mailer_config = ctx
+            .config
+            .mailer
+            .as_ref()
+            .ok_or_else(|| Error::string("Mailer configuration missing"))?;
+        let smtp_config = mailer_config
+            .smtp
+            .as_ref()
+            .ok_or_else(|| Error::string("SMTP configuration missing"))?;
+        let smtp_auth = smtp_config
+            .auth
+            .as_ref()
+            .ok_or_else(|| Error::string("SMTP auth configuration missing"))?;
 
-        // Log that we would send the email here
-        tracing::info!(
-            "TODO: Implement PGP email sending for user {} with token {}",
-            user.email,
-            token
-        );
+        let smtp_host = &smtp_config.host;
+        let smtp_port = smtp_config.port;
+        let smtp_user = &smtp_auth.user;
+        let smtp_pass = &smtp_auth.password;
+
+        let creds = Credentials::new(smtp_user.to_string(), smtp_pass.to_string());
+
+        let tls_params = TlsParameters::builder(smtp_host.to_string())
+            .build()
+            .map_err(|e| Error::string(&format!("Failed to build TLS parameters: {}", e)))?;
+
+        let transport = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(smtp_host)
+            .map_err(|e| Error::string(&format!("Failed to build SMTP transport: {}", e)))?
+            .port(smtp_port)
+            .credentials(creds)
+            .tls(Tls::Required(tls_params))
+            .build();
+
+        transport
+            .send(email)
+            .await
+            .map_err(|e| Error::string(&format!("Failed to send email via SMTP: {}", e)))?;
 
         Ok(())
     }

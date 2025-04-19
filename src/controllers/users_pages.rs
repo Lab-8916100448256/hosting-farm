@@ -675,7 +675,7 @@ async fn verify_pgp_sending(
     auth: JWTWithUserOpt<users::Model>,
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
-    headers: HeaderMap,
+    //_headers: HeaderMap,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
