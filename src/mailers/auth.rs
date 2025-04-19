@@ -149,7 +149,37 @@ impl AuthMailer {
                 }
             }
         }
-        Self::mail_template(ctx, &pgp_verification, args).await?;
+        // Build a PGP/MIME multipart/encrypted message manually
+        use lettre::message::header::ContentType;
+        use lettre::message::{Message, MultiPart, SinglePart};
+        let from = args.from.clone().unwrap().parse()?;
+        let to = args.to.parse()?;
+        let subject = "Verify your PGP Key";
+        let email = Message::builder()
+            .from(from)
+            .to(to)
+            .subject(subject)
+            .multipart(
+                MultiPart::new()
+                    .header(
+                        ContentType::parse(
+                            "multipart/encrypted; protocol=\"application/pgp-encrypted\"",
+                        )
+                        .unwrap(),
+                    )
+                    .singlepart(
+                        SinglePart::builder()
+                            .header(ContentType::parse("application/pgp-encrypted").unwrap())
+                            .body("Version: 1".to_string()),
+                    )
+                    .singlepart(
+                        SinglePart::builder()
+                            .header(ContentType::parse("application/octet-stream").unwrap())
+                            .body(encrypted),
+                    ),
+            )?;
+        // Send via the SMTP transporter
+        ctx.mailer.transport.send(email).await?;
         Ok(())
     }
 }
