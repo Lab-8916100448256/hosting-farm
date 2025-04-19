@@ -10,7 +10,7 @@ use axum::http::{header, StatusCode};
 use axum::response::Response;
 use axum::{
     debug_handler,
-    extract::{Form, State},
+    extract::{Form, Query, State},
     routing::{get, post},
 };
 use loco_rs::prelude::Result;
@@ -21,6 +21,7 @@ use sea_orm::Set;
 use sea_orm::{ActiveModelTrait, PaginatorTrait};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
 
 /// Params for updating user profile
 #[derive(Debug, Deserialize)]
@@ -44,6 +45,7 @@ async fn profile(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
@@ -141,6 +143,9 @@ async fn profile(
         }
     };
 
+    // Check for the pgp_verified query parameter
+    let pgp_verified_success = params.get("pgp_verified") == Some(&"true".to_string());
+
     render_template(
         &v,
         "users/profile.html",
@@ -152,6 +157,7 @@ async fn profile(
             "ssh_keys": &ssh_keys,
             "pgp_fingerprint": &pgp_fingerprint,
             "pgp_validity": &pgp_validity,
+            "pgp_verified_success": pgp_verified_success,
         }),
     )
 }
@@ -271,42 +277,134 @@ async fn update_profile(
         return redirect("/auth/login", headers);
     };
 
+    let email_changed = user.email != params.email;
+    let mut user_model: users::ActiveModel = user.clone().into(); // Clone user to avoid move issues
+
     // Check if email already exists (if it changed)
-    if user.email != params.email {
-        let existing_user = users::Model::find_by_email(&ctx.db, &params.email).await;
-        match existing_user {
-            Ok(_) => return error_fragment(&v, "Email already in use", "#error-container"),
+    if email_changed {
+        // We check if the *new* email exists. find_by_email returns Err(EntityNotFound) if it *doesn't* exist.
+        match users::Model::find_by_email(&ctx.db, &params.email).await {
+            Ok(_) => {
+                // Found an existing user with the new email address - this is an error
+                return error_fragment(&v, "Email already in use", "#notification-container");
+            }
+            Err(ModelError::EntityNotFound) => {
+                // Email is available - this is the expected case, do nothing
+            }
             Err(e) => {
-                tracing::error!("Database error checking email: {}", e);
+                // Other database error
+                tracing::error!(error = ?e, "Database error checking email availability");
                 return error_fragment(
                     &v,
                     "Could not verify email availability. Please try again.",
-                    "#error-container",
+                    "#notification-container",
                 );
             }
         }
+        // Prepare email change updates
+        user_model.email = Set(params.email.clone());
+        user_model.email_verified_at = Set(None);
+        user_model.pgp_verified_at = Set(None); // Correct field name
+                                                // We'll regenerate token and send email *after* successful update
     }
 
-    // Update user profile
-    let mut user_model: crate::models::_entities::users::ActiveModel = user.into();
-    user_model.name = sea_orm::ActiveValue::set(params.name);
-    user_model.email = sea_orm::ActiveValue::set(params.email);
+    // Always update name
+    user_model.name = Set(params.name);
 
+    // Perform the database update
     match user_model.update(&ctx.db).await {
-        Ok(_updated_user) => {
-            // Return a response that refreshes the page
-            let response = Response::builder()
-                .header("HX-Refresh", "true")
-                .body(axum::body::Body::empty())?;
+        Ok(updated_user) => {
+            let mut success_message = "Profile updated successfully.".to_string();
+            let mut send_verification_banner = false;
 
-            Ok(response)
+            // Handle email verification steps if email was changed
+            if email_changed {
+                // Mark flag to send OOB swap for banner
+                send_verification_banner = true;
+
+                match updated_user
+                    .clone() // Clone again for the subsequent operations
+                    .into_active_model()
+                    .generate_email_verification_token(&ctx.db)
+                    .await
+                {
+                    Ok(user_with_token) => {
+                        match AuthMailer::send_welcome(&ctx, &user_with_token).await {
+                            Ok(_) => {
+                                match user_with_token
+                                    .into_active_model()
+                                    .set_email_verification_sent(&ctx.db)
+                                    .await
+                                {
+                                    Ok(_) => {
+                                        success_message.push_str(" A verification email has been sent to your new address.");
+                                    }
+                                    Err(db_err) => {
+                                        tracing::error!(error = ?db_err, email = %updated_user.email, "Failed to set email verification sent status after profile update");
+                                        success_message.push_str(
+                                            " Failed to record verification email dispatch status.",
+                                        );
+                                    }
+                                }
+                            }
+                            Err(mailer_err) => {
+                                tracing::error!(error = ?mailer_err, email = %updated_user.email, "Failed to send verification email after profile update");
+                                success_message
+                                    .push_str(" However, failed to send verification email.");
+                            }
+                        }
+                    }
+                    Err(token_err) => {
+                        tracing::error!(error = ?token_err, email = %updated_user.email, "Failed to generate verification token after profile update");
+                        success_message.push_str(" Failed to generate new verification token.");
+                    }
+                }
+            }
+
+            // Render success message fragment
+            let success_html = v.render(
+                "fragments/success_message.html",
+                data!({
+                    "message": success_message,
+                    // Target is implicitly handled by the form's hx-target
+                }),
+            )?;
+
+            // If email changed, also render and prepare the verification banner OOB swap
+            if send_verification_banner {
+                let banner_html = v.render(
+                    "users/_email_verification_banner.html",
+                    // Pass the updated user model to the banner template
+                    data!({ "user": &updated_user }),
+                )?;
+
+                // Combine success message and OOB banner
+                let combined_html = format!
+                    (
+                        "{}<div id=\"email-verification-banner-container\" hx-swap-oob=\"outerHTML\">{}</div>",
+                        success_html,
+                        banner_html
+                    );
+
+                // Return combined response
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "text/html")
+                    .body(axum::body::Body::from(combined_html))?)
+            } else {
+                // Just return the success message if email didn't change
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "text/html")
+                    .body(axum::body::Body::from(success_html))?)
+            }
         }
         Err(e) => {
-            tracing::error!("Failed to update user profile: {}", e);
+            tracing::error!(error = ?e, user_id = user.id, "Failed to update user profile");
             error_fragment(
                 &v,
                 "Could not update profile. Please try again.",
-                "#error-container",
+                "#notification-container", // Target general notification area
             )
         }
     }
@@ -644,6 +742,7 @@ async fn refresh_pgp(
                     "pgp_fingerprint": &pgp_fingerprint,
                     "pgp_validity": &pgp_validity,
                     "notification_message": &notification_message, // Pass message
+                    "user": &updated_user, // Pass the updated user object
                 }),
             )?;
 
@@ -663,6 +762,96 @@ async fn refresh_pgp(
     }
 }
 
+/// Handler to initiate PGP email sending verification
+#[debug_handler]
+async fn verify_pgp_sending(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    //_headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        // Should not happen if UI prevents this, but handle defensively
+        // Pass a default target selector instead of None
+        return error_fragment(&v, "Authentication required.", "#notification-container");
+    };
+
+    // Ensure user has a PGP key configured
+    if user.pgp_key.is_none() {
+        return error_fragment(
+            &v,
+            "No PGP key configured. Cannot send verification email.",
+            "#notification-container", // Pass a default target selector
+        );
+    }
+
+    // 1. Generate PGP verification token
+    // Clone user before converting to ActiveModel to avoid move
+    let active_user: users::ActiveModel = user.clone().into();
+    let updated_user_res = active_user.generate_pgp_verification_token(&ctx.db).await;
+
+    let updated_user = match updated_user_res {
+        Ok(u) => u,
+        Err(e) => {
+            // Access user.id before it's potentially moved/borrow error occurs
+            let user_id = user.id;
+            tracing::error!("Failed to generate PGP token for user {}: {}", user_id, e);
+            // Pass target selector, rely on logging for error details
+            return error_fragment(
+                &v,
+                "Failed to start PGP verification process.",
+                "#notification-container",
+            );
+        }
+    };
+
+    // 2. Send PGP encrypted verification email
+    // Ensure the token exists before sending
+    if let Some(token) = &updated_user.pgp_verification_token {
+        match AuthMailer::send_pgp_verification(&ctx, &updated_user, token).await {
+            Ok(_) => {
+                tracing::info!("PGP verification email sent to: {}", updated_user.email);
+                // Return a success message fragment for the notification area
+                render_template(
+                    &v,
+                    "fragments/success_message.html",
+                    data!({
+                        "message": "PGP verification email sent successfully. Please check your inbox.",
+                        "target": "#notification-container"
+                    }),
+                )
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to send PGP verification email to {}: {}",
+                    updated_user.email,
+                    e
+                );
+                // Pass target selector, rely on logging for error details
+                error_fragment(
+                    &v,
+                    "Failed to send PGP verification email.",
+                    "#notification-container",
+                )
+            }
+        }
+    } else {
+        // This should not happen if token generation succeeded
+        tracing::error!(
+            "PGP token missing after generation for user {}",
+            updated_user.id
+        );
+        // Pass a default target selector instead of None
+        error_fragment(
+            &v,
+            "Internal error: PGP token generation failed.",
+            "#notification-container",
+        )
+    }
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -678,4 +867,5 @@ pub fn routes() -> Routes {
             post(resend_verification_email),
         )
         .add("/profile/refresh-pgp", post(refresh_pgp))
+        .add("/profile/verify-pgp", post(verify_pgp_sending))
 }

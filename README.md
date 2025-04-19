@@ -24,12 +24,12 @@ This section describes how to install the developement dependencies of the proje
    ```
 
 
-3. Installing loco-rs and sea-orm CLI tools
+3. Installing loco-rs and other CLI tools
    ```
    sudo apt update && sudo apt install pkg-config -y
    cargo install loco
    cargo install sea-orm-cli
-   cargo install sea-orm-cli
+   cargo install cargo-insta
    ```
 
 4. **Building the application**

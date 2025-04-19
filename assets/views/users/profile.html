@@ -3,6 +3,14 @@
 {% block title %}Profile - Hosting Farm{% endblock %}
 
 {% block content %}
+
+{# Check for PGP verification success flag from context #}
+{% if pgp_verified_success %}
+<div class="mb-4 p-4 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-md shadow">
+    PGP email sending capability verified successfully!
+</div>
+{% endif %}
+
 <div class="space-y-6">
 
     <div class="bg-white dark:bg-gray-800 shadow px-4 py-5 sm:rounded-lg sm:p-6">
@@ -14,7 +22,21 @@
                 </p>
             </div>
             <div class="mt-5 md:mt-0 md:col-span-2">
-                <form action="/users/profile" hx-post="/users/profile" hx-target="#error-container" hx-swap="innerHTML" class="space-y-4">
+                <form
+                    action="/users/profile"
+                    hx-post="/users/profile"
+                    hx-target="#notification-container"
+                    hx-swap="innerHTML"
+                    class="space-y-4"
+                    _="on load set initialEmail to #email.value
+                       on htmx:configRequest(event) from me
+                           if #email.value is not initialEmail
+                               if not confirm('You have changed your email address. Are you sure you want to proceed?')
+                                   halt the event
+                               end
+                           end
+                       end"
+                >
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
                             <label for="name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
@@ -25,41 +47,14 @@
                             <label for="email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Email address</label>
                             <input type="email" name="email" id="email" value="{{ user.email }}" required class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md">
                         </div>
-                        
+
                         <!-- PGP Key Section -->
-                        <div id="pgp-section" class="col-span-6 sm:col-span-4">
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">PGP Key</label>
-                            <div class="mt-1 flex items-center space-x-4">
-                                {% if pgp_fingerprint %}
-                                    <div class="text-sm">
-                                        <p class="text-gray-900 dark:text-gray-100">Fingerprint: <code class="font-mono">{{ pgp_fingerprint }}</code></p>
-                                        <p class="text-gray-500 dark:text-gray-400">Expires: {{ pgp_validity | default(value='Never') }}</p>
-                                    </div>
-                                {% else %}
-                                    <p class="text-sm text-gray-500 dark:text-gray-400">No PGP key configured.</p>
-                                {% endif %}
-                                <button 
-                                    type="button"
-                                    hx-post="/users/profile/refresh-pgp"
-                                    hx-target="#pgp-section"
-                                    hx-swap="outerHTML"
-                                    hx-indicator="#pgp-refresh-spinner"
-                                    class="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                                >
-                                    Refresh Key from Server
-                                </button>
-                                <div id="pgp-refresh-spinner" class="htmx-indicator">
-                                    <svg class="animate-spin h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                </div>
-                            </div>
+                        <div class="col-span-6 sm:col-span-4">
+                           {% include "users/_pgp_section.html" %}
                         </div>
                         <!-- End PGP Key Section -->
 
                     </div>
-                    <div id="error-container" class="mt-4 text-red-500 dark:text-red-400 text-sm"></div>
                     <div class="flex justify-end">
                         <button type="submit" class="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                             Save Profile
@@ -73,6 +68,7 @@
     <div id="notification-container"></div>
 
     <!-- Email Verification Section -->
+    <div id="email-verification-banner-container">
     {% if not user.email_verified_at %}
     <div class="bg-yellow-50 dark:bg-yellow-900 border-l-4 border-yellow-400 p-4 shadow">
         <div class="flex">
@@ -107,6 +103,8 @@
         </div>
     </div>
     {% endif %}
+    </div>
+    <!-- End Email Verification Section -->
 
     <div class="bg-white dark:bg-gray-800 shadow px-4 py-5 sm:rounded-lg sm:p-6">
         <div class="md:grid md:grid-cols-3 md:gap-6">

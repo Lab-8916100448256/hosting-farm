@@ -475,7 +475,7 @@ async fn verify_email(
                     let message = match fetch_result {
                         Ok(final_user_model) => {
                             if final_user_model.pgp_key.is_some() {
-                                "Your email is now verified. We found and saved a PGP key for your account.".to_string()
+                                "Your email is now verified. We found and saved a PGP key for your account.Go to the your profile page to review it".to_string()
                             } else {
                                 "Your email is now verified. We could not find a PGP key for your email. Ensure your PGP key is published on public PGP servers and try again to fetch it from your profile page".to_string()
                             }
@@ -483,7 +483,7 @@ async fn verify_email(
                         Err(e) => {
                             // Log the error, but proceed with verification success message
                             tracing::error!(user_email = %verified_user_model.email, error = ?e, "Failed during PGP key fetch/update after verification.");
-                            "Your email is now verified, but there was an issue checking for a PGP key.".to_string()
+                            "Your email is now verified, but there was an issue checking for your PGP key on public PGP key servers. You can re-try to fetch it from you profile page.".to_string()
                         }
                     };
 

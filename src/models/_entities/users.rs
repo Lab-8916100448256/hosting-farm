@@ -22,6 +22,8 @@ pub struct Model {
     pub email_verified_at: Option<DateTimeWithTimeZone>,
     pub magic_link_token: Option<String>,
     pub magic_link_expiration: Option<DateTimeWithTimeZone>,
+    pub pgp_verification_token: Option<String>,
+    pub pgp_verified_at: Option<DateTime>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
     pub pgp_key: Option<String>,
