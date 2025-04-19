@@ -146,6 +146,10 @@ async fn profile(
     // Check for the pgp_verified query parameter
     let pgp_verified_success = params.get("pgp_verified") == Some(&"true".to_string());
 
+    // Determine PGP status flags
+    let has_pgp_key = user.pgp_key.is_some();
+    let is_pgp_verified = user.pgp_verified_at.is_some();
+
     render_template(
         &v,
         "users/profile.html",
@@ -158,6 +162,8 @@ async fn profile(
             "pgp_fingerprint": &pgp_fingerprint,
             "pgp_validity": &pgp_validity,
             "pgp_verified_success": pgp_verified_success,
+            "has_pgp_key": has_pgp_key,
+            "is_pgp_verified": is_pgp_verified,
         }),
     )
 }
