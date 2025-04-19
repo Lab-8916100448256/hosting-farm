@@ -650,6 +650,7 @@ async fn refresh_pgp(
                     "pgp_fingerprint": &pgp_fingerprint,
                     "pgp_validity": &pgp_validity,
                     "notification_message": &notification_message, // Pass message
+                    "user": &updated_user, // Pass the updated user object
                 }),
             )?;
 
