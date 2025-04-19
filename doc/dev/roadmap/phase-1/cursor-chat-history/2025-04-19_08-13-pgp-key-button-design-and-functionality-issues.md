@@ -247,6 +247,245 @@ _**Assistant**_
 
 ---
 
+Okay, the error message `TestNotFound("some")` points directly to the conditional check I added in `assets/views/users/_pgp_section.html`. It seems Tera doesn't recognize the `is some` test in this context.
+
+Let's correct this. I'll modify the condition to simply check for the existence of `user.pgp_key`, which Tera usually handles correctly for `Option` types (evaluating `None` as false).
+
+I will edit `assets/views/users/_pgp_section.html` to change the conditional.
+
+
+---
+
+```diff
+  
+              {# Verify Button - Conditional #}
+-             {% if user and user.pgp_key is some %}
++             {% if user and user.pgp_key %}
+              <button 
+                  type="button"
+```
+
+---
+
+I've updated the conditional in `assets/views/users/_pgp_section.html`. This should resolve the Tera rendering error. Please check if the profile page loads correctly now.
+
+---
+
+_**User**_
+
+OK, buttons styling is better now. But still not perfect. Adding some color to them would be nice. Also there is a small responsivness issue. If I shink the width of the window, at some point the 2 buttons are flowing below the PGP key information. Which is good. But they are doing that a little bit late. There is an intermediate state, just before they flow, where they are not dislayed correctly. See the screenshot. 
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Got it. Let's refine the styling and fix that responsive layout glitch.
+
+Here's the updated plan:
+
+1.  **Button Styling:** I'll change both PGP buttons to use an outline style with the theme color (indigo) to make them look clickable but distinct from the main "Save Profile" button.
+2.  **Responsiveness Fix:** The layout breaks because the container switches to a flex layout (`sm:flex`) too early. We want the PGP details and the button group to stack vertically on small screens *and* slightly larger screens where they currently collide horizontally. I'll change the breakpoint prefix from `sm:` to `md:` for the flex container (`md:flex md:items-center md:space-x-4`). This will make them stack below the `md` breakpoint (768px by default in Tailwind), which should prevent the intermediate overlap issue.
+
+I will now edit `assets/views/users/_pgp_section.html` to apply these style and layout changes.
+
+
+---
+
+```diff
+  <div id="pgp-section" class="col-span-6 sm:col-span-4">
+      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">PGP Key</label>
+-     <div class="mt-1 space-y-2 sm:space-y-0 sm:flex sm:items-center sm:space-x-4">
++     <div class="mt-1 space-y-2 md:space-y-0 md:flex md:items-center md:space-x-4">
+          {# PGP Key Details #}
+          <div class="flex-grow"> {# Allow details to take available space #}
+                  hx-swap="outerHTML"
+                  hx-indicator="#pgp-refresh-spinner"
+-                 class="inline-flex items-center justify-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 whitespace-nowrap" {# Added whitespace-nowrap #}
++                 class="inline-flex items-center justify-center px-3 py-1.5 border border-indigo-600 dark:border-indigo-400 shadow-sm text-xs font-medium rounded text-indigo-700 dark:text-indigo-300 bg-white dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 whitespace-nowrap"
+              >
+                  Refresh Key
+                  hx-swap="innerHTML"
+                  hx-indicator="#pgp-verify-spinner"
+-                 class="inline-flex items-center justify-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 whitespace-nowrap" {# Added whitespace-nowrap #}
++                 class="inline-flex items-center justify-center px-3 py-1.5 border border-indigo-600 dark:border-indigo-400 shadow-sm text-xs font-medium rounded text-indigo-700 dark:text-indigo-300 bg-white dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 whitespace-nowrap"
+                  title="Send a PGP-encrypted email to verify sending capability"
+              >
+```
+
+---
+
+I've applied the indigo outline style to both buttons and changed the flex container breakpoint to `md:` in `assets/views/users/_pgp_section.html`.
+
+This should give the buttons a bit more visual identity while ensuring they stack nicely below the PGP details on smaller screens, avoiding the awkward overlap. Please check the profile page again, especially at different window widths.
+
+---
+
+_**User**_
+
+The flowing/stacking of the buttons did not change
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+You're right, my apologies. It seems changing just the breakpoint prefix wasn't sufficient or didn't take effect as expected.
+
+Let's try a slightly different approach to ensure the stacking happens correctly and avoid the overlap.
+
+1.  **Force Block Layout Below `md`:** We'll keep the `md:flex` on the container but explicitly ensure it's `block` below that breakpoint.
+2.  **Ensure Button Group Width:** We'll make sure the button group div (`<div class="flex items-center space-x-2">`) doesn't try to force itself onto the same line when space is tight below the `md` breakpoint by ensuring it takes full width in the stacked layout.
+
+I'll modify `assets/views/users/_pgp_section.html` again.
+
+
+---
+
+```diff
+  
+          {# Action Buttons - Grouped Together #}
+-         <div class="flex items-center space-x-2">
++         <div class="flex items-center space-x-2 w-full md:w-auto">
+              {# Refresh Button #}
+              <button 
+```
+
+---
+
+Okay, I've added `w-full md:w-auto` to the div wrapping the buttons. This tells the button group to take the full available width when stacked vertically (below `md`) and revert to automatic width when in the flex layout (`md` and above).
+
+Could you try a hard refresh (Ctrl+Shift+R or Cmd+Shift+R) on the profile page and see if the stacking behaves correctly now when resizing the window?
+
+---
+
+_**User**_
+
+still no change
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+
+
+
+
+---
+
+
+
+---
+
+Understood. It seems the interaction between the flex container and the width utilities isn't producing the desired stacking behavior reliably at that specific breakpoint.
+
+Let's try a more explicit approach by directly controlling the `display` property of the outer container. We will ensure it's `block` by default (for stacking) and changes to `md:flex` only at the medium breakpoint and above. We can then remove the `w-full md:w-auto` from the button group, as its width should be handled correctly by the parent's display type.
+
+I'll edit `assets/views/users/_pgp_section.html` one more time with this strategy.
+
+
+---
+
+```diff
+  <div id="pgp-section" class="col-span-6 sm:col-span-4">
+      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">PGP Key</label>
+-     <div class="mt-1 space-y-2 md:space-y-0 md:flex md:items-center md:space-x-4">
++     <div class="mt-1 space-y-2 md:space-y-0 block md:flex md:items-center md:space-x-4">
+          {# PGP Key Details #}
+          <div class="flex-grow"> {# Allow details to take available space #}
+  
+          {# Action Buttons - Grouped Together #}
+-         <div class="flex items-center space-x-2 w-full md:w-auto">
++         <div class="flex items-center space-x-2">
+              {# Refresh Button #}
+              <button 
+```
+
+---
+
+I've now explicitly set the outer container to be `block` by default and `md:flex` at the medium breakpoint, and removed the potentially conflicting width utilities from the button group div.
+
+This approach directly controls the display flow and should hopefully create the clean stacking behavior below the `md` breakpoint. Please test the responsiveness again.
+
+---
+
+_**User**_
+
+The issue persists. 
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Okay, this is puzzling. The standard Tailwind approaches for responsive layout changes aren't working as expected. This might indicate an interaction with the parent grid layout or the specific minimum content widths involved.
+
+Let's try one more strategy, focusing on making the button group itself responsive, allowing it to wrap its contents onto multiple lines below the `md` breakpoint.
+
+1.  **Remove Parent Flex Control:** Revert the outer container (`<div class="mt-1 ...">`) to remove the explicit `block md:flex` controls we added. Let it just be a simple container.
+2.  **Responsive Button Group:** Modify the button group `div` (`<div class="flex items-center space-x-2">`) to:
+    *   Be `flex` and allow wrapping (`flex-wrap`) by default (for small screens).
+    *   Become `md:flex-nowrap` at the medium breakpoint to prevent wrapping when there's enough space for the horizontal layout.
+
+I will edit `assets/views/users/_pgp_section.html` with this approach.
+
+
+---
+
+```diff
+  <div id="pgp-section" class="col-span-6 sm:col-span-4">
+      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">PGP Key</label>
+-     <div class="mt-1 space-y-2 md:space-y-0 block md:flex md:items-center md:space-x-4">
++     <div class="mt-1 space-y-2 md:space-y-0">
+          {# PGP Key Details #}
+          <div class="flex-grow"> {# Allow details to take available space #}
+  
+          {# Action Buttons - Grouped Together #}
+-         <div class="flex items-center space-x-2">
++         <div class="flex flex-wrap md:flex-nowrap items-center space-x-2">
+              {# Refresh Button #}
+              <button 
+```
+
+---
+
+I've now configured the button group itself to wrap its contents (`flex-wrap`) on smaller screens and prevent wrapping (`md:flex-nowrap`) on medium screens and larger. The parent container is now simpler.
+
+This focuses the responsive logic directly on the element containing the buttons. Please refresh and test the resizing behavior again. Hopefully, allowing the button container to wrap solves the overlap issue.
+
+---
+
+_**User**_
+
+Now the buttons are always below the PGP key information. They are no longer to the right hand side when the widow is large enough. But I like it like that. So I guess it is OK now.
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Great! I'm glad that layout works for you. Sometimes unintended changes lead to a better result.
+
+Since the main goal was to fix the responsiveness issue and improve the button styling, and you're happy with the current always-stacked layout, we can consider this task complete.
+
+---
+
 
 
 ---
