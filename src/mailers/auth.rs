@@ -10,7 +10,7 @@ use lettre::AsyncTransport; // Import transport trait
 use lettre::Tokio1Executor;
 use loco_rs::prelude::*;
 use sequoia_openpgp::{
-    cert::CertParser,
+    cert::{Cert, CertParser},
     parse::Parse,
     policy::StandardPolicy,
     // Import stream components and Recipient
@@ -62,12 +62,46 @@ impl AuthMailer {
         Ok(())
     }
 
-    /// Sending forgot password email
+    /// Sending forgot password email, PGP-encrypted if possible.
+    ///
+    /// If the user has a verified PGP key, this function attempts to send
+    /// the password reset email encrypted. If encryption or sending fails,
+    /// or if the user has no verified key, it falls back to sending a
+    /// standard unencrypted email.
     ///
     /// # Errors
     ///
-    /// When email sending is failed
+    /// Returns an error only if the fallback unencrypted email sending fails.
+    /// PGP-related errors are logged but do not prevent the fallback.
     pub async fn forgot_password(ctx: &AppContext, user: &users::Model) -> Result<()> {
+        // Check if user has a PGP key and it's verified
+        if user.pgp_key.is_some() && user.pgp_verified_at.is_some() {
+            match Self::_try_send_forgot_password_pgp(ctx, user).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "Successfully sent PGP-encrypted password reset email to {}",
+                        user.email
+                    );
+                    return Ok(()); // PGP email sent successfully
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to send PGP-encrypted password reset to {}: {}. Falling back to unencrypted.",
+                        user.email,
+                        e
+                    );
+                    // Fall through to send unencrypted email
+                }
+            }
+        } else {
+            tracing::info!(
+                "User {} does not have a verified PGP key. Sending unencrypted password reset.",
+                user.email
+            );
+            // Fall through to send unencrypted email
+        }
+
+        // Fallback: Send standard unencrypted email
         let mut args = mailer::Args {
             to: user.email.to_string(),
             locals: json!({
@@ -79,7 +113,6 @@ impl AuthMailer {
             ..Default::default()
         };
 
-        // Set the from email to match the SMTP username if available
         if let Some(mailer_config) = &ctx.config.mailer {
             if let Some(smtp_config) = &mailer_config.smtp {
                 if let Some(auth) = &smtp_config.auth {
@@ -89,8 +122,64 @@ impl AuthMailer {
         }
 
         Self::mail_template(ctx, &forgot, args).await?;
-
         Ok(())
+    }
+
+    /// Attempts to send the forgot password email PGP-encrypted.
+    async fn _try_send_forgot_password_pgp(ctx: &AppContext, user: &users::Model) -> Result<()> {
+        // 1. Get and parse PGP key
+        let pgp_key_str = user
+            .pgp_key
+            .as_ref()
+            .ok_or_else(|| Error::string("User PGP key is None, shouldn't happen here"))?;
+
+        let recipient_cert = CertParser::from_bytes(pgp_key_str.as_bytes())
+            .map_err(|e| Error::string(&format!("Failed to parse PGP key: {}", e)))
+            .and_then(|mut certs| {
+                certs
+                    .next()
+                    .ok_or_else(|| Error::string("No valid PGP certificate found in key data."))
+            })?
+            .map_err(|e| Error::string(&format!("Failed to parse PGP certificate: {}", e)))?;
+
+        // 2. Construct plain text body
+        let reset_url = format!(
+            "{}/auth/reset-password/{}",
+            &ctx.config.server.host,
+            user.reset_token.as_ref().unwrap_or(&String::new()) // Should always exist if called correctly
+        );
+        let email_body = format!(
+            "Hello {},
+
+You requested a password reset. Click the link below:
+{}
+
+If you didn't request this, please ignore this email.
+
+Thanks,
+Your Hosting Farm Server",
+            user.name, reset_url
+        );
+
+        // 3. Encrypt body
+        let encrypted_body = Self::_encrypt_message_pgp(&recipient_cert, &email_body)?;
+
+        // 4. Prepare email details
+        let from_mailbox: Mailbox = Self::_get_from_mailbox(ctx)?;
+        let to_mailbox: Mailbox = user
+            .email
+            .parse()
+            .map_err(|e| Error::string(&format!("Invalid recipient email: {}", e)))?;
+
+        // 5. Send raw email
+        Self::_send_raw_email(
+            ctx,
+            to_mailbox,
+            from_mailbox,
+            "Password Reset Request",
+            encrypted_body,
+        )
+        .await
     }
 
     /// Sends a magic link authentication email to the user.
@@ -167,32 +256,60 @@ impl AuthMailer {
         );
 
         let email_body = format!(
-            "Hello {},\n\nPlease verify your PGP email sending capability by clicking the link below:\n{}\n\nThanks,\nThe Hosting Farm Team",
-            user.name,
-            verification_url
+            "Hello {},
+
+Please verify your PGP email sending capability by clicking the link below:
+{}
+
+Thanks,
+Your Hosting Farm Server",
+            user.name, verification_url
         );
 
-        // 3. Encrypt the email body using Sequoia stream API (following example)
+        // 3. Encrypt the email body using the helper function
+        let encrypted_message_str = Self::_encrypt_message_pgp(&recipient_cert, &email_body)?;
+
+        // 4. Prepare email details
+        let from_mailbox: Mailbox = Self::_get_from_mailbox(ctx)?;
+        let to_mailbox: Mailbox = user
+            .email
+            .parse()
+            .map_err(|e| Error::string(&format!("Invalid recipient email: {}", e)))?;
+
+        // 5. Send the email using the helper function
+        Self::_send_raw_email(
+            ctx,
+            to_mailbox,
+            from_mailbox,
+            "Verify Your PGP Email Setup",
+            encrypted_message_str,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    // --- Private Helper Functions ---
+
+    /// Encrypts a plaintext message using PGP for a given recipient certificate.
+    /// Returns the armored PGP message as a String.
+    fn _encrypt_message_pgp(recipient_cert: &Cert, plaintext_body: &str) -> Result<String> {
         let policy = &StandardPolicy::new();
         let mut sink = Vec::new();
 
-        // Create the initial message sink targeting the output vector
         let message_sink = StreamMessage::new(&mut sink);
-
-        // Wrap the sink in an Armorer
         let message_armorer = Armorer::new(message_sink)
             .build()
             .map_err(|e| Error::string(&format!("Failed to build Armorer: {}", e)))?;
 
-        // Extract valid recipient keys from the Cert
         let recipients: Vec<Recipient> = recipient_cert
             .keys()
-            .with_policy(policy, None) // Apply policy to filter keys
+            .with_policy(policy, None)
             .supported()
             .alive()
             .revoked(false)
-            .for_transport_encryption() // Filter for keys usable for encryption
-            .map(Into::into) // Convert valid keys/subkeys into Recipient
+            .for_transport_encryption()
+            .map(Into::into)
             .collect();
 
         if recipients.is_empty() {
@@ -201,61 +318,45 @@ impl AuthMailer {
             ));
         }
 
-        // Create an encryptor targeting the Armorer, for the collected recipients
         let message_encryptor = Encryptor::for_recipients(message_armorer, recipients)
             .build()
             .map_err(|e| Error::string(&format!("Failed to build encryptor: {}", e)))?;
 
-        // Create a literal writer targeting the encryptor
         let mut literal_writer = LiteralWriter::new(message_encryptor)
             .build()
             .map_err(|e| Error::string(&format!("Failed to build literal writer: {}", e)))?;
 
-        // Write the plaintext body to the literal writer
         literal_writer
-            .write_all(email_body.as_bytes())
+            .write_all(plaintext_body.as_bytes())
             .map_err(|e| Error::string(&format!("Failed to write encrypted message: {}", e)))?;
 
-        // Finalize the literal writer to finish encryption/armoring
         literal_writer
             .finalize()
             .map_err(|e| Error::string(&format!("Failed to finalize literal writer: {}", e)))?;
 
-        let encrypted_message_str =
-            String::from_utf8(sink) // Use sink directly
-                .map_err(|_| Error::string("Encrypted message is not valid UTF-8"))?;
+        String::from_utf8(sink).map_err(|_| Error::string("Encrypted message is not valid UTF-8"))
+    }
 
-        // 4. Prepare and send the email using lettre directly (raw email)
-        let from_mailbox: Mailbox = ctx
-            .config
-            .mailer
-            .as_ref()
-            .and_then(|mc| mc.smtp.as_ref())
-            .and_then(|sc| sc.auth.as_ref())
-            .map(|auth| {
-                auth.user
-                    .parse()
-                    .unwrap_or_else(|_| "noreply@example.com".parse().unwrap())
-            })
-            .unwrap_or_else(|| "noreply@example.com".parse().unwrap());
-
-        let to_mailbox: Mailbox = user
-            .email
-            .parse()
-            .map_err(|e| Error::string(&format!("Invalid recipient email: {}", e)))?;
-
+    /// Sends a raw email (e.g., PGP encrypted) using the SMTP configuration from the context.
+    async fn _send_raw_email(
+        ctx: &AppContext,
+        to: Mailbox,
+        from: Mailbox,
+        subject: &str,
+        body: String, // Takes ownership of the body string
+    ) -> Result<()> {
         let content_type = ContentType::parse("text/plain")
             .map_err(|_| Error::string("Failed to parse Content-Type"))?;
 
         let email = LettreMessage::builder()
-            .from(from_mailbox)
-            .to(to_mailbox)
-            .subject("Verify Your PGP Email Setup")
+            .from(from.clone()) // Clone `from` as builder consumes it
+            .to(to)
+            .subject(subject)
             .header(content_type)
-            .body(encrypted_message_str)
+            .body(body) // Body is moved here
             .map_err(|e| Error::string(&format!("Failed to build email: {}", e)))?;
 
-        // Manually build and use lettre transport
+        // Build and use lettre transport
         let mailer_config = ctx
             .config
             .mailer
@@ -281,6 +382,7 @@ impl AuthMailer {
             .build()
             .map_err(|e| Error::string(&format!("Failed to build TLS parameters: {}", e)))?;
 
+        // Use starttls_relay for broader compatibility, adjust if needed
         let transport = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(smtp_host)
             .map_err(|e| Error::string(&format!("Failed to build SMTP transport: {}", e)))?
             .port(smtp_port)
@@ -294,5 +396,25 @@ impl AuthMailer {
             .map_err(|e| Error::string(&format!("Failed to send email via SMTP: {}", e)))?;
 
         Ok(())
+    }
+
+    /// Gets the 'From' mailbox address from the AppContext configuration.
+    fn _get_from_mailbox(ctx: &AppContext) -> Result<Mailbox> {
+        ctx.config
+            .mailer
+            .as_ref()
+            .and_then(|mc| mc.smtp.as_ref())
+            .and_then(|sc| sc.auth.as_ref())
+            .map(|auth| {
+                auth.user
+                    .parse::<Mailbox>()
+                    .map_err(|e| Error::string(&format!("Invalid sender email format: {}", e)))
+            })
+            .unwrap_or_else(|| {
+                // Fallback if config is missing
+                "noreply@example.com"
+                    .parse::<Mailbox>()
+                    .map_err(|e| Error::string(&format!("Invalid default sender email: {}", e)))
+            })
     }
 }
