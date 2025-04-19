@@ -114,12 +114,29 @@ impl AuthMailer {
 
     /// Sends a PGP-encrypted verification email to the user.
     pub async fn send_pgp_verification(ctx: &AppContext, user: &users::Model) -> Result<()> {
+        // Build the raw HTML body for the PGP verification
+        let token = user
+            .pgp_verification_token
+            .clone()
+            .expect("Token must be set");
+        let html_body = format!(
+            r#"<html><body><p>Dear {name},</p><p>Please verify your PGP key by visiting <a href=\"{domain}/auth/verify-pgp/{token}\">this link</a>.</p></body></html>"#,
+            name = user.name,
+            domain = &ctx.config.server.host,
+            token = token
+        );
+        // Encrypt the message
+        let encrypted = user.encrypt_for_pgp(&html_body).map_err(|e| {
+            let msg = format!("PGP encryption failed: {}", e);
+            Error::string(&msg)
+        })?;
         let mut args = mailer::Args {
             to: user.email.to_string(),
             locals: json!({
-              "name": user.name,
-              "token": user.pgp_verification_token.clone(),
-              "domain": &ctx.config.server.host,
+                "encrypted": encrypted,
+                "name": user.name,
+                "domain": &ctx.config.server.host,
+                "token": user.pgp_verification_token.clone(),
             }),
             from: Some("test@example.com".to_string()),
             ..Default::default()

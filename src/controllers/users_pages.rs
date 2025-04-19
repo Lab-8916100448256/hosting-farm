@@ -152,6 +152,7 @@ async fn profile(
             "ssh_keys": &ssh_keys,
             "pgp_fingerprint": &pgp_fingerprint,
             "pgp_validity": &pgp_validity,
+            "has_pgp_key": &user.pgp_key.is_some(),
         }),
     )
 }
