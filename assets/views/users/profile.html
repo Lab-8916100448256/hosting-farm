@@ -3,6 +3,14 @@
 {% block title %}Profile - Hosting Farm{% endblock %}
 
 {% block content %}
+
+{# Check for PGP verification success flag from context #}
+{% if pgp_verified_success %}
+<div class="mb-4 p-4 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded-md shadow">
+    PGP email sending capability verified successfully!
+</div>
+{% endif %}
+
 <div class="space-y-6">
 
     <div class="bg-white dark:bg-gray-800 shadow px-4 py-5 sm:rounded-lg sm:p-6">

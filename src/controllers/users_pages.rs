@@ -10,7 +10,7 @@ use axum::http::{header, StatusCode};
 use axum::response::Response;
 use axum::{
     debug_handler,
-    extract::{Form, State},
+    extract::{Form, Query, State},
     routing::{get, post},
 };
 use loco_rs::prelude::Result;
@@ -21,6 +21,7 @@ use sea_orm::Set;
 use sea_orm::{ActiveModelTrait, PaginatorTrait};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
 
 /// Params for updating user profile
 #[derive(Debug, Deserialize)]
@@ -44,6 +45,7 @@ async fn profile(
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Response> {
     let user = if let Some(user) = auth.user {
         user
@@ -141,6 +143,9 @@ async fn profile(
         }
     };
 
+    // Check for the pgp_verified query parameter
+    let pgp_verified_success = params.get("pgp_verified") == Some(&"true".to_string());
+
     render_template(
         &v,
         "users/profile.html",
@@ -152,6 +157,7 @@ async fn profile(
             "ssh_keys": &ssh_keys,
             "pgp_fingerprint": &pgp_fingerprint,
             "pgp_validity": &pgp_validity,
+            "pgp_verified_success": pgp_verified_success,
         }),
     )
 }

@@ -33,7 +33,7 @@ async fn verify_pgp_token(
 ) -> Result<Response> {
     match find_user_by_pgp_token(&ctx.db, &token).await {
         Ok(user) => {
-            // Check if the token belongs to the currently logged-in user (optional, but good practice)
+            // Enforce that the token belongs to the currently logged-in user
             if let Some(current_user) = auth.user {
                 if current_user.id != user.id {
                     tracing::warn!(
@@ -42,9 +42,21 @@ async fn verify_pgp_token(
                         user.id,
                         current_user.id
                     );
-                    // Decide how to handle: error or just proceed?
-                    // Let's proceed for now, but log warning.
+                    // Return an error page if users don't match
+                    return error_page(
+                        &v,
+                        "Verification token mismatch. Are you logged in as the correct user?",
+                        None,
+                    );
                 }
+            } else {
+                // If no user is logged in at all, this link shouldn't work either.
+                tracing::warn!(
+                    "Attempted to use PGP token {} without being logged in.",
+                    token
+                );
+                // Redirect to login or show an error
+                return error_page(&v, "Please log in to verify your PGP key.", None);
             }
 
             let active_user: users::ActiveModel = user.into();
