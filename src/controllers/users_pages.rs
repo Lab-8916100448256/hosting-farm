@@ -277,7 +277,6 @@ async fn update_profile(
         return redirect("/auth/login", headers);
     };
 
-    let original_email = user.email.clone();
     let email_changed = user.email != params.email;
     let mut user_model: users::ActiveModel = user.clone().into(); // Clone user to avoid move issues
 
