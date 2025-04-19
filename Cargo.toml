@@ -13,7 +13,7 @@ default-run = "hosting_farm-cli"
 loco-rs = { version = "0.15.0" }
 
 [dependencies]
-loco-rs = { workspace = true  }
+loco-rs = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 tokio = { version = "1.33.0", default-features = false, features = [
@@ -42,6 +42,8 @@ unic-langid = { version = "0.9.4" }
 tera = { version = "1.19.1" }
 # /view engine
 base64 = "0.21"
+# Re-add lettre with explicit features, hoping loco-rs doesn't conflict now
+lettre = { version = "0.11.15", default-features = false, features = ["tokio1", "builder", "smtp-transport", "rustls-tls"] }
 reqwest = "0.12.15"
 sequoia-openpgp = { version = "2", default-features = false, features = ["crypto-openssl"] }
 sha1 = "0.10"

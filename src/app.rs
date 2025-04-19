@@ -63,6 +63,7 @@ impl Hooks for App {
             .add_route(controllers::users_pages::routes())
             .add_route(controllers::auth_pages::routes())
             .add_route(controllers::teams_pages::routes())
+            .add_route(controllers::pgp_pages::routes())
     }
 
     fn register_tasks(_tasks: &mut Tasks) {
@@ -100,6 +101,8 @@ impl Hooks for App {
             magic_link_token: ActiveValue::NotSet,
             magic_link_expiration: ActiveValue::NotSet,
             pgp_key: Default::default(),
+            pgp_verification_token: ActiveValue::NotSet,
+            pgp_verified_at: ActiveValue::NotSet,
         };
         user.insert(&ctx.db).await?;
         Ok(())

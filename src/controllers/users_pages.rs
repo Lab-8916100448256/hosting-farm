@@ -663,6 +663,96 @@ async fn refresh_pgp(
     }
 }
 
+/// Handler to initiate PGP email sending verification
+#[debug_handler]
+async fn verify_pgp_sending(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        // Should not happen if UI prevents this, but handle defensively
+        // Pass a default target selector instead of None
+        return error_fragment(&v, "Authentication required.", "#notification-container");
+    };
+
+    // Ensure user has a PGP key configured
+    if user.pgp_key.is_none() {
+        return error_fragment(
+            &v,
+            "No PGP key configured. Cannot send verification email.",
+            "#notification-container", // Pass a default target selector
+        );
+    }
+
+    // 1. Generate PGP verification token
+    // Clone user before converting to ActiveModel to avoid move
+    let active_user: users::ActiveModel = user.clone().into();
+    let updated_user_res = active_user.generate_pgp_verification_token(&ctx.db).await;
+
+    let updated_user = match updated_user_res {
+        Ok(u) => u,
+        Err(e) => {
+            // Access user.id before it's potentially moved/borrow error occurs
+            let user_id = user.id;
+            tracing::error!("Failed to generate PGP token for user {}: {}", user_id, e);
+            // Pass target selector, rely on logging for error details
+            return error_fragment(
+                &v,
+                "Failed to start PGP verification process.",
+                "#notification-container",
+            );
+        }
+    };
+
+    // 2. Send PGP encrypted verification email
+    // Ensure the token exists before sending
+    if let Some(token) = &updated_user.pgp_verification_token {
+        match AuthMailer::send_pgp_verification(&ctx, &updated_user, token).await {
+            Ok(_) => {
+                tracing::info!("PGP verification email sent to: {}", updated_user.email);
+                // Return a success message fragment for the notification area
+                render_template(
+                    &v,
+                    "fragments/success_message.html",
+                    data!({
+                        "message": "PGP verification email sent successfully. Please check your inbox.",
+                        "target": "#notification-container"
+                    }),
+                )
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to send PGP verification email to {}: {}",
+                    updated_user.email,
+                    e
+                );
+                // Pass target selector, rely on logging for error details
+                error_fragment(
+                    &v,
+                    "Failed to send PGP verification email.",
+                    "#notification-container",
+                )
+            }
+        }
+    } else {
+        // This should not happen if token generation succeeded
+        tracing::error!(
+            "PGP token missing after generation for user {}",
+            updated_user.id
+        );
+        // Pass a default target selector instead of None
+        error_fragment(
+            &v,
+            "Internal error: PGP token generation failed.",
+            "#notification-container",
+        )
+    }
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -678,4 +768,5 @@ pub fn routes() -> Routes {
             post(resend_verification_email),
         )
         .add("/profile/refresh-pgp", post(refresh_pgp))
+        .add("/profile/verify-pgp", post(verify_pgp_sending))
 }

@@ -446,6 +446,39 @@ impl ActiveModel {
         Ok(self.update(db).await?)
     }
 
+    /// Sets the PGP verification token for the user and
+    /// updates it in the database.
+    ///
+    /// This method is used to generate a unique PGP verification token for the user.
+    ///
+    /// # Errors
+    ///
+    /// when has DB query error
+    pub async fn generate_pgp_verification_token(
+        mut self,
+        db: &DatabaseConnection,
+    ) -> ModelResult<Model> {
+        self.pgp_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
+        // We might want to record the sent time too, similar to email verification
+        // self.pgp_verification_sent_at = ActiveValue::set(Some(Local::now().into()));
+        Ok(self.update(db).await?)
+    }
+
+    /// Records the PGP verification time when a user verifies their
+    /// PGP communication capability and updates it in the database.
+    ///
+    /// This method sets the timestamp when the user successfully verifies their
+    /// PGP email setup and clears the verification token.
+    ///
+    /// # Errors
+    ///
+    /// when has DB query error
+    pub async fn set_pgp_verified(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
+        self.pgp_verified_at = ActiveValue::set(Some(Utc::now().naive_utc())); // Use naive_utc() for NaiveDateTime
+        self.pgp_verification_token = ActiveValue::Set(None);
+        Ok(self.update(db).await?)
+    }
+
     /// Creates a magic link token for passwordless authentication.
     ///
     /// Generates a random token with a specified length and sets an expiration time
