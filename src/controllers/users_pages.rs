@@ -367,43 +367,55 @@ async fn update_profile(
                 }
             }
 
+            // Prepare OOB swaps
+            let mut oob_swaps = String::new();
+
             // Render success message fragment
             let success_html = v.render(
                 "fragments/success_message.html",
                 data!({
                     "message": success_message,
-                    // Target is implicitly handled by the form's hx-target
                 }),
             )?;
 
-            // If email changed, also render and prepare the verification banner OOB swap
+            // If email changed, render and prepare banners for OOB swap
             if send_verification_banner {
-                let banner_html = v.render(
+                // Render email verification banner
+                let email_banner_html = v.render(
                     "users/_email_verification_banner.html",
-                    // Pass the updated user model to the banner template
                     data!({ "user": &updated_user }),
                 )?;
 
-                // Combine success message and OOB banner
-                let combined_html = format!
-                    (
-                        "{}<div id=\"email-verification-banner-container\" hx-swap-oob=\"outerHTML\">{}</div>",
-                        success_html,
-                        banner_html
-                    );
+                oob_swaps.push_str(&format!(
+                    "<div id=\"email-verification-banner-container\" hx-swap-oob=\"outerHTML\">{}</div>",
+                    email_banner_html
+                ));
 
-                // Return combined response
-                Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .header(header::CONTENT_TYPE, "text/html")
-                    .body(axum::body::Body::from(combined_html))?)
-            } else {
-                // Just return the success message if email didn't change
-                Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .header(header::CONTENT_TYPE, "text/html")
-                    .body(axum::body::Body::from(success_html))?)
+                // Also render PGP warning banner as email change resets PGP verification
+                let has_pgp_key = updated_user.pgp_key.is_some();
+                let is_pgp_verified = updated_user.pgp_verified_at.is_some(); // Will be false here
+                let pgp_banner_html = v.render(
+                    "users/_pgp_warning_banner.html",
+                    data!({
+                        "has_pgp_key": has_pgp_key,
+                        "is_pgp_verified": is_pgp_verified,
+                    }),
+                )?;
+
+                oob_swaps.push_str(&format!(
+                    "<div id=\"pgp-warning-banner-container\" hx-swap-oob=\"outerHTML\">{}</div>",
+                    pgp_banner_html
+                ));
             }
+
+            // Combine success message and OOB swaps
+            let combined_html = format!("{}{}", success_html, oob_swaps);
+
+            // Return combined response
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/html")
+                .body(axum::body::Body::from(combined_html))?)
         }
         Err(e) => {
             tracing::error!(error = ?e, user_id = user.id, "Failed to update user profile");

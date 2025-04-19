@@ -197,6 +197,356 @@ I've moved the email verification banner block to be directly above the email in
 
 ---
 
+_**User**_
+
+There are 2 small issues on the profile page related to the profile information section. 
+- The dialog asking confirmation about modifying the email address is displayed even if the user has not modified it.
+- The banners warning about the email not being verified and the PGP public key not being configured or verified are not displayed if the email address or PGP key status have been reset following a modification of the email address.
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Okay, I understand the issues. Let's fix them.
+
+**1. Fix Email Confirmation Dialog:**
+
+You're right, the comparison in the Hyperscript might be triggering incorrectly. Adding `.trim()` to the values being compared should prevent issues caused by leading or trailing whitespace.
+
+I'll update the `_` attribute on the form in `assets/views/users/profile.html`.
+
+
+
+---
+
+```diff
+                      hx-swap="innerHTML"
+                      class="space-y-4"
+-                     _="on load set initialEmail to #email.value
++                     _="on load set initialEmail to #email.value.trim()
+                         on htmx:configRequest(event) from me
+-                            if #email.value is not initialEmail
++                            if #email.value.trim() is not initialEmail
+                                 if not confirm('You have changed your email address. Are you sure you want to proceed?')
+                                     halt the event
+```
+
+---
+
+**2. Fix Missing Warning Banners After Email Change:**
+
+Currently, when the email changes, the `update_profile` handler correctly sends back the *email* verification banner via an OOB (Out-of-Band) swap. However, it doesn't do the same for the *PGP* verification banner, even though changing the email also resets the PGP verification status.
+
+To fix this, we need to:
+a.  Extract the PGP warning banner logic from `profile.html` into its own reusable fragment file.
+b.  Update `profile.html` to include this new fragment and give its container an ID so we can target it with an OOB swap.
+c.  Modify the `update_profile` handler in `src/controllers/users_pages.rs` to render *both* the email and PGP warning banners (if needed after an email change) and include them in the OOB swap response.
+
+Let's create the new fragment file `assets/views/users/_pgp_warning_banner.html` and move the logic there.
+
+
+
+---
+
+```diff
+- 
++ {% if not has_pgp_key or not is_pgp_verified %}
++ <div class="bg-yellow-50 dark:bg-yellow-900 border-l-4 border-yellow-400 p-4 shadow mb-4 rounded-md">
++     <div class="flex">
++         <div class="flex-shrink-0">
++             <svg class="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
++                 <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM10 13a1 1 0 110-2 1 1 0 010 2zm0-4a1 1 0 01-1-1V6a1 1 0 112 0v2a1 1 0 01-1 1z" clip-rule="evenodd" />
++             </svg>
++         </div>
++         <div class="ml-3">
++             <p class="text-sm text-yellow-700 dark:text-yellow-200">
++                 {% if not has_pgp_key %}
++                     You have not configured a PGP public key.
++                 {% else %}
++                     Your configured PGP public key has not been verified.
++                 {% endif %}
++                 Configuring and verifying your PGP key is important for security, enabling password recovery and secure handling of secrets. 
++                 {% if not has_pgp_key %}
++                     Please publish your public PGP key then fetch it and verify it using the buttons below.
++                 {% else %}
++                     Please verify your key.
++                 {% endif %}
++             </p>
++         </div>
++     </div>
++ </div>
++ {% else %}
++ <!-- PGP key is present and verified, render nothing -->
++ {% endif %} 
+```
+
+---
+
+Now, update `assets/views/users/profile.html` to include this new fragment within a div having the ID `pgp-warning-banner-container`.
+
+
+
+---
+
+```diff
+                          <!-- PGP Key Section -->
+                          <div class="col-span-6 sm:col-span-4">
+-                             {% if not has_pgp_key or not is_pgp_verified %}
+-                             <div class="bg-yellow-50 dark:bg-yellow-900 border-l-4 border-yellow-400 p-4 shadow mb-4 rounded-md">
+-                                 <div class="flex">
+-                                     <div class="flex-shrink-0">
+-                                         <svg class="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+-                                             <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM10 13a1 1 0 110-2 1 1 0 010 2zm0-4a1 1 0 01-1-1V6a1 1 0 112 0v2a1 1 0 01-1 1z" clip-rule="evenodd" />
+-                                         </svg>
+-                                     </div>
+-                                     <div class="ml-3">
+-                                         <p class="text-sm text-yellow-700 dark:text-yellow-200">
+-                                             {% if not has_pgp_key %}
+-                                                 You have not configured a PGP public key.
+-                                             {% else %}
+-                                                 Your configured PGP public key has not been verified.
+-                                             {% endif %}
+-                                             Configuring and verifying your PGP key is important for security, enabling password recovery and secure handling of secrets. 
+-                                             {% if not has_pgp_key %}
+-                                                 Please publish your public PGP key then fetch it and verify it using the buttons below.
+-                                             {% else %}
+-                                                 Please verify your key.
+-                                             {% endif %}
+-                                         </p>
+-                                     </div>
+-                                 </div>
++                             <!-- PGP Warning Banner -->
++                             <div id="pgp-warning-banner-container" hx-swap-oob="outerHTML">
++                                 {% include "users/_pgp_warning_banner.html" %}
+                              </div>
+-                             {% endif %}
++                             <!-- End PGP Warning Banner -->
+                             {% include "users/_pgp_section.html" %}
+                          </div>
+```
+
+---
+
+Finally, let's modify the `update_profile` handler in `src/controllers/users_pages.rs` to render and include both banners in the OOB response when the email is changed.
+
+
+
+---
+
+```diff
+                  }
+              }
++ 
++             // Prepare OOB swaps
++             let mut oob_swaps = String::new();
+  
+              // Render success message fragment
+                  data!({
+                      "message": success_message,
+-                     // Target is implicitly handled by the form's hx-target
+                  }),
+              )?;
+  
+-             // If email changed, also render and prepare the verification banner OOB swap
++             // If email changed, render and prepare banners for OOB swap
+              if send_verification_banner {
+-                 let banner_html = v.render(
++                 // Render email verification banner
++                 let email_banner_html = v.render(
+                      "users/_email_verification_banner.html",
+-                     // Pass the updated user model to the banner template
+                      data!({ "user": &updated_user }),
+                  )?;
+  
+-                 // Combine success message and OOB banner
+-                 let combined_html = format!
+-                     (
+-                         "{}<div id=\"email-verification-banner-container\" hx-swap-oob=\"outerHTML\">{}</div>",
+-                         success_html,
+-                         banner_html
+-                     );
++                 oob_swaps.push_str(&format!(
++                     "<div id=\"email-verification-banner-container\" hx-swap-oob=\"outerHTML\">{}</div>",
++                     email_banner_html
++                 ));
++ 
++                 // Also render PGP warning banner as email change resets PGP verification
++                 let has_pgp_key = updated_user.pgp_key.is_some();
++                 let is_pgp_verified = updated_user.pgp_verified_at.is_some(); // Will be false here
++                 let pgp_banner_html = v.render(
++                     "users/_pgp_warning_banner.html",
++                     data!({
++                         "has_pgp_key": has_pgp_key,
++                         "is_pgp_verified": is_pgp_verified,
++                     }),
++                 )?;
++ 
++                 oob_swaps.push_str(&format!(
++                     "<div id=\"pgp-warning-banner-container\" hx-swap-oob=\"outerHTML\">{}</div>",
++                     pgp_banner_html
++                 ));
++ 
++             }
++ 
++             // Combine success message and OOB swaps
++             let combined_html = format!("{}{}", success_html, oob_swaps);
+  
+              // Return combined response
+                  .header(header::CONTENT_TYPE, "text/html")
+                  .body(axum::body::Body::from(combined_html))?)
+-             } else {
+-                 // Just return the success message if email didn't change
+-                 Ok(Response::builder()
+-                     .status(StatusCode::OK)
+-                     .header(header::CONTENT_TYPE, "text/html")
+-                     .body(axum::body::Body::from(success_html))?)
+-             }
+          }
+          Err(e) => {
+```
+
+---
+
+I've completed the changes:
+
+1.  Trimmed email values in Hyperscript comparison.
+2.  Created `_pgp_warning_banner.html` fragment.
+3.  Updated `profile.html` to use the new PGP fragment within a targetable div (`#pgp-warning-banner-container`).
+4.  Updated the `update_profile` controller to send OOB swaps for both the email and PGP warning banners when the user's email is successfully changed.
+
+These changes should resolve both the incorrect email confirmation dialog and the missing warning banners after an email update.
+
+---
+
+_**User**_
+
+shouldn't the same technique of conditionaly including a fragment into a container that is always there also be used for the email verification banner? It looks to me that its container is not present in the dom if the email is verified when the profile page is first displayed. So if the controller send an OOB swap, there won't be a target for it. 
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+You are absolutely correct! My apologies for missing that inconsistency.
+
+The email verification banner container (`#email-verification-banner-container`) is indeed rendered conditionally in `profile.html`, which means if the email is already verified, the container won't exist for the OOB swap to target when the email is subsequently changed and becomes unverified.
+
+Let's apply the same pattern we used for the PGP banner to the email banner.
+
+1.  **Create a fragment** for the email verification banner content.
+2.  **Modify `profile.html`** to always render the container (`#email-verification-banner-container`) and conditionally *include* the new fragment within it.
+
+First, I'll create the new fragment file `assets/views/users/_email_verification_banner.html`.
+
+
+
+---
+
+```diff
+  {% if not user.email_verified_at %}
+- <div class="bg-yellow-50 dark:bg-yellow-900 border-l-4 border-yellow-400 p-4 shadow">
++ <div class="bg-yellow-50 dark:bg-yellow-900 border-l-4 border-yellow-400 p-4 shadow rounded-md">
+      <div class="flex">
+          <div class="flex-shrink-0">
+                      id="resend-verification-button"
+                      hx-post="/users/profile/resend-verification"
+-                     hx-target="#notification-container" {# Note: This target remains #notification-container #}
++                     hx-target="#notification-container"
+                      hx-swap="innerHTML"
+                      hx-indicator="#resend-spinner"
+```
+
+---
+
+Now, I'll modify `assets/views/users/profile.html` to use this new fragment consistently.
+
+
+
+---
+
+```diff
+  
+                          <div class="col-span-6 sm:col-span-4">
+-                             <!-- Email Verification Banner Moved Here -->
++                             <!-- Email Verification Banner Container -->
++                             <div id="email-verification-banner-container" class="mb-4" hx-swap-oob="outerHTML">
+                                  {% if not user.email_verified_at %}
+-                             <div id="email-verification-banner-container" class="mb-4">
+-                                 <div class="bg-yellow-50 dark:bg-yellow-900 border-l-4 border-yellow-400 p-4 shadow rounded-md">
+-                                     <div class="flex">
+-                                         <div class="flex-shrink-0">
+-                                             <svg class="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+-                                                 <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM10 13a1 1 0 110-2 1 1 0 010 2zm0-4a1 1 0 01-1-1V6a1 1 0 112 0v2a1 1 0 01-1 1z" clip-rule="evenodd" />
+-                                             </svg>
+-                                         </div>
+-                                         <div class="ml-3">
+-                                             <p class="text-sm text-yellow-700 dark:text-yellow-200">
+-                                                 Your email address is not verified. Please check your inbox for the verification link.
+-                                             </p>
+-                                             <div class="mt-2 text-sm flex items-center space-x-2">
+-                                                 <button 
+-                                                     id="resend-verification-button"
+-                                                     hx-post="/users/profile/resend-verification"
+-                                                     hx-target="#notification-container"
+-                                                     hx-swap="innerHTML"
+-                                                     hx-indicator="#resend-spinner"
+-                                                     class="py-1 px-3 border border-yellow-400 rounded-md shadow-sm text-sm font-medium text-yellow-700 dark:text-yellow-200 bg-yellow-100 dark:bg-yellow-800 hover:bg-yellow-200 dark:hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+-                                                 >
+-                                                     Resend verification email
+-                                                 </button>
+-                                                 <div id="resend-spinner" class="htmx-indicator">
+-                                                     <svg class="animate-spin h-4 w-4 text-yellow-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+-                                                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+-                                                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+-                                                     </svg>
+-                                                 </div>
+-                                             </div>
+-                                         </div>
+-                                     </div>
+-                                 </div>
++                                     {% include "users/_email_verification_banner.html" %}
++                                 {% endif %}
+                              </div>
+-                             {% endif %}
+-                             <!-- End Moved Email Verification Banner -->
++                             <!-- End Email Verification Banner -->
+                              <label for="email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Email address</label>
+                              <input type="email" name="email" id="email" value="{{ user.email }}" required class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-md">
+```
+
+---
+
+Excellent catch! Both the email and PGP verification banners now use the same pattern: a persistent container div that conditionally includes the banner fragment. This ensures that the OOB swaps from the controller will always have a target element in the DOM.
+
+---
+
+_**User**_
+
+The banners behavior is correct now. But the confirmation dialog is still always displayed, event if the email has not been modified
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+You are right, my previous fix with `.trim()` didn't solve it. It seems there might be a subtlety in how Hyperscript handles the variable scope or updates within the `htmx:configRequest` event handler that causes the comparison to fail unexpectedly.
+
+Let's try a more robust approach using a `data-*` attribute to store the initial email value directly on the form element.
+
+1.  **On load:** Set `data-initial-email
+
+---
+
 
 
 ---
