@@ -51,21 +51,18 @@ where
                         let jwt_secret = ctx.config.get_jwt_config()?;
                         match auth::jwt::JWT::new(&jwt_secret.secret).validate(&token) {
                             Ok(claims) => {
-                                let user = T::find_by_claims_key(&ctx.db, &claims.claims.pid)
-                                    .await;
+                                let user = T::find_by_claims_key(&ctx.db, &claims.claims.pid).await;
                                 match user {
-                                    Ok(user) => {
-                                        Ok(Self {
-                                            claims: Some(claims.claims),
-                                            user: Some(user),
-                                        })        
-                                    }
+                                    Ok(user) => Ok(Self {
+                                        claims: Some(claims.claims),
+                                        user: Some(user),
+                                    }),
                                     Err(_) => {
                                         // ToDo: log error ?
                                         Ok(Self {
                                             claims: Some(claims.claims),
                                             user: None,
-                                        }) 
+                                        })
                                     }
                                 }
                             }
@@ -74,17 +71,16 @@ where
                                 Ok(Self {
                                     claims: None,
                                     user: None,
-                                }) 
+                                })
                             }
-                        }        
-        
+                        }
                     }
                     Err(_) => {
                         // ToDo: log error ?
                         Ok(Self {
                             claims: None,
                             user: None,
-                        }) 
+                        })
                     }
                 }
             }
@@ -93,7 +89,7 @@ where
                 Ok(Self {
                     claims: None,
                     user: None,
-                }) 
+                })
             }
         }
     }
@@ -123,35 +119,26 @@ where
                     Ok(token) => {
                         let jwt_secret = ctx.config.get_jwt_config()?;
                         match auth::jwt::JWT::new(&jwt_secret.secret).validate(&token) {
-                            Ok(claims) => {
-                                Ok(Self {
-                                    claims: Some(claims.claims),
-                                })                           }
+                            Ok(claims) => Ok(Self {
+                                claims: Some(claims.claims),
+                            }),
                             Err(_err) => {
                                 // ToDo: log error ?
-                                Ok(Self {
-                                    claims: None,
-                                })   
+                                Ok(Self { claims: None })
                             }
-                        }        
-        
+                        }
                     }
                     Err(_) => {
                         // ToDo: log error ?
-                        Ok(Self {
-                            claims: None,
-                        })   
+                        Ok(Self { claims: None })
                     }
                 }
             }
             Err(_) => {
                 // ToDo: log error ?
-                Ok(Self {
-                    claims: None,
-                })   
+                Ok(Self { claims: None })
             }
         }
-
     }
 }
 
@@ -258,9 +245,7 @@ where
 
                 // Retrieve user information based on the API key from the database.
                 match T::find_by_api_key(&state.db, &api_key).await {
-                    Ok(user) => {
-                        Ok(Self { user: Some(user) })
-                    }
+                    Ok(user) => Ok(Self { user: Some(user) }),
                     Err(_) => {
                         //ToDo: Log error?
                         Ok(Self { user: None })
@@ -277,5 +262,5 @@ where
 
 #[cfg(test)]
 mod tests {
-  //ToDo: Tests
+    //ToDo: Tests
 }

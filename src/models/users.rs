@@ -152,6 +152,22 @@ impl Model {
         user.ok_or_else(|| ModelError::EntityNotFound)
     }
 
+    /// finds a user by the provided PGP email verification token
+    pub async fn find_by_pgp_email_verification_token(
+        db: &DatabaseConnection,
+        token: &str,
+    ) -> ModelResult<Self> {
+        let user = users::Entity::find()
+            .filter(
+                model::query::condition()
+                    .eq(users::Column::PgpEmailVerificationToken, token)
+                    .build(),
+            )
+            .one(db)
+            .await?;
+        user.ok_or_else(|| ModelError::EntityNotFound)
+    }
+
     /// finds a user by the magic token and verify and token expiration
     ///
     /// # Errors
@@ -343,7 +359,7 @@ impl Model {
                         Ok(cert_verifier) => cert_verifier
                             .primary_key()
                             .key_expiration_time()
-                            .map(|st| DateTime::<Utc>::from(st))
+                            .map(DateTime::<Utc>::from)
                             .map(|dt| dt.format("%Y-%m-%d").to_string()),
                         Err(e) => {
                             tracing::warn!("Failed policy check for PGP key validity: {}", e);
@@ -373,6 +389,19 @@ impl ActiveModel {
         db: &DatabaseConnection,
     ) -> ModelResult<Model> {
         self.email_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
+        Ok(self.update(db).await?)
+    }
+
+    /// Sets the PGP email verification token for the user and updates it in the database.
+    ///
+    /// # Errors
+    ///
+    /// when has DB query error
+    pub async fn generate_pgp_email_verification_token(
+        mut self,
+        db: &DatabaseConnection,
+    ) -> ModelResult<Model> {
+        self.pgp_email_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
         Ok(self.update(db).await?)
     }
 

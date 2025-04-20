@@ -3,7 +3,7 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "users")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -25,6 +25,33 @@ pub struct Model {
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
     pub pgp_key: Option<String>,
+    pub pgp_email_verification_token: Option<String>,
+}
+
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Model")
+            .field("id", &self.id)
+            .field("pid", &self.pid)
+            .field("email", &self.email)
+            .field("password", &self.password)
+            .field("api_key", &self.api_key)
+            .field("name", &self.name)
+            .field("reset_token", &self.reset_token)
+            .field("reset_sent_at", &self.reset_sent_at)
+            .field("email_verification_token", &self.email_verification_token)
+            .field(
+                "email_verification_sent_at",
+                &self.email_verification_sent_at,
+            )
+            .field("email_verified_at", &self.email_verified_at)
+            .field("magic_link_token", &self.magic_link_token)
+            .field("magic_link_expiration", &self.magic_link_expiration)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("pgp_key", &self.pgp_key)
+            .finish()
+    }
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

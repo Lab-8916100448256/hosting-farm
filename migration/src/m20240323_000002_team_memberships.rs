@@ -18,7 +18,9 @@ impl MigrationTrait for Migration {
             .col(string(TeamMemberships::Role))
             .col(boolean(TeamMemberships::Pending).default(true))
             .col(string_null(TeamMemberships::InvitationToken))
-            .col(timestamp_with_time_zone_null(TeamMemberships::InvitationSentAt))
+            .col(timestamp_with_time_zone_null(
+                TeamMemberships::InvitationSentAt,
+            ))
             .foreign_key(
                 ForeignKey::create()
                     .name("fk_team_memberships_team_id")
@@ -34,7 +36,7 @@ impl MigrationTrait for Migration {
                     .on_delete(ForeignKeyAction::Cascade),
             )
             .to_owned();
-        
+
         // Create a unique constraint to prevent duplicate memberships
         manager.create_table(table).await?;
         manager
@@ -48,7 +50,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        
+
         Ok(())
     }
 
@@ -70,4 +72,4 @@ pub enum TeamMemberships {
     Pending,
     InvitationToken,
     InvitationSentAt,
-} 
+}

@@ -90,8 +90,8 @@ impl Hooks for App {
             password: ActiveValue::set("$argon2id$v=19$m=19456,t=2,p=1$ETQBx4rTgNAZhSaeYZKOZg$eYTdH26CRT6nUJtacLDEboP0li6xUwUF/q5nSlQ8uuc".to_string()),
             api_key: ActiveValue::set("lo-95ec80d7-cb60-4b70-9b4b-9ef74cb88758".to_string()),
             name: ActiveValue::set("user1".to_string()),
-            created_at: ActiveValue::set(chrono::DateTime::parse_from_rfc3339("2023-11-12T12:34:56.789+00:00").unwrap().into()),
-            updated_at: ActiveValue::set(chrono::DateTime::parse_from_rfc3339("2023-11-12T12:34:56.789+00:00").unwrap().into()),
+            created_at: ActiveValue::set(chrono::DateTime::parse_from_rfc3339("2023-11-12T12:34:56.789+00:00").unwrap()),
+            updated_at: ActiveValue::set(chrono::DateTime::parse_from_rfc3339("2023-11-12T12:34:56.789+00:00").unwrap()),
             reset_token: ActiveValue::NotSet,
             reset_sent_at: ActiveValue::NotSet,
             email_verification_token: ActiveValue::NotSet,
@@ -100,6 +100,7 @@ impl Hooks for App {
             magic_link_token: ActiveValue::NotSet,
             magic_link_expiration: ActiveValue::NotSet,
             pgp_key: Default::default(),
+            pgp_email_verification_token: Default::default(),
         };
         user.insert(&ctx.db).await?;
         Ok(())

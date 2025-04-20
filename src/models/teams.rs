@@ -1,11 +1,14 @@
 use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait, ConnectionTrait, DbErr, DatabaseConnection};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr,
+    EntityTrait, QueryFilter, TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::_entities::teams::{self, ActiveModel, Model};
 use super::_entities::team_memberships;
+use super::_entities::teams::{self, ActiveModel, Model};
 use super::_entities::users::{self, Model as UserModel};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,7 +45,7 @@ impl Model {
     /// When could not find team or DB query error
     pub async fn find_by_pid(db: &DatabaseConnection, pid: &str) -> ModelResult<Self> {
         tracing::debug!("Finding team by pid: {}", pid);
-        
+
         // Parse UUID
         let parse_uuid = match Uuid::parse_str(pid) {
             Ok(uuid) => uuid,
@@ -51,18 +54,18 @@ impl Model {
                 return Err(ModelError::Any(e.into()));
             }
         };
-        
+
         // Find team
         let team = teams::Entity::find()
             .filter(teams::Column::Pid.eq(parse_uuid))
             .one(db)
             .await?;
-        
+
         match team {
             Some(team) => {
                 tracing::debug!("Found team with pid: {}, id: {}", team.pid, team.id);
                 Ok(team)
-            },
+            }
             None => {
                 tracing::error!("Team not found with pid: {}", pid);
                 Err(ModelError::EntityNotFound)
@@ -81,7 +84,7 @@ impl Model {
         params: &CreateTeamParams,
     ) -> ModelResult<Self> {
         let txn = db.begin().await?;
-        
+
         tracing::info!("Creating team with name: {}", params.name);
 
         // Create team with explicit pid
@@ -112,7 +115,7 @@ impl Model {
 
         txn.commit().await?;
         tracing::info!("Transaction committed successfully");
-        
+
         Ok(team)
     }
 
@@ -121,11 +124,15 @@ impl Model {
     /// # Errors
     ///
     /// When could not save the team into the DB
-    pub async fn update(&self, db: &DatabaseConnection, params: &UpdateTeamParams) -> ModelResult<Self> {
+    pub async fn update(
+        &self,
+        db: &DatabaseConnection,
+        params: &UpdateTeamParams,
+    ) -> ModelResult<Self> {
         let mut team: teams::ActiveModel = self.clone().into();
         team.name = ActiveValue::set(params.name.to_string());
         team.description = ActiveValue::set(params.description.clone());
-        
+
         team.update(db).await.map_err(|e| ModelError::Any(e.into()))
     }
 
@@ -134,7 +141,10 @@ impl Model {
     /// # Errors
     ///
     /// When DB query error
-    pub async fn get_members(&self, db: &DatabaseConnection) -> ModelResult<Vec<(UserModel, String)>> {
+    pub async fn get_members(
+        &self,
+        db: &DatabaseConnection,
+    ) -> ModelResult<Vec<(UserModel, String)>> {
         let memberships = team_memberships::Entity::find()
             .filter(
                 model::query::condition()
@@ -165,7 +175,12 @@ impl Model {
     /// # Errors
     ///
     /// When DB query error
-    pub async fn has_role(&self, db: &DatabaseConnection, user_id: i32, role: &str) -> ModelResult<bool> {
+    pub async fn has_role(
+        &self,
+        db: &DatabaseConnection,
+        user_id: i32,
+        role: &str,
+    ) -> ModelResult<bool> {
         let role_level = match role {
             "Owner" => 4,
             "Administrator" => 3,

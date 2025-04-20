@@ -1,4 +1,4 @@
-use loco_rs::schema::*;
+use loco_rs::schema::{add_column, remove_column, ColType};
 use sea_orm_migration::prelude::*;
 
 #[derive(DeriveMigrationName)]
@@ -7,16 +7,18 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, m: &SchemaManager) -> Result<(), DbErr> {
-        create_table(
+        add_column(
             m,
-            "ssh_keys",
-            &[("id", ColType::PkAuto), ("public_key", ColType::Text)],
-            &[("user", "")],
+            "users",
+            "pgp_email_verification_token",
+            ColType::TextNull,
         )
-        .await
+        .await?;
+        Ok(())
     }
 
     async fn down(&self, m: &SchemaManager) -> Result<(), DbErr> {
-        drop_table(m, "ssh_keys").await
+        remove_column(m, "users", "pgp_email_verification_token").await?;
+        Ok(())
     }
 }

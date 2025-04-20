@@ -663,6 +663,69 @@ async fn refresh_pgp(
     }
 }
 
+/// Send PGP verification email (HTMX endpoint)
+#[debug_handler]
+async fn send_pgp_verification(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
+
+    // Generate a new PGP email verification token
+    let user_with_token = match user
+        .clone()
+        .into_active_model()
+        .generate_pgp_email_verification_token(&ctx.db)
+        .await
+    {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!(user_id = user.id, error = ?e, "Failed to generate PGP verification token");
+            return error_fragment(
+                &v,
+                "Could not generate PGP verification token. Please try again.",
+                "#pgp-section",
+            );
+        }
+    };
+
+    // Send the PGP verification email (encrypted)
+    match AuthMailer::send_pgp_verification(&ctx, &user_with_token).await {
+        Ok(_) => {
+            // Success message fragment
+            let notification_message = "PGP verification email sent successfully.";
+            let pgp_fingerprint = user_with_token.pgp_fingerprint();
+            let pgp_validity = user_with_token.pgp_validity();
+            let pgp_section_html = v.render(
+                "users/_pgp_section.html",
+                data!({
+                    "pgp_fingerprint": &pgp_fingerprint,
+                    "pgp_validity": &pgp_validity,
+                    "notification_message": notification_message,
+                }),
+            )?;
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/html")
+                .body(axum::body::Body::from(pgp_section_html))?)
+        }
+        Err(e) => {
+            tracing::error!(user_id = user_with_token.id, error = ?e, "Failed to send PGP verification email");
+            error_fragment(
+                &v,
+                "Could not send PGP verification email. Please try again.",
+                "#pgp-section",
+            )
+        }
+    }
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -678,4 +741,8 @@ pub fn routes() -> Routes {
             post(resend_verification_email),
         )
         .add("/profile/refresh-pgp", post(refresh_pgp))
+        .add(
+            "/profile/send-pgp-verification",
+            post(send_pgp_verification),
+        )
 }

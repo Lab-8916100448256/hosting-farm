@@ -255,7 +255,7 @@ async fn update_member_role(
 
     // Validate role
     if !VALID_ROLES.contains(&params.role.as_str()) {
-        return bad_request(&format!("Invalid role. Valid roles are: {:?}", VALID_ROLES));
+        return bad_request(format!("Invalid role. Valid roles are: {:?}", VALID_ROLES));
     }
 
     // Check if current user is an owner of this team

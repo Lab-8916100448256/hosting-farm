@@ -528,6 +528,69 @@ async fn verify_email(
     }
 }
 
+/// Handles the PGP email verification link
+#[debug_handler]
+async fn verify_pgp_email(
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    Path(token): Path<String>,
+) -> Result<Response> {
+    use crate::models::users;
+    // 1. Look up user by PGP email verification token
+    let user_result = users::Model::find_by_pgp_email_verification_token(&ctx.db, &token).await;
+    match user_result {
+        Ok(user) => {
+            // 2. If already verified (token cleared), show already verified
+            if user.pgp_email_verification_token.is_none() {
+                return render_template(
+                    &v,
+                    "auth/verify.html",
+                    data!({
+                        "success": true,
+                        "message": "Your email is already PGP-verified.",
+                    }),
+                );
+            }
+            // 3. Otherwise, clear the token (mark as verified)
+            let mut active = user.clone().into_active_model();
+            active.pgp_email_verification_token = sea_orm::ActiveValue::Set(None);
+            // You could also set a timestamp field here if you want
+            match active.update(&ctx.db).await {
+                Ok(_) => render_template(
+                    &v,
+                    "auth/verify.html",
+                    data!({
+                        "success": true,
+                        "message": "Your email has been successfully PGP-verified.",
+                    }),
+                ),
+                Err(e) => {
+                    tracing::error!(user_id = user.id, error = ?e, "Failed to mark PGP email as verified");
+                    render_template(
+                        &v,
+                        "auth/verify.html",
+                        data!({
+                            "success": false,
+                            "message": "Failed to mark PGP email as verified. Please try again.",
+                        }),
+                    )
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!(token = token, error = ?e, "Invalid or expired PGP verification token");
+            render_template(
+                &v,
+                "auth/verify.html",
+                data!({
+                    "success": false,
+                    "message": "Invalid or expired PGP verification link.",
+                }),
+            )
+        }
+    }
+}
+
 /// Handles user logout by clearing the auth token cookie
 #[debug_handler]
 async fn handle_logout() -> Result<Response> {
@@ -624,5 +687,6 @@ pub fn routes() -> Routes {
         .add("/reset-password/{token}", get(reset_password))
         .add("/reset-password", post(handle_reset_password))
         .add("/verify/{token}", get(verify_email))
+        .add("/verify-pgp/{token}", get(verify_pgp_email))
         .add("/logout", post(handle_logout))
 }
