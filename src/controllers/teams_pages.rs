@@ -603,13 +603,16 @@ async fn create_team_handler(
     State(ctx): State<AppContext>,
     auth: JWTWithUserOpt<users::Model>,
     headers: HeaderMap,
-    Form(params): Form<CreateTeamParams>,
+    Form(mut params): Form<CreateTeamParams>,
 ) -> Result<impl IntoResponse> {
     let user = if let Some(user) = auth.user {
         user
     } else {
         return redirect("/auth/login", headers);
     };
+
+    // Trim whitespace from team name
+    params.name = params.name.trim().to_string();
 
     // Create the team
     let team = match teams::Model::create_team(&ctx.db, user.id, &params).await {
@@ -623,11 +626,11 @@ async fn create_team_handler(
         }
         Err(e) => {
             tracing::error!("Failed to create team: {}", e);
-            return error_fragment(
-                &v,
-                &format!("Failed to create team: {}", e),
-                "#error-container",
-            );
+            let error_message = match e {
+                ModelError::Message(msg) => msg, // Use the message directly for uniqueness errors
+                _ => "Failed to create team due to an unexpected error.".to_string(),
+            };
+            return error_fragment(&v, &error_message, "#error-container");
         }
     };
 
@@ -659,7 +662,7 @@ async fn update_team_handler(
     auth: JWTWithUserOpt<users::Model>,
     Path(team_pid): Path<String>,
     headers: HeaderMap,
-    Form(params): Form<UpdateTeamParams>,
+    Form(mut params): Form<UpdateTeamParams>,
 ) -> Result<impl IntoResponse> {
     let user = if let Some(user) = auth.user {
         user
@@ -713,17 +716,20 @@ async fn update_team_handler(
         return error_fragment(&v, "You are not a member of this team", "#error-container");
     }
 
+    // Trim whitespace from team name
+    params.name = params.name.trim().to_string();
+
     // Update the team
     let update_result = team.update(&ctx.db, &params).await;
     let updated_team = match update_result {
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to update team {}: {}", team.id, e);
-            return error_fragment(
-                &v,
-                "Could not update team details. Please try again later.",
-                "#error-container",
-            );
+            let error_message = match e {
+                 ModelError::Message(msg) => msg, // Use message for uniqueness errors
+                 _ => "Could not update team details. Please try again later.".to_string(),
+             };
+            return error_fragment(&v, &error_message, "#error-container");
         }
     };
 

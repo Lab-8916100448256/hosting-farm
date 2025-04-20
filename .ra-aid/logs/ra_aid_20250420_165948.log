@@ -1,0 +1,137 @@
+2025-04-20 16:59:48,501 - ra_aid - INFO - Log file created: /home/douzeb/gits/nixin/hosting-farm-raaid/.ra-aid/logs/ra_aid_20250420_165948.log
+2025-04-20 16:59:48,602 - ra_aid.ra_aid.database.migrations - INFO - Applying 14 pending migrations...
+2025-04-20 16:59:48,603 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 002_20250301_212203_add_key_fact_model
+2025-04-20 16:59:48,603 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,607 - peewee_migrate.logs - INFO - Migrate "002_20250301_212203_add_key_fact_model"
+2025-04-20 16:59:48,608 - peewee_migrate.logs - INFO - Run create_table
+2025-04-20 16:59:48,609 - peewee_migrate.logs - INFO - Done 002_20250301_212203_add_key_fact_model
+2025-04-20 16:59:48,612 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 002_20250301_212203_add_key_fact_model
+2025-04-20 16:59:48,613 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 003_20250302_163752_add_key_snippet_model
+2025-04-20 16:59:48,613 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,618 - peewee_migrate.logs - INFO - Migrate "003_20250302_163752_add_key_snippet_model"
+2025-04-20 16:59:48,618 - peewee_migrate.logs - INFO - Run create_table
+2025-04-20 16:59:48,619 - peewee_migrate.logs - INFO - Done 003_20250302_163752_add_key_snippet_model
+2025-04-20 16:59:48,622 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 003_20250302_163752_add_key_snippet_model
+2025-04-20 16:59:48,622 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 004_20250302_200312_add_human_input_model
+2025-04-20 16:59:48,622 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,624 - peewee_migrate.logs - INFO - Migrate "004_20250302_200312_add_human_input_model"
+2025-04-20 16:59:48,624 - peewee_migrate.logs - INFO - Run create_table
+2025-04-20 16:59:48,624 - peewee_migrate.logs - INFO - Done 004_20250302_200312_add_human_input_model
+2025-04-20 16:59:48,627 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 004_20250302_200312_add_human_input_model
+2025-04-20 16:59:48,628 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 005_20250302_201611_add_human_input_reference
+2025-04-20 16:59:48,628 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,629 - peewee_migrate.logs - INFO - Migrate "005_20250302_201611_add_human_input_reference"
+2025-04-20 16:59:48,629 - peewee_migrate.logs - INFO - Done 005_20250302_201611_add_human_input_reference
+2025-04-20 16:59:48,633 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 005_20250302_201611_add_human_input_reference
+2025-04-20 16:59:48,633 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 006_20250303_211704_add_research_note_model
+2025-04-20 16:59:48,633 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,634 - peewee_migrate.logs - INFO - Migrate "006_20250303_211704_add_research_note_model"
+2025-04-20 16:59:48,635 - peewee_migrate.logs - INFO - Done 006_20250303_211704_add_research_note_model
+2025-04-20 16:59:48,638 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 006_20250303_211704_add_research_note_model
+2025-04-20 16:59:48,638 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 007_20250310_184046_add_trajectory_model
+2025-04-20 16:59:48,638 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,639 - peewee_migrate.logs - INFO - Migrate "007_20250310_184046_add_trajectory_model"
+2025-04-20 16:59:48,640 - peewee_migrate.logs - INFO - Done 007_20250310_184046_add_trajectory_model
+2025-04-20 16:59:48,643 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 007_20250310_184046_add_trajectory_model
+2025-04-20 16:59:48,643 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 008_20250311_191232_add_session_model
+2025-04-20 16:59:48,643 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,645 - peewee_migrate.logs - INFO - Migrate "008_20250311_191232_add_session_model"
+2025-04-20 16:59:48,645 - peewee_migrate.logs - INFO - Run create_table
+2025-04-20 16:59:48,646 - peewee_migrate.logs - INFO - Done 008_20250311_191232_add_session_model
+2025-04-20 16:59:48,649 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 008_20250311_191232_add_session_model
+2025-04-20 16:59:48,649 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 009_20250311_191517_add_session_fk_to_human_input
+2025-04-20 16:59:48,649 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,651 - peewee_migrate.logs - INFO - Migrate "009_20250311_191517_add_session_fk_to_human_input"
+2025-04-20 16:59:48,651 - peewee_migrate.logs - INFO - Done 009_20250311_191517_add_session_fk_to_human_input
+2025-04-20 16:59:48,655 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 009_20250311_191517_add_session_fk_to_human_input
+2025-04-20 16:59:48,655 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 010_20250311_191617_add_session_fk_to_key_fact
+2025-04-20 16:59:48,655 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,656 - peewee_migrate.logs - INFO - Migrate "010_20250311_191617_add_session_fk_to_key_fact"
+2025-04-20 16:59:48,657 - peewee_migrate.logs - INFO - Done 010_20250311_191617_add_session_fk_to_key_fact
+2025-04-20 16:59:48,660 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 010_20250311_191617_add_session_fk_to_key_fact
+2025-04-20 16:59:48,660 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 011_20250311_191732_add_session_fk_to_key_snippet
+2025-04-20 16:59:48,660 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,662 - peewee_migrate.logs - INFO - Migrate "011_20250311_191732_add_session_fk_to_key_snippet"
+2025-04-20 16:59:48,662 - peewee_migrate.logs - INFO - Done 011_20250311_191732_add_session_fk_to_key_snippet
+2025-04-20 16:59:48,666 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 011_20250311_191732_add_session_fk_to_key_snippet
+2025-04-20 16:59:48,666 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 012_20250311_191832_add_session_fk_to_research_note
+2025-04-20 16:59:48,666 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,667 - peewee_migrate.logs - INFO - Migrate "012_20250311_191832_add_session_fk_to_research_note"
+2025-04-20 16:59:48,668 - peewee_migrate.logs - INFO - Done 012_20250311_191832_add_session_fk_to_research_note
+2025-04-20 16:59:48,671 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 012_20250311_191832_add_session_fk_to_research_note
+2025-04-20 16:59:48,672 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 013_20250311_191701_add_session_fk_to_trajectory
+2025-04-20 16:59:48,672 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,676 - peewee_migrate.logs - INFO - Migrate "013_20250311_191701_add_session_fk_to_trajectory"
+2025-04-20 16:59:48,677 - peewee_migrate.logs - INFO - Done 013_20250311_191701_add_session_fk_to_trajectory
+2025-04-20 16:59:48,682 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 013_20250311_191701_add_session_fk_to_trajectory
+2025-04-20 16:59:48,682 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 014_20250312_140700_add_token_fields_to_trajectory
+2025-04-20 16:59:48,683 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,686 - peewee_migrate.logs - INFO - Migrate "014_20250312_140700_add_token_fields_to_trajectory"
+2025-04-20 16:59:48,687 - peewee_migrate.logs - INFO - Done 014_20250312_140700_add_token_fields_to_trajectory
+2025-04-20 16:59:48,691 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 014_20250312_140700_add_token_fields_to_trajectory
+2025-04-20 16:59:48,692 - ra_aid.ra_aid.database.migrations - INFO - Applying migration: 015_20250408_140800_add_session_status
+2025-04-20 16:59:48,692 - peewee_migrate.logs - INFO - Starting migrations
+2025-04-20 16:59:48,693 - peewee_migrate.logs - INFO - Migrate "015_20250408_140800_add_session_status"
+2025-04-20 16:59:48,693 - ra_aid.builtins - INFO - Adding status field to session table
+2025-04-20 16:59:48,693 - ra_aid.builtins - ERROR - Error checking or adding 'status' column: 'Migrator' object has no attribute 'router'
+2025-04-20 16:59:48,694 - peewee_migrate.logs - INFO - Done 015_20250408_140800_add_session_status
+2025-04-20 16:59:48,697 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied migration: 015_20250408_140800_add_session_status
+2025-04-20 16:59:48,697 - ra_aid.ra_aid.database.migrations - INFO - Successfully applied 14 migrations
+2025-04-20 16:59:48,704 - ra_aid.ra_aid.database.connection - INFO - Database connection closed successfully
+2025-04-20 16:59:49,443 - httpx - INFO - HTTP Request: GET https://api.openai.com/v1/models "HTTP/1.1 200 OK"
+2025-04-20 16:59:50,325 - ra_aid.server.broadcast_sender - INFO - Broadcast queue set in broadcast_sender.
+2025-04-20 17:04:32,873 - ra_aid.server.api_v1_spawn_agent - INFO - Initializing agent thread for session_id=1 (int), research_only=False
+2025-04-20 17:04:32,912 - ra_aid.ra_aid.server.api_v1_sessions - INFO - Fetching trajectories for session ID: 1
+2025-04-20 17:04:32,917 - ra_aid.ra_aid.server.api_v1_sessions - INFO - Found 0 trajectories for session ID: 1
+2025-04-20 17:04:32,918 - ra_aid.ra_aid.server.api_v1_sessions - INFO - Total trajectories in database: 0
+2025-04-20 17:04:32,930 - ra_aid.ra_aid.database.connection - INFO - Database connection closed successfully
+2025-04-20 17:04:32,930 - ra_aid.ra_aid.server.api_v1_sessions - INFO - Migration status: 14 applied, 0 pending
+2025-04-20 17:04:32,930 - ra_aid.ra_aid.server.api_v1_sessions - WARNING - Database has no trajectories but all migrations are applied. The database is properly set up but contains no data.
+2025-04-20 17:04:33,749 - ra_aid.ra_aid.database.repositories.trajectory_repository - INFO - Registered trajectory create hook: send_broadcast
+2025-04-20 17:04:33,749 - ra_aid.server.api_v1_spawn_agent - INFO - Updating session 1 status to 'running'
+2025-04-20 17:04:33,758 - ra_aid.ra_aid.database.repositories.session_repository - INFO - Updated session 1 status to 'running'
+2025-04-20 17:04:33,793 - ra_aid.server.api_v1_spawn_agent - INFO - Broadcasted full session details update for session 1
+2025-04-20 17:04:33,793 - ra_aid.server.api_v1_spawn_agent - ERROR - Error creating stage transition trajectory for session 1: TrajectoryRepository.create() got an unexpected keyword argument 'prompt_tokens'
+Traceback (most recent call last):
+  File "/home/douzeb/gits/nixin/hosting-farm-raaid/.venv/lib/python3.12/site-packages/ra_aid/server/api_v1_spawn_agent.py", line 207, in run_agent_thread
+    trajectory_repo.create(
+TypeError: TrajectoryRepository.create() got an unexpected keyword argument 'prompt_tokens'
+2025-04-20 17:04:33,795 - ra_aid.server.api_v1_spawn_agent - INFO - Starting agent execution for session_id=1 with params: base_task_or_query='For this project you must follow the development r...', expert_enabled=True, research_only=False, web_research_enabled=True, thread_id='1'
+2025-04-20 17:04:33,795 - ra_aid.ra_aid.agents.research_agent - INFO - [1] Starting research agent. Task: 'For this project you must follow the development r...'
+2025-04-20 17:04:33,795 - ra_aid.ra_aid.agents.research_agent - INFO - [1] Config: expert=True, research_only=False, hil=False, web_research=True
+2025-04-20 17:04:33,818 - ra_aid.ra_aid.agents.research_agent - INFO - [1] Research agent created successfully.
+2025-04-20 17:11:58,360 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:12:10,012 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:12:18,486 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:12:22,206 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:12:24,557 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:12:27,577 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:12:46,456 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:12:57,511 - ra_aid.ra_aid.agent_backends.ciayn_agent - INFO - Detected repeat call of read_file_tool with the same parameters.
+2025-04-20 17:14:16,910 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:27:12,567 - ra_aid.ra_aid.agent_backends.ciayn_agent - INFO - Detected repeat call of run_shell_command with the same parameters.
+2025-04-20 17:32:36,458 - ra_aid.ra_aid.agent_backends.ciayn_agent - INFO - Detected repeat call of run_shell_command with the same parameters.
+2025-04-20 17:41:14,225 - ra_aid.ra_aid.agents.research_agent - INFO - [1] Research agent finished without returning a final message.
+2025-04-20 17:41:14,225 - ra_aid.server.api_v1_spawn_agent - INFO - Agent execution completed successfully for session 1.
+2025-04-20 17:41:14,226 - ra_aid.ra_aid.database.connection - INFO - Database connection closed successfully
+2025-04-20 17:41:14,254 - ra_aid.ra_aid.database.repositories.session_repository - INFO - Updated session 1 status to 'completed'
+2025-04-20 17:41:14,261 - ra_aid.server.api_v1_spawn_agent - INFO - Agent thread cleanup finished for session 1.
+2025-04-20 17:55:41,782 - ra_aid.server.api_v1_spawn_agent - INFO - Initializing agent thread for session_id=2 (int), research_only=False
+2025-04-20 17:55:42,039 - ra_aid.ra_aid.server.api_v1_sessions - INFO - Fetching trajectories for session ID: 2
+2025-04-20 17:55:42,046 - ra_aid.ra_aid.server.api_v1_sessions - INFO - Found 0 trajectories for session ID: 2
+2025-04-20 17:55:42,047 - ra_aid.ra_aid.server.api_v1_sessions - INFO - Total trajectories in database: 139
+2025-04-20 17:55:42,059 - ra_aid.ra_aid.database.connection - INFO - Database connection closed successfully
+2025-04-20 17:55:42,059 - ra_aid.ra_aid.server.api_v1_sessions - INFO - Migration status: 14 applied, 0 pending
+2025-04-20 17:55:42,753 - ra_aid.ra_aid.database.repositories.trajectory_repository - INFO - Registered trajectory create hook: send_broadcast
+2025-04-20 17:55:42,753 - ra_aid.server.api_v1_spawn_agent - INFO - Updating session 2 status to 'running'
+2025-04-20 17:55:42,764 - ra_aid.ra_aid.database.repositories.session_repository - INFO - Updated session 2 status to 'running'
+2025-04-20 17:55:42,779 - ra_aid.server.api_v1_spawn_agent - INFO - Broadcasted full session details update for session 2
+2025-04-20 17:55:42,780 - ra_aid.server.api_v1_spawn_agent - ERROR - Error creating stage transition trajectory for session 2: TrajectoryRepository.create() got an unexpected keyword argument 'prompt_tokens'
+Traceback (most recent call last):
+  File "/home/douzeb/gits/nixin/hosting-farm-raaid/.venv/lib/python3.12/site-packages/ra_aid/server/api_v1_spawn_agent.py", line 207, in run_agent_thread
+    trajectory_repo.create(
+TypeError: TrajectoryRepository.create() got an unexpected keyword argument 'prompt_tokens'
+2025-04-20 17:55:42,780 - ra_aid.server.api_v1_spawn_agent - INFO - Starting agent execution for session_id=2 with params: base_task_or_query='When trying the register a new account, with a use...', expert_enabled=True, research_only=False, web_research_enabled=True, thread_id='2'
+2025-04-20 17:55:42,781 - ra_aid.ra_aid.agents.research_agent - INFO - [2] Starting research agent. Task: 'When trying the register a new account, with a use...'
+2025-04-20 17:55:42,781 - ra_aid.ra_aid.agents.research_agent - INFO - [2] Config: expert=True, research_only=False, hil=False, web_research=True
+2025-04-20 17:55:42,813 - ra_aid.ra_aid.agents.research_agent - INFO - [2] Research agent created successfully.

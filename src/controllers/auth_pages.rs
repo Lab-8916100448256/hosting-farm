@@ -51,10 +51,10 @@ async fn handle_register(
         );
     }
 
-    // Convert form data to RegisterParams
+    // Convert form data to RegisterParams, trimming the name
     let params = RegisterParams {
-        name: form.name,
-        email: form.email,
+        name: form.name.trim().to_string(),
+        email: form.email, // Email validation should handle trimming if necessary
         password: form.password,
         password_confirmation: form.password_confirmation,
     };
@@ -71,12 +71,12 @@ async fn handle_register(
                 .generate_email_verification_token(&ctx.db)
                 .await
             {
-                Ok(user) => {
+                Ok(user_with_token) => {
                     // Send verification email first
-                    match AuthMailer::send_welcome(&ctx, &user).await {
+                    match AuthMailer::send_welcome(&ctx, &user_with_token).await {
                         Ok(_) => {
                             // Email sent successfully, now update verification status
-                            match user
+                            match user_with_token
                                 .clone()
                                 .into_active_model()
                                 .set_email_verification_sent(&ctx.db)
@@ -90,7 +90,7 @@ async fn handle_register(
                                     tracing::error!(
                                         message =
                                             "Failed to set email verification status after sending email",
-                                        user_email = &user.email, // user is still available here
+                                        user_email = &user_with_token.email, // use user_with_token here
                                         error = err.to_string(),
                                     );
                                     // Although the email was sent, the DB update failed.
@@ -102,7 +102,7 @@ async fn handle_register(
                         Err(err) => {
                             tracing::error!(
                                 message = "Failed to send welcome email",
-                                user_email = &user.email, // user is still available here
+                                user_email = &user_with_token.email, // use user_with_token here
                                 error = err.to_string(),
                             );
                             // Don't proceed to update verification status if email failed.
@@ -117,10 +117,10 @@ async fn handle_register(
                 Err(err) => {
                     tracing::error!(
                         message = "Failed to generate email verification token",
-                        user_email = &user.email, // user is still available here
+                        user_email = &user.email, // user is still available here from initial Ok(user)
                         error = err.to_string(),
                     );
-                    // Although the email was sent, the DB update failed.
+                    // Error generating token after user creation.
                     // This is an internal error state, show error page.
                     error_page(
                         &v,
@@ -131,29 +131,33 @@ async fn handle_register(
             }
         }
         Err(err) => {
+             // Log the specific error details
             tracing::info!(
-                message = err.to_string(),
+                error = err.to_string(), // Log the actual error string
                 user_email = &params.email,
-                "could not register user",
+                user_name = &params.name, // Also log the username attempt
+                "Could not register user",
             );
 
-            let err_message = match err {
-                ModelError::EntityAlreadyExists => "Account already exists".to_string(),
-                ModelError::EntityNotFound => "Entity not found".to_string(),
-                ModelError::Validation(err) => format!("Validation error: {}", err),
-                ModelError::Jwt(err) => format!("JWT error: {}", err),
-                ModelError::DbErr(err) => format!("Database error: {}", err),
-                ModelError::Any(err) => format!("{}", err),
-                ModelError::Message(msg) => msg,
-            };
-            error_fragment(
-                &v,
-                &format!("Could not register account: {}", err_message),
-                "#error-container",
-            )
+            // Handle specific ModelError variants
+            match err {
+                // Use the message directly from the ModelError for uniqueness errors
+                ModelError::Message(msg) => {
+                     error_fragment(&v, &msg, "#error-container")
+                }
+                // Handle validation errors
+                ModelError::Validation(validation_err) => {
+                    error_fragment(&v, &format!("Validation error: {}", validation_err), "#error-container")
+                }
+                 // Handle other potential errors generically
+                _ => {
+                    error_fragment(&v, "Could not register account due to an unexpected error.", "#error-container")
+                }
+            }
         }
     }
 }
+
 
 /// Renders the login page
 #[debug_handler]

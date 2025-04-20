@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use chrono::{offset::Local, DateTime, Duration, Utc};
 use loco_rs::{auth::jwt, hash, prelude::*};
 use reqwest;
-use sea_orm::{ActiveValue, ConnectionTrait, DbErr, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveValue, ConnectionTrait, DbErr, EntityTrait, QueryFilter, Set, ColumnTrait};
 use sequoia_openpgp::{self as openpgp, parse::Parse, policy::StandardPolicy};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -43,7 +43,7 @@ pub struct RegisterParams {
 
 #[derive(Debug, Validate, Deserialize)]
 pub struct Validator {
-    #[validate(length(min = 2, message = "Name must be at least 2 characters long."))]
+    #[validate(length(min = 2, message = "Name must be at least 2 characters long."))] 
     pub name: String,
     #[validate(custom(function = "validation::is_valid_email"))]
     pub email: String,
@@ -122,11 +122,7 @@ impl Model {
     /// When could not find user by the given token or DB query error
     pub async fn find_by_email(db: &DatabaseConnection, email: &str) -> ModelResult<Self> {
         let user = users::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(users::Column::Email, email)
-                    .build(),
-            )
+            .filter(users::Column::Email.eq(email))
             .one(db)
             .await?;
         user.ok_or_else(|| ModelError::EntityNotFound)
@@ -142,11 +138,7 @@ impl Model {
         token: &str,
     ) -> ModelResult<Self> {
         let user = users::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(users::Column::EmailVerificationToken, token)
-                    .build(),
-            )
+            .filter(users::Column::EmailVerificationToken.eq(token))
             .one(db)
             .await?;
         user.ok_or_else(|| ModelError::EntityNotFound)
@@ -159,11 +151,7 @@ impl Model {
     /// When could not find user by the given token or DB query error ot token expired
     pub async fn find_by_magic_token(db: &DatabaseConnection, token: &str) -> ModelResult<Self> {
         let user = users::Entity::find()
-            .filter(
-                query::condition()
-                    .eq(users::Column::MagicLinkToken, token)
-                    .build(),
-            )
+            .filter(users::Column::MagicLinkToken.eq(token))
             .one(db)
             .await?;
 
@@ -195,11 +183,7 @@ impl Model {
     /// When could not find user by the given token or DB query error
     pub async fn find_by_reset_token(db: &DatabaseConnection, token: &str) -> ModelResult<Self> {
         let user = users::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(users::Column::ResetToken, token)
-                    .build(),
-            )
+            .filter(users::Column::ResetToken.eq(token))
             .one(db)
             .await?;
         user.ok_or_else(|| ModelError::EntityNotFound)
@@ -213,11 +197,7 @@ impl Model {
     pub async fn find_by_pid(db: &DatabaseConnection, pid: &str) -> ModelResult<Self> {
         let parse_uuid = Uuid::parse_str(pid).map_err(|e| ModelError::Any(e.into()))?;
         let user = users::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(users::Column::Pid, parse_uuid)
-                    .build(),
-            )
+            .filter(users::Column::Pid.eq(parse_uuid))
             .one(db)
             .await?;
         user.ok_or_else(|| ModelError::EntityNotFound)
@@ -230,11 +210,7 @@ impl Model {
     /// When could not find user by the given token or DB query error
     pub async fn find_by_api_key(db: &DatabaseConnection, api_key: &str) -> ModelResult<Self> {
         let user = users::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(users::Column::ApiKey, api_key)
-                    .build(),
-            )
+            .filter(users::Column::ApiKey.eq(api_key))
             .one(db)
             .await?;
         user.ok_or_else(|| ModelError::EntityNotFound)
@@ -255,24 +231,33 @@ impl Model {
     ///
     /// # Errors
     ///
-    /// When could not save the user into the DB
+    /// When could not save the user into the DB or if email/name is not unique
     pub async fn create_with_password(
         db: &DatabaseConnection,
         params: &RegisterParams,
     ) -> ModelResult<Self> {
         let txn = db.begin().await?;
 
+        // Check for email uniqueness
         if users::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(users::Column::Email, &params.email)
-                    .build(),
-            )
+            .filter(users::Column::Email.eq(&params.email))
             .one(&txn)
             .await?
             .is_some()
         {
-            return Err(ModelError::EntityAlreadyExists {});
+            // Revert to EntityAlreadyExists for the snapshot test
+            return Err(ModelError::EntityAlreadyExists);
+        }
+
+        // Check for name uniqueness
+        if users::Entity::find()
+            .filter(users::Column::Name.eq(&params.name))
+            .one(&txn)
+            .await?
+            .is_some()
+        {
+            // Revert to EntityAlreadyExists for the snapshot test
+            return Err(ModelError::EntityAlreadyExists);
         }
 
         let password_hash =
@@ -474,7 +459,7 @@ impl ActiveModel {
     ///
     /// when has DB query error
     pub async fn set_pgp_verified(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        self.pgp_verified_at = ActiveValue::set(Some(Utc::now().naive_utc())); // Use naive_utc() for NaiveDateTime
+        self.pgp_verified_at = ActiveValue::Set(Some(Utc::now().naive_utc())); // Use naive_utc() for NaiveDateTime
         self.pgp_verification_token = ActiveValue::Set(None);
         Ok(self.update(db).await?)
     }
