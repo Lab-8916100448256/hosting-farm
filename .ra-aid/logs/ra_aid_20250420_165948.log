@@ -135,3 +135,12 @@ TypeError: TrajectoryRepository.create() got an unexpected keyword argument 'pro
 2025-04-20 17:55:42,781 - ra_aid.ra_aid.agents.research_agent - INFO - [2] Starting research agent. Task: 'When trying the register a new account, with a use...'
 2025-04-20 17:55:42,781 - ra_aid.ra_aid.agents.research_agent - INFO - [2] Config: expert=True, research_only=False, hil=False, web_research=True
 2025-04-20 17:55:42,813 - ra_aid.ra_aid.agents.research_agent - INFO - [2] Research agent created successfully.
+2025-04-20 17:58:43,413 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:58:47,268 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:58:50,587 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 17:59:14,723 - ra_aid.tools.file_str_replace - WARNING - Failed to record success trajectory for file_str_replace: TrajectoryRepository.create() got an unexpected keyword argument 'display_title'
+2025-04-20 18:03:35,680 - ra_aid.ra_aid.agents.research_agent - INFO - [2] Research agent finished without returning a final message.
+2025-04-20 18:03:35,680 - ra_aid.server.api_v1_spawn_agent - INFO - Agent execution completed successfully for session 2.
+2025-04-20 18:03:35,681 - ra_aid.ra_aid.database.connection - INFO - Database connection closed successfully
+2025-04-20 18:03:35,689 - ra_aid.ra_aid.database.repositories.session_repository - INFO - Updated session 2 status to 'completed'
+2025-04-20 18:03:35,698 - ra_aid.server.api_v1_spawn_agent - INFO - Agent thread cleanup finished for session 2.

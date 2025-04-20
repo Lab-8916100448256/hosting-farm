@@ -245,19 +245,17 @@ impl Model {
             .await?
             .is_some()
         {
-            // Revert to EntityAlreadyExists for the snapshot test
-            return Err(ModelError::EntityAlreadyExists);
+            return Err(ModelError::Message("Email already registered.".to_string()));
         }
 
         // Check for name uniqueness
         if users::Entity::find()
-            .filter(users::Column::Name.eq(&params.name))
+            .filter(users::Column::Name.eq(&*params.name.trim())) // Trim username for the check
             .one(&txn)
             .await?
             .is_some()
         {
-            // Revert to EntityAlreadyExists for the snapshot test
-            return Err(ModelError::EntityAlreadyExists);
+            return Err(ModelError::Message("Username already taken. Please choose another.".to_string()));
         }
 
         let password_hash =
@@ -265,7 +263,7 @@ impl Model {
         let user = users::ActiveModel {
             email: ActiveValue::set(params.email.to_string()),
             password: ActiveValue::set(password_hash),
-            name: ActiveValue::set(params.name.to_string()),
+            name: ActiveValue::set(params.name.trim().to_string()),
             ..Default::default()
         }
         .insert(&txn)
