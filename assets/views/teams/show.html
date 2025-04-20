@@ -14,14 +14,18 @@
         </div>
         {% if is_admin %}
         <div class="flex space-x-3">
+            {# Edit button remains visible for team admins #}
             <a href="/teams/{{ team.pid }}/edit" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                 Edit Team
             </a>
+            {# Delete button form is now conditional on *not* being the system admin team #}
+            {% if not is_system_admin_team %}
             <form action="/teams/{{ team.pid }}" method="POST" hx-delete="/teams/{{ team.pid }}" hx-confirm="Are you sure you want to delete this team? This action cannot be undone.">
                 <button type="submit" class="inline-flex items-center px-3 py-2 border border-red-300 shadow-sm text-sm leading-4 font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
                     Delete Team
                 </button>
             </form>
+            {% endif %}
         </div>
         {% endif %}
     </div>

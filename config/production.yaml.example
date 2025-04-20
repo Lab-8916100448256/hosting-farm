@@ -102,6 +102,7 @@ auth:
     expiration: 604800 # 7 days
 
 # Application specific configuration
-app:
-  # Name of the team designated as administrators
-  admin_team_name: "Administrators"
+settings:
+  app:
+    # Name of the team designated as administrators
+    admin_team_name: "Administrators"

@@ -257,6 +257,11 @@ async fn team_details(
         false
     };
 
+    // Retrieve the configured administrator team name
+    let admin_team_name = get_admin_team_name(&ctx);
+    // Check if the current team is the administrators team
+    let is_system_admin_team = team.name == admin_team_name;
+
     // Get team members (non-pending)
     let memberships_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
@@ -396,6 +401,7 @@ async fn team_details(
             "is_admin": &is_admin,
             "active_page": "teams",
             "invitation_count": &invitations,
+            "is_system_admin_team": &is_system_admin_team // Add this line
         }),
     )
 }
@@ -672,7 +678,8 @@ async fn create_team_handler(
     // Redirect to the team details page with explicit .to_string() to ensure proper conversion
     let redirect_url = format!("/teams/{}", team.pid);
     redirect(&redirect_url, headers)
-}
+} // Added missing closing brace here
+
 
 /// Update team handler
 #[debug_handler]
