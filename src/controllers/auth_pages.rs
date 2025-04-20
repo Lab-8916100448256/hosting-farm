@@ -2,19 +2,40 @@ use crate::{
     mailers::auth::AuthMailer,
     middleware::auth_no_error::JWTWithUserOpt,
     models::{
+        teams, // Added for admin team creation
         users,
         users::{ForgotPasswordParams, LoginParams, RegisterParams, ResetPasswordParams},
     },
     views::render_template,
     views::*,
 };
+use tracing::{debug, error, info}; // Import tracing macros
+
 use axum::http::{header::HeaderValue, HeaderMap};
 use axum::{
     debug_handler,
     extract::{Form, Path, Query, State},
 };
 use loco_rs::prelude::*;
+use sea_orm::{EntityTrait, PaginatorTrait}; // Added EntityTrait for ::count(), PaginatorTrait for ::count()
 use std::collections::HashMap;
+
+/// Helper function to get the admin team name from config
+fn get_admin_team_name(ctx: &AppContext) -> String {
+    ctx.config
+        .settings
+        .as_ref() // Get Option<&Value>
+        .and_then(|settings| settings.get("app")) // Get Option<&Value> for "app" key
+        .and_then(|app_settings| app_settings.get("admin_team_name")) // Get Option<&Value> for "admin_team_name"
+        .and_then(|value| value.as_str()) // Get Option<&str>
+        .map(|s| s.to_string()) // Convert to Option<String>
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                "'app.admin_team_name' not found or not a string in config, using default 'Administrators'"
+            );
+            "Administrators".to_string()
+        })
+}
 
 /// Renders the registration page
 #[debug_handler]
@@ -64,6 +85,52 @@ async fn handle_register(
 
     match res {
         Ok(user) => {
+            // START: Auto-create admin team for the first user
+            match users::Entity::find().count(&ctx.db).await {
+                Ok(user_count) => {
+                    if user_count == 1 {
+                        info!(
+                            "First user registered ({}), attempting to create default admin team.",
+                            user.email
+                        );
+                        // Read admin team name from configuration, fallback to "Administrators"
+                        let admin_team_name = get_admin_team_name(&ctx);
+
+                        let team_params = teams::CreateTeamParams {
+                            name: admin_team_name.clone(), // Clone name from config
+                            description: Some(
+                                "Default administrators team created automatically.".to_string(),
+                            ),
+                        };
+
+                        // Attempt to create the team, logging the outcome
+                        match crate::models::_entities::teams::Model::create_team(&ctx.db, user.id, &team_params).await {
+                            Ok(team) => info!(
+                                "Successfully created default administrators team '{}' (ID: {}) for first user {}",
+                                admin_team_name, team.id, user.email
+                            ),
+                            Err(e) => {
+                                // Log the error but do not fail the registration
+                                error!(
+                                    "Failed to create default administrators team '{}' for first user {}: {:?}",
+                                    admin_team_name, user.email, e
+                                );
+                                // Registration continues even if team creation fails.
+                            }
+                        }
+                    } else {
+                        // Not the first user, do nothing related to admin team creation
+                        debug!("Not the first user (count: {}), skipping admin team creation for user {}", user_count, user.email);
+                    }
+                }
+                Err(e) => {
+                    // Failed to get user count, log error but proceed with registration
+                    error!("Failed to query user count during registration for user {}: {:?}. Skipping admin team creation check.", user.email, e);
+                    // Registration continues even if the count check fails.
+                }
+            }
+            // END: Auto-create admin team logic
+
             // Generate email verification token
             match user
                 .clone()
@@ -131,7 +198,7 @@ async fn handle_register(
             }
         }
         Err(err) => {
-             // Log the specific error details
+            // Log the specific error details
             tracing::info!(
                 error = err.to_string(), // Log the actual error string
                 user_email = &params.email,
@@ -142,22 +209,23 @@ async fn handle_register(
             // Handle specific ModelError variants
             match err {
                 // Use the message directly from the ModelError for uniqueness errors
-                ModelError::Message(msg) => {
-                     error_fragment(&v, &msg, "#error-container")
-                }
+                ModelError::Message(msg) => error_fragment(&v, &msg, "#error-container"),
                 // Handle validation errors
-                ModelError::Validation(validation_err) => {
-                    error_fragment(&v, &format!("Validation error: {}", validation_err), "#error-container")
-                }
-                 // Handle other potential errors generically
-                _ => {
-                    error_fragment(&v, "Could not register account due to an unexpected error.", "#error-container")
-                }
+                ModelError::Validation(validation_err) => error_fragment(
+                    &v,
+                    &format!("Validation error: {}", validation_err),
+                    "#error-container",
+                ),
+                // Handle other potential errors generically
+                _ => error_fragment(
+                    &v,
+                    "Could not register account due to an unexpected error.",
+                    "#error-container",
+                ),
             }
         }
     }
 }
-
 
 /// Renders the login page
 #[debug_handler]

@@ -7,9 +7,9 @@ logger:
   # Enable pretty backtrace (sets RUST_BACKTRACE=1)
   pretty_backtrace: true
   # Log level, options: trace, debug, info, warn or error.
-  level: debug
+  level: info
   # Define the logging format. options: compact, pretty or json
-  format: compact
+  format: json
   # By default the logger has filtering only logs that came from your code or logs that came from `loco` framework. to see all third party libraries
   # Uncomment the line below to override to see all third party libraries you can enable this config and override the logger filters.
   # override_filter: trace
@@ -17,9 +17,9 @@ logger:
 # Web server configuration
 server:
   # Port on which the server will listen. the server binding is 0.0.0.0:{PORT}
-  port: 5150
+  port: 3000
   # Binding for the server (which interface to bind to)
-  binding: localhost
+  binding: 0.0.0.0
   # The UI hostname or IP address that mailers will point to.
   host: http://localhost
   # Out of the box middleware configuration. to disable middleware you can changed the `enable` field to `false` of comment the middleware block
@@ -74,7 +74,7 @@ mailer:
 # Database Configuration
 database:
   # Database connection URI
-  uri: {{ get_env(name="DATABASE_URL", default="sqlite://hosting-farm_development.sqlite?mode=rwc") }}
+  uri: {{ get_env(name="DATABASE_URL", default="sqlite://hosting-farm_production.sqlite?mode=rwc") }}
   # When enabled, the sql query will be logged.
   enable_logging: false
   # Set the timeout duration when acquiring a connection.
@@ -97,6 +97,11 @@ auth:
   # JWT authentication
   jwt:
     # Secret key for token generation and verification
-    secret: P4u28pKuFldLTYSofkWu
+    secret: {{ get_env(name="JWT_SECRET", default="secret_key") }}
     # Token expiration time in seconds
     expiration: 604800 # 7 days
+
+# Application specific configuration
+app:
+  # Name of the team designated as administrators
+  admin_team_name: "Administrators"

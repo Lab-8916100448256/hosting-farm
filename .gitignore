@@ -25,3 +25,5 @@ nginx/
 *.sqlite-wal
 
 .specstory/
+
+.ra-aid/logs/
