@@ -2,19 +2,40 @@ use crate::{
     mailers::auth::AuthMailer,
     middleware::auth_no_error::JWTWithUserOpt,
     models::{
+        teams, // Added for admin team creation
         users,
         users::{ForgotPasswordParams, LoginParams, RegisterParams, ResetPasswordParams},
     },
     views::render_template,
     views::*,
 };
+use tracing::{debug, error, info}; // Import tracing macros
+
 use axum::http::{header::HeaderValue, HeaderMap};
 use axum::{
     debug_handler,
     extract::{Form, Path, Query, State},
 };
 use loco_rs::prelude::*;
+use sea_orm::{EntityTrait, PaginatorTrait}; // Added EntityTrait for ::count(), PaginatorTrait for ::count()
 use std::collections::HashMap;
+
+/// Helper function to get the admin team name from config
+fn get_admin_team_name(ctx: &AppContext) -> String {
+    ctx.config
+        .settings
+        .as_ref() // Get Option<&Value>
+        .and_then(|settings| settings.get("app")) // Get Option<&Value> for "app" key
+        .and_then(|app_settings| app_settings.get("admin_team_name")) // Get Option<&Value> for "admin_team_name"
+        .and_then(|value| value.as_str()) // Get Option<&str>
+        .map(|s| s.to_string()) // Convert to Option<String>
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                "'app.admin_team_name' not found or not a string in config, using default 'Administrators'"
+            );
+            "Administrators".to_string()
+        })
+}
 
 /// Renders the registration page
 #[debug_handler]
@@ -51,10 +72,10 @@ async fn handle_register(
         );
     }
 
-    // Convert form data to RegisterParams
+    // Convert form data to RegisterParams, trimming the name
     let params = RegisterParams {
-        name: form.name,
-        email: form.email,
+        name: form.name.trim().to_string(),
+        email: form.email, // Email validation should handle trimming if necessary
         password: form.password,
         password_confirmation: form.password_confirmation,
     };
@@ -64,6 +85,52 @@ async fn handle_register(
 
     match res {
         Ok(user) => {
+            // START: Auto-create admin team for the first user
+            match users::Entity::find().count(&ctx.db).await {
+                Ok(user_count) => {
+                    if user_count == 1 {
+                        info!(
+                            "First user registered ({}), attempting to create default admin team.",
+                            user.email
+                        );
+                        // Read admin team name from configuration, fallback to "Administrators"
+                        let admin_team_name = get_admin_team_name(&ctx);
+
+                        let team_params = teams::CreateTeamParams {
+                            name: admin_team_name.clone(), // Clone name from config
+                            description: Some(
+                                "Default administrators team created automatically.".to_string(),
+                            ),
+                        };
+
+                        // Attempt to create the team, logging the outcome
+                        match crate::models::_entities::teams::Model::create_team(&ctx.db, user.id, &team_params).await {
+                            Ok(team) => info!(
+                                "Successfully created default administrators team '{}' (ID: {}) for first user {}",
+                                admin_team_name, team.id, user.email
+                            ),
+                            Err(e) => {
+                                // Log the error but do not fail the registration
+                                error!(
+                                    "Failed to create default administrators team '{}' for first user {}: {:?}",
+                                    admin_team_name, user.email, e
+                                );
+                                // Registration continues even if team creation fails.
+                            }
+                        }
+                    } else {
+                        // Not the first user, do nothing related to admin team creation
+                        debug!("Not the first user (count: {}), skipping admin team creation for user {}", user_count, user.email);
+                    }
+                }
+                Err(e) => {
+                    // Failed to get user count, log error but proceed with registration
+                    error!("Failed to query user count during registration for user {}: {:?}. Skipping admin team creation check.", user.email, e);
+                    // Registration continues even if the count check fails.
+                }
+            }
+            // END: Auto-create admin team logic
+
             // Generate email verification token
             match user
                 .clone()
@@ -71,12 +138,12 @@ async fn handle_register(
                 .generate_email_verification_token(&ctx.db)
                 .await
             {
-                Ok(user) => {
+                Ok(user_with_token) => {
                     // Send verification email first
-                    match AuthMailer::send_welcome(&ctx, &user).await {
+                    match AuthMailer::send_welcome(&ctx, &user_with_token).await {
                         Ok(_) => {
                             // Email sent successfully, now update verification status
-                            match user
+                            match user_with_token
                                 .clone()
                                 .into_active_model()
                                 .set_email_verification_sent(&ctx.db)
@@ -90,7 +157,7 @@ async fn handle_register(
                                     tracing::error!(
                                         message =
                                             "Failed to set email verification status after sending email",
-                                        user_email = &user.email, // user is still available here
+                                        user_email = &user_with_token.email, // use user_with_token here
                                         error = err.to_string(),
                                     );
                                     // Although the email was sent, the DB update failed.
@@ -102,7 +169,7 @@ async fn handle_register(
                         Err(err) => {
                             tracing::error!(
                                 message = "Failed to send welcome email",
-                                user_email = &user.email, // user is still available here
+                                user_email = &user_with_token.email, // use user_with_token here
                                 error = err.to_string(),
                             );
                             // Don't proceed to update verification status if email failed.
@@ -117,10 +184,10 @@ async fn handle_register(
                 Err(err) => {
                     tracing::error!(
                         message = "Failed to generate email verification token",
-                        user_email = &user.email, // user is still available here
+                        user_email = &user.email, // user is still available here from initial Ok(user)
                         error = err.to_string(),
                     );
-                    // Although the email was sent, the DB update failed.
+                    // Error generating token after user creation.
                     // This is an internal error state, show error page.
                     error_page(
                         &v,
@@ -131,26 +198,31 @@ async fn handle_register(
             }
         }
         Err(err) => {
+            // Log the specific error details
             tracing::info!(
-                message = err.to_string(),
+                error = err.to_string(), // Log the actual error string
                 user_email = &params.email,
-                "could not register user",
+                user_name = &params.name, // Also log the username attempt
+                "Could not register user",
             );
 
-            let err_message = match err {
-                ModelError::EntityAlreadyExists => "Account already exists".to_string(),
-                ModelError::EntityNotFound => "Entity not found".to_string(),
-                ModelError::Validation(err) => format!("Validation error: {}", err),
-                ModelError::Jwt(err) => format!("JWT error: {}", err),
-                ModelError::DbErr(err) => format!("Database error: {}", err),
-                ModelError::Any(err) => format!("{}", err),
-                ModelError::Message(msg) => msg,
-            };
-            error_fragment(
-                &v,
-                &format!("Could not register account: {}", err_message),
-                "#error-container",
-            )
+            // Handle specific ModelError variants
+            match err {
+                // Use the message directly from the ModelError for uniqueness errors
+                ModelError::Message(msg) => error_fragment(&v, &msg, "#error-container"),
+                // Handle validation errors
+                ModelError::Validation(validation_err) => error_fragment(
+                    &v,
+                    &format!("Validation error: {}", validation_err),
+                    "#error-container",
+                ),
+                // Handle other potential errors generically
+                _ => error_fragment(
+                    &v,
+                    "Could not register account due to an unexpected error.",
+                    "#error-container",
+                ),
+            }
         }
     }
 }

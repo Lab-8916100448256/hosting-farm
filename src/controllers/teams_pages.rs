@@ -16,10 +16,30 @@ use axum::{
     response::{Html, IntoResponse},
 };
 use loco_rs::{app::AppContext, prelude::*};
-use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QuerySelect,
+}; // Added ActiveModelTrait
 use serde::Deserialize;
 use serde_json::json;
 use tracing;
+
+/// Helper function to get the admin team name from config
+fn get_admin_team_name(ctx: &AppContext) -> String {
+    ctx.config
+        .settings
+        .as_ref() // Get Option<&Value>
+        .and_then(|settings| settings.get("app")) // Get Option<&Value> for "app" key
+        .and_then(|app_settings| app_settings.get("admin_team_name")) // Get Option<&Value> for "admin_team_name"
+        .and_then(|value| value.as_str()) // Get Option<&str>
+        .map(|s| s.to_string()) // Convert to Option<String>
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                "'app.admin_team_name' not found or not a string in config, using default 'Administrators'"
+            );
+            "Administrators".to_string()
+        })
+}
+
 
 /// Create team page
 #[debug_handler]
@@ -237,6 +257,11 @@ async fn team_details(
         false
     };
 
+    // Retrieve the configured administrator team name
+    let admin_team_name = get_admin_team_name(&ctx);
+    // Check if the current team is the administrators team
+    let is_system_admin_team = team.name == admin_team_name;
+
     // Get team members (non-pending)
     let memberships_result = team_memberships::Entity::find()
         .filter(team_memberships::Column::TeamId.eq(team.id))
@@ -376,6 +401,7 @@ async fn team_details(
             "is_admin": &is_admin,
             "active_page": "teams",
             "invitation_count": &invitations,
+            "is_system_admin_team": &is_system_admin_team // Add this line
         }),
     )
 }
@@ -603,13 +629,16 @@ async fn create_team_handler(
     State(ctx): State<AppContext>,
     auth: JWTWithUserOpt<users::Model>,
     headers: HeaderMap,
-    Form(params): Form<CreateTeamParams>,
+    Form(mut params): Form<CreateTeamParams>,
 ) -> Result<impl IntoResponse> {
     let user = if let Some(user) = auth.user {
         user
     } else {
         return redirect("/auth/login", headers);
     };
+
+    // Trim whitespace from team name
+    params.name = params.name.trim().to_string();
 
     // Create the team
     let team = match teams::Model::create_team(&ctx.db, user.id, &params).await {
@@ -623,11 +652,11 @@ async fn create_team_handler(
         }
         Err(e) => {
             tracing::error!("Failed to create team: {}", e);
-            return error_fragment(
-                &v,
-                &format!("Failed to create team: {}", e),
-                "#error-container",
-            );
+            let error_message = match e {
+                ModelError::Message(msg) => msg, // Use the message directly for uniqueness errors
+                _ => "Failed to create team due to an unexpected error.".to_string(),
+            };
+            return error_fragment(&v, &error_message, "#error-container");
         }
     };
 
@@ -649,7 +678,8 @@ async fn create_team_handler(
     // Redirect to the team details page with explicit .to_string() to ensure proper conversion
     let redirect_url = format!("/teams/{}", team.pid);
     redirect(&redirect_url, headers)
-}
+} // Added missing closing brace here
+
 
 /// Update team handler
 #[debug_handler]
@@ -659,7 +689,7 @@ async fn update_team_handler(
     auth: JWTWithUserOpt<users::Model>,
     Path(team_pid): Path<String>,
     headers: HeaderMap,
-    Form(params): Form<UpdateTeamParams>,
+    Form(mut params): Form<UpdateTeamParams>,
 ) -> Result<impl IntoResponse> {
     let user = if let Some(user) = auth.user {
         user
@@ -713,17 +743,29 @@ async fn update_team_handler(
         return error_fragment(&v, "You are not a member of this team", "#error-container");
     }
 
+    // Prevent renaming the admin team
+    let admin_team_name = get_admin_team_name(&ctx);
+
+    let incoming_name = params.name.trim(); // Trim incoming name for comparison
+    if team.name == admin_team_name && incoming_name != team.name {
+        // If it's the admin team AND the name is being changed, return an error fragment
+        return error_fragment(&v, "The administrators team cannot be renamed.", "#error-container");
+    }
+
+    // Trim whitespace from team name before update
+    params.name = params.name.trim().to_string();
+
     // Update the team
     let update_result = team.update(&ctx.db, &params).await;
     let updated_team = match update_result {
         Ok(team) => team,
         Err(e) => {
             tracing::error!("Failed to update team {}: {}", team.id, e);
-            return error_fragment(
-                &v,
-                "Could not update team details. Please try again later.",
-                "#error-container",
-            );
+            let error_message = match e {
+                ModelError::Message(msg) => msg, // Use message for uniqueness errors
+                _ => "Could not update team details. Please try again later.".to_string(),
+            };
+            return error_fragment(&v, &error_message, "#error-container");
         }
     };
 
@@ -770,7 +812,7 @@ async fn accept_invitation(
     // Accept invitation
     let mut invitation_model: team_memberships::ActiveModel = invitation.into();
     invitation_model.pending = sea_orm::ActiveValue::set(false);
-    let update_result = invitation_model.update(&ctx.db).await;
+    let update_result = invitation_model.update(&ctx.db).await; // Requires ActiveModelTrait
     if let Err(e) = update_result {
         tracing::error!("Failed to accept invitation : {}", e);
         return error_page(
@@ -826,7 +868,7 @@ async fn decline_invitation(
 
     // Decline invitation - delete the invitation
     let invitation_model: team_memberships::ActiveModel = invitation.into();
-    let delete_result = invitation_model.delete(&ctx.db).await;
+    let delete_result = invitation_model.delete(&ctx.db).await; // Requires ActiveModelTrait
     if let Err(e) = delete_result {
         tracing::error!("Failed to decline invitation: {}", e);
         return error_page(
@@ -942,7 +984,7 @@ async fn cancel_invitation(
 
     // Cancel invitation - delete the membership
     let invitation_model: team_memberships::ActiveModel = invitation.into();
-    let delete_result = invitation_model.delete(&ctx.db).await;
+    let delete_result = invitation_model.delete(&ctx.db).await; // Requires ActiveModelTrait
     if let Err(e) = delete_result {
         tracing::error!("Failed to cancel invitation: {}", e);
         return error_fragment(
@@ -1101,7 +1143,7 @@ async fn update_member_role(
     // Update role
     let mut membership_model: team_memberships::ActiveModel = membership.into();
     membership_model.role = sea_orm::ActiveValue::set(params.role);
-    let update_result = membership_model.update(&ctx.db).await;
+    let update_result = membership_model.update(&ctx.db).await; // Requires ActiveModelTrait
     if let Err(e) = update_result {
         tracing::error!(
             "Failed to update role for user {} in team {}: {}",
@@ -1253,7 +1295,7 @@ async fn remove_member(
 
     // Remove the member
     let target_membership_model: team_memberships::ActiveModel = target_membership.into();
-    let delete_result = target_membership_model.delete(&ctx.db).await;
+    let delete_result = target_membership_model.delete(&ctx.db).await; // Requires ActiveModelTrait
     if let Err(e) = delete_result {
         tracing::error!(
             "Failed to remove user {} from team {}: {}",
@@ -1320,6 +1362,15 @@ async fn delete_team(
     };
     if !is_owner {
         return error_page(&v, "Only team owners can delete a team", None);
+    }
+
+    // Read admin team name from configuration using helper
+    let admin_team_name = get_admin_team_name(&ctx);
+
+    // Check if this is the admin team
+    if team.name == admin_team_name {
+        // If they match, return an error page
+        return error_page(&v, "The administrators team cannot be deleted.", None);
     }
 
     // Delete the team

@@ -2,7 +2,10 @@ use crate::{
     controllers::ssh_key_api::{is_valid_ssh_public_key, SshKeyPayload},
     mailers::auth::AuthMailer,
     middleware::auth_no_error::JWTWithUserOpt,
-    models::{_entities::ssh_keys, _entities::team_memberships, _entities::teams, users},
+    models::{
+        _entities::ssh_keys, _entities::team_memberships, _entities::teams, users,
+        users::users::Column as UsersColumn, // Import Column specifically for users
+    },
     views::{error_fragment, error_page, redirect, render_template},
 };
 use axum::http::HeaderMap;
@@ -283,22 +286,26 @@ async fn update_profile(
         return redirect("/auth/login", headers);
     };
 
-    let email_changed = user.email != params.email;
     let mut user_model: users::ActiveModel = user.clone().into(); // Clone user to avoid move issues
+    let mut email_changed = false; // Track if email was actually changed
 
-    // Check if email already exists (if it changed)
-    if email_changed {
-        // We check if the *new* email exists. find_by_email returns Err(EntityNotFound) if it *doesn't* exist.
-        match users::Model::find_by_email(&ctx.db, &params.email).await {
+    // --- Prepare Email Changes ---
+    let trimmed_email = params.email.trim().to_string(); // Trim email
+
+    if user.email != trimmed_email {
+        email_changed = true; // Mark email as changed
+        // Check if the *new* email exists.
+        match users::Model::find_by_email(&ctx.db, &trimmed_email).await {
             Ok(_) => {
-                // Found an existing user with the new email address - this is an error
                 return error_fragment(&v, "Email already in use", "#notification-container");
             }
             Err(ModelError::EntityNotFound) => {
-                // Email is available - this is the expected case, do nothing
+                // Email is available
+                user_model.email = Set(trimmed_email.clone());
+                user_model.email_verified_at = Set(None);
+                user_model.pgp_verified_at = Set(None); // Reset PGP verification on email change
             }
             Err(e) => {
-                // Other database error
                 tracing::error!(error = ?e, "Database error checking email availability");
                 return error_fragment(
                     &v,
@@ -307,17 +314,44 @@ async fn update_profile(
                 );
             }
         }
-        // Prepare email change updates
-        user_model.email = Set(params.email.clone());
-        user_model.email_verified_at = Set(None);
-        user_model.pgp_verified_at = Set(None); // Correct field name
-                                                // We'll regenerate token and send email *after* successful update
+    } else {
+         // Ensure the possibly-trimmed email is set even if logically unchanged
+         user_model.email = Set(trimmed_email);
     }
 
-    // Always update name
-    user_model.name = Set(params.name);
+    // --- Prepare Name Changes ---
+    let new_name = params.name.trim().to_string();
 
-    // Perform the database update
+    if user.name != new_name {
+         // Check if the new name already exists
+        match users::Entity::find()
+            .filter(UsersColumn::Name.eq(&new_name)) // Use imported UsersColumn
+            .filter(UsersColumn::Id.ne(user.id)) // Exclude self
+            .one(&ctx.db)
+            .await
+        {
+            Ok(Some(_)) => {
+                return error_fragment(&v, "Username already in use", "#notification-container");
+            }
+            Ok(None) => {
+                // Name is available
+                user_model.name = Set(new_name.clone());
+            }
+            Err(e) => {
+                tracing::error!(error = ?e, "Database error checking username availability");
+                return error_fragment(
+                    &v,
+                    "Could not verify username availability. Please try again.",
+                    "#notification-container",
+                );
+            }
+        }
+    } else {
+         // Ensure the possibly-trimmed name is set even if logically unchanged
+         user_model.name = Set(new_name);
+    }
+
+    // --- Perform the database update ---
     match user_model.update(&ctx.db).await {
         Ok(updated_user) => {
             let mut success_message = "Profile updated successfully.".to_string();
@@ -325,9 +359,7 @@ async fn update_profile(
 
             // Handle email verification steps if email was changed
             if email_changed {
-                // Mark flag to send OOB swap for banner
-                send_verification_banner = true;
-
+                send_verification_banner = true; // Use the tracked flag
                 match updated_user
                     .clone() // Clone again for the subsequent operations
                     .into_active_model()
@@ -373,9 +405,7 @@ async fn update_profile(
             // Render success message fragment
             let success_html = v.render(
                 "fragments/success_message.html",
-                data!({
-                    "message": success_message,
-                }),
+                data!({ "message": success_message }),
             )?;
 
             // If email changed, render and prepare banners for OOB swap
@@ -417,16 +447,19 @@ async fn update_profile(
                 .header(header::CONTENT_TYPE, "text/html")
                 .body(axum::body::Body::from(combined_html))?)
         }
-        Err(e) => {
-            tracing::error!(error = ?e, user_id = user.id, "Failed to update user profile");
+        Err(db_err) => {
+             // Handle DbErr generically. Uniqueness errors should ideally be caught
+             // by the pre-checks above, but handle other DB errors here.
+             tracing::error!(error = ?db_err, user_id = user.id, "Failed to update user profile in database");
             error_fragment(
                 &v,
-                "Could not update profile. Please try again.",
-                "#notification-container", // Target general notification area
+                "Could not update profile due to a database error. Please try again.",
+                "#notification-container",
             )
         }
     }
 }
+
 
 /// Update user password
 #[debug_handler]
@@ -634,15 +667,15 @@ async fn resend_verification_email(
     };
 
     if user.email_verified_at.is_some() {
-        return format::render().view(
-            &v,
-            "user/profile.html",
-            data!({
-                "user": user,
-                "error_message": None::<String>,
-                "success_message": None::<String>,
-            }),
-        );
+        // Instead of rendering profile, return a success message indicating it's already verified
+        return render_template(
+             &v,
+             "fragments/success_message.html",
+             data!({
+                 "message": "Your email is already verified.",
+                 "target": "notification-container",
+             }),
+         );
     }
 
     // Generate email verification token

@@ -1,0 +1,79 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Endpoints naming and structure rules
+
+## Introduction
+This rule file provides guidelines related to API endpoints and human-facing endpoints in web application developement
+
+## Rules
+1. **API Endpoints**
+- All API endpoints MUST be prefixed with `/api/`
+- API endpoints MUST return JSON responses
+- API endpoints MUST be defined in files under `src/controllers/` that end with `_api.rs`
+- API endpoints MUST NOT render HTML templates
+- API endpoints MUST use `format::json()` for responses
+- API endpoints MUST handle errors by returning appropriate HTTP status codes with JSON responses
+
+2. **Human-Facing Endpoints**
+- Human-facing endpoints MUST NOT be prefixed with `/api/`
+- Human-facing endpoints MUST return either an HTML responses or an HTMX redirect through HX_Redirect or HX_Location header.
+- Human-facing endpoints MUST be defined in files under `src/controllers/` that end with `_pages.rs`.
+- Human-facing endpoints MUST use for response an HTML viewhandler .
+- Human-facing endpoints handlers MUST never handle errors by returning an Error type or propagate errors to the caller by using unwrap or the `?` operator. A normal HTML response with an error messages must be returned instead. Depending on the cases it can be :
+  - A full error page including an error messages in the places that cannot be rendered because of the failure for a standard endpoint that is serving non AJAX requests, using the template assets/views/error_page.html
+  - an HTMX error fragment that will be inserted into an error container in the page from where the endpoint was called, for endpoints are serving AJAX requests.
+- Human-facing endpoints that are not returning any html fragment or full page MUST redirect to appropriate pages after successful actions.
+- For implementing a redirect in an html controller handler, the utility function `redirect(url: &str, headers: HeaderMap) -> Result<Response>` in `src/views/mod.rs` MUST be used.
+- View rendering MUST not be implemented using any custom template rendering code that would directly call the Tera engine. There are utility functions that are doing that in src/views/mod.rs for normal pages and HTMX fragments as well as for error cases described above.
+- Human-facing endpoints MUST use the custom authentication middleware of `auth_no_error` module to extract the authentication data from the requests
+- Authenticated Human-facing endpoints MUST handle gracefully the case of a user calling them without being authenticated by redirecting the user to the login page. Once successfuly logged-in the user SHOULD be redirected to the endpoint he originaly called.
+
+3. **For all endpoints**
+- Path parameters MUST use curly braces ({}), not a colon (:).
+
+
+## Examples
+- Examples of API endpoints implementation : src/controller/auth_api.rs
+- Example of human-facing endpoints and views implementation : src/controller/auth_pages.rs and assets/views/auth/*.html
+
+### API Endpoint (Correct)
+```rust
+// In src/controllers/auth_api.rs
+pub fn routes() -> Routes {
+    Routes::new()
+        .prefix("/api/auth")
+        .add("/verify/{token}", get(verify))  // Returns JSON
+}
+```
+
+### Human-Facing Endpoint (Correct)
+```rust
+// In src/controllers/auth_pages.rs
+pub fn routes() -> Routes {
+    Routes::new()
+        .prefix("/auth")
+        .add("/verify/{token}", get(verify_email))  // Returns HTML
+}
+```
+
+## Common Mistakes to Avoid
+1. ❌ Mixing API and human-facing endpoints in the same controller file
+2. ❌ Using HTML templates in API endpoints
+3. ❌ Using JSON responses in human-facing endpoints
+4. ❌ Not properly prefixing API endpoints routes with `/api/`
+5. ❌ Using form submissions in API endpoints
+6. ❌ Using direct JSON responses in human-facing endpoints
+
+## Verification Checklist
+Before committing changes, verify that:
+1. [ ] API endpoints are in files ending with `_api.rs`
+2. [ ] Human-facing endpoints are in files ending with `_pages.rs`
+3. [ ] API endpoints routes use `/api/` prefix
+4. [ ] Human-facing endpoints do not use `/api/` prefix
+5. [ ] API endpoints return JSON using `format::json()`
+6. [ ] Human-facing endpoints use `format::render().view()`
+7. [ ] No mixing of response types in the same controller file 
+8. [ ] All routes path parameters use curly braces ({}), not a colon (:).

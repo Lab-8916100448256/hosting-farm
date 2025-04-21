@@ -100,3 +100,9 @@ auth:
     secret: P4u28pKuFldLTYSofkWu
     # Token expiration time in seconds
     expiration: 604800 # 7 days
+
+# Application specific configuration
+settings:
+  app:
+    # Name of the team designated as administrators
+    admin_team_name: "Administrators"
