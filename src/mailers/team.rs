@@ -1,76 +1,110 @@
-use loco_rs::{environment::Environment, prelude::*};
-use serde_json::json;
 
-use crate::models::_entities::{teams::Model as TeamModel, users::Model as UserModel};
+use std::fmt::{Debug, Display}; // Import Display
+use std::error::Error as StdError; // Import StdError
 
-// Define the static template directory
-static INVITATION: Dir<'_> = include_dir!("src/mailers/team/invitation");
+use loco_rs::prelude::*;
+use loco_rs::mailer::MailerTrait; // Ensure MailerTrait is in scope
 
-pub struct TeamMailer {}
-impl Mailer for TeamMailer {}
+// Import Team Entity Model specifically
+use crate::models::_entities::teams::Model as TeamEntityModel;
+use crate::models::users::Model as UserModel;
+
+// Use the Mailer derive macro provided by loco_rs
+#[derive(Mailer, Debug)]
+#[mailer(template_dir = "src/mailers/team/invitation")] // Specify full template dir
+pub struct TeamMailer {
+    pub team: TeamEntityModel, // Use the entity model
+    pub user: UserModel,
+    pub inviter: UserModel,
+    pub host: String,
+    pub token: String,
+}
 
 impl TeamMailer {
-    /// Send a team invitation email
+    /// sends a team invitation email to the user
+    ///
+    /// # Errors
+    ///
+    /// When email sending failed, or the invitation token is missing
+    #[allow(clippy::explicit_deref_methods)]
     pub async fn send_invitation(
         ctx: &AppContext,
-        inviting_user: &UserModel,
-        invited_user: &UserModel,
-        team: &TeamModel,
+        inviter: &UserModel,
+        user: &UserModel,
+        team: &TeamEntityModel, // Use the entity model
     ) -> Result<()> {
-        let invited_email = invited_user.email.clone();
+        // Find the pending invitation to get the token
+        // This lookup might be redundant if the token was generated just before calling this,
+        // consider passing the token directly if possible.
+        let invitation = crate::models::_entities::team_memberships::Entity::find()
+            .filter(crate::models::_entities::team_memberships::Column::TeamId.eq(team.id))
+            .filter(crate::models::_entities::team_memberships::Column::UserId.eq(user.id))
+            .filter(crate::models::_entities::team_memberships::Column::Pending.eq(true))
+            .one(&ctx.db)
+            .await?;
 
-        // Get frontend URL from config
-        let frontend_url = &ctx.config.server.host;
-
-        // Create the locals JSON for template rendering
-        let locals = json!({
-            "name": invited_user.name,
-            "other_user": inviting_user.name,
-            "team_name": team.name,
-            "invitation_url": format!("{}/users/invitations", frontend_url)
-        });
-
-        // Check if mailer is configured
-        if ctx.mailer.is_none() {
-            tracing::warn!(
-                "Mailer not configured, skipping email delivery to {}",
-                invited_email
+        let token = if let Some(invitation) = invitation {
+            match invitation.invitation_token {
+                Some(token) => token,
+                None => {
+                    tracing::error!(
+                        "Invitation found for user {} to team {} but token is missing",
+                        user.id,
+                        team.id
+                    );
+                    // Use Error::Any for custom error strings that don't impl StdError
+                    return Err(Error::Any(Box::new(MailerError::Custom(
+                        "Invitation token missing for pending membership.".to_string(),
+                    ))));
+                }
+            }
+        } else {
+            tracing::error!(
+                "No pending invitation found for user {} to team {} when sending email",
+                user.id,
+                team.id
             );
-            return Ok(());
-        }
-
-        let mut args = mailer::Args {
-            to: invited_email.clone(),
-            locals,
-            from: Some("test@example.com".to_string()),
-            ..Default::default()
+             // Use Error::Any for custom error strings that don't impl StdError
+            return Err(Error::Any(Box::new(MailerError::Custom(
+                "Pending invitation not found.".to_string(),
+            ))));
         };
 
-        // Set the from email to match the SMTP username if available
-        if let Some(mailer_config) = &ctx.config.mailer {
-            if let Some(smtp_config) = &mailer_config.smtp {
-                if let Some(auth) = &smtp_config.auth {
-                    args.from = Some(auth.user.clone());
-                }
-            }
-        }
+        let mailer = Self {
+            user: user.clone(),
+            inviter: inviter.clone(),
+            team: team.clone(), // Clone the entity model
+            host: ctx.config.server.full_url(),
+            token,
+        };
 
-        match Self::mail_template(ctx, &INVITATION, args).await {
-            Ok(_) => {
-                tracing::info!("Sent team invitation email to {}", invited_email);
-                Ok(())
-            }
-            Err(e) => {
-                tracing::error!("Failed to send team invitation email: {}", e);
+        // -- START NEW BLOCK --
+        let sender = ctx.mailer
+           .as_ref()
+           .ok_or_else(|| Error::Message("Mailer is not configured".to_string()))?;
 
-                // In test environment, we don't want to fail the test due to email issues
-                if matches!(ctx.environment, Environment::Test) {
-                    tracing::warn!("Test environment detected, ignoring email error");
-                    Ok(())
-                } else {
-                    Err(e)
-                }
-            }
+        // Explicitly call MailerTrait::send
+        MailerTrait::send::<Self>(sender, &mailer).await?;
+        // -- END NEW BLOCK --
+
+        Ok(())
+    }
+}
+
+// Define a custom error type for Mailer issues if needed, or use Box<dyn StdError>
+// Make sure it implements StdError for Error::Any
+#[derive(thiserror::Error, Debug)]
+enum MailerError {
+    #[error("{0}")]
+    Custom(String),
+}
+
+impl Display for MailerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MailerError::Custom(msg) => write!(f, "{}", msg),
         }
     }
 }
+
+impl StdError for MailerError {} // Implement StdError trait

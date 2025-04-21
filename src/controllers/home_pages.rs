@@ -4,6 +4,7 @@ use loco_rs::prelude::*;
 use crate::{
     middleware::auth_no_error::JWTWithUserOpt,
     models::users,
+    views, // Import views module
 };
 
 #[debug_handler]
@@ -17,8 +18,11 @@ async fn home(
             tracing::info!(
                 message = "generating home page for authenticated user,",
                 user_email = &user.email,
-            );             
-        // Get pending invitations count
+                user_status = &user.status,
+            );
+            let is_pending_approval = user.status == "new";
+
+            // Get pending invitations count
             let invitations = crate::models::_entities::team_memberships::Entity::find()
                 .find_with_related(crate::models::_entities::teams::Entity)
                 .all(&ctx.db)
@@ -26,19 +30,17 @@ async fn home(
                 .into_iter()
                 .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
                 .count();
-            // Render the index view, authenticated user parameters
-            format::render().view(&v, "home/index.html", data!({
-                "user": user, 
-                "active_page": "home", 
-                "invitation_count": invitations}))
+
+            // Use the view function for rendering
+            views::home::index(&v, user, invitations, is_pending_approval)
         }
         None => {
             // Render the index view, non-authenticated user parameters
             tracing::info!(
                 message = "generating home page for non-authenticated user,",
-            );             
-           format::render().view(&v, "home/index.html", data!({
-                "active_page": "home"}))
+            );
+            // Use the view function for rendering (logged out state)
+            views::home::index_logged_out(&v)
         }
     }
 }

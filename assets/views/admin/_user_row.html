@@ -1,0 +1,31 @@
+{# Takes a `user` object #}
+<tr id="user-row-{{ user.pid }}">
+    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ user.name }}</td>
+    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ user.email }}</td>
+    <td class="px-6 py-4 whitespace-nowrap text-sm">
+        {% match user.status.as_str() %}
+            {% when "new" %}
+                <span class="inline-flex items-center rounded-md bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-800 ring-1 ring-inset ring-yellow-600/20">New</span>
+            {% when "approved" %}
+                <span class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">Approved</span>
+            {% when "rejected" %}
+                <span class="inline-flex items-center rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-800 ring-1 ring-inset ring-red-600/10">Rejected/Banned</span>
+            {% else %}
+                <span class="inline-flex items-center rounded-md bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">{{ user.status }}</span>
+        {% endmatch %}
+    </td>
+    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ user.created_at | date(format="%Y-%m-%d %H:%M") }}</td>
+    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+        {% match user.status.as_str() %}
+            {% when "new" %}
+                <button hx-post="/admin/users/{{ user.pid }}/approve" hx-target="closest tr" hx-swap="outerHTML" class="text-green-600 hover:text-green-900 hover:underline">Approve</button>
+                <button hx-post="/admin/users/{{ user.pid }}/reject" hx-target="closest tr" hx-swap="outerHTML" class="ml-4 text-red-600 hover:text-red-900 hover:underline">Reject</button>
+            {% when "approved" %}
+                <button hx-post="/admin/users/{{ user.pid }}/ban" hx-confirm="Are you sure you want to ban this user? They will be removed from all teams." hx-target="closest tr" hx-swap="outerHTML" class="text-red-600 hover:text-red-900 hover:underline">Ban</button>
+            {% when "rejected" %}
+                <button hx-post="/admin/users/{{ user.pid }}/unban" hx-target="closest tr" hx-swap="outerHTML" class="text-blue-600 hover:text-blue-900 hover:underline">Unban (Set to Approved)</button>
+            {% else %}
+                {# No actions for other statuses? Or maybe just Ban? #}
+        {% endmatch %}
+    </td>
+</tr>

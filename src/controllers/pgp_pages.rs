@@ -20,7 +20,8 @@ async fn find_user_by_pgp_token(db: &DatabaseConnection, token: &str) -> ModelRe
         .filter(Column::PgpVerificationToken.eq(token))
         .one(db)
         .await?;
-    user.ok_or_else(|| ModelError::EntityNotFound)
+    user.map(users::Model::from) // Convert entity to custom model
+        .ok_or_else(|| ModelError::EntityNotFound)
 }
 
 #[debug_handler]
@@ -59,8 +60,8 @@ async fn verify_pgp_token(
                 return error_page(&v, "Please log in to verify your PGP key.", None);
             }
 
-            let active_user: users::ActiveModel = user.into();
-            match active_user.set_pgp_verified(&ctx.db).await {
+            // Call the verify_pgp method which handles token check and update
+            match user.verify_pgp(&ctx.db, &token).await {
                 Ok(_) => {
                     tracing::info!("PGP email verified successfully for token: {}", token);
                     // Redirect to profile with a success flash message (TODO: Implement flash message)

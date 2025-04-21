@@ -2,14 +2,21 @@ use crate::{
     mailers::auth::AuthMailer,
     models::{
         _entities::users,
-        users::{LoginParams, RegisterParams},
+        // Import the custom Model struct, ActiveModel, and params from models::users
+        users::{Model as UserModel, ActiveModel as UserActiveModel, LoginParams, RegisterParams, ForgotPasswordParams, ResetPasswordParams, MagicLinkParams},
     },
     views::auth::{CurrentResponse, LoginResponse},
 };
-use axum::debug_handler;
+use axum::{
+    debug_handler,
+    extract::{Json, Path, State}, // Added Json import
+    routing::{get, post}, // Ensure get and post are imported
+    response::{Response}, // Import Response
+    Router, // Import Router
+};
 use loco_rs::prelude::*;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+// serde removed as Json extractor handles it
 use std::sync::OnceLock;
 
 pub static EMAIL_DOMAIN_RE: OnceLock<Regex> = OnceLock::new();
@@ -20,32 +27,17 @@ fn get_allow_email_domain_re() -> &'static Regex {
     })
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ForgotParams {
-    pub email: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ResetParams {
-    pub token: String,
-    pub password: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct MagicLinkParams {
-    pub email: String,
-}
+// Structs moved to models::users.rs or handled by params types directly
 
 /// Register function creates a new user with the given parameters and sends a
 /// welcome email to the user
 #[debug_handler]
 async fn register(
     State(ctx): State<AppContext>,
-    Json(params): Json<RegisterParams>,
-) -> Result<Response> {
-    let res = users::Model::create_with_password(&ctx.db, &params).await;
-
-    let user = match res {
+    Json(params): Json<RegisterParams>, // Use RegisterParams from models::users
+) -> Result<Response> { // Use loco_rs::prelude::Result
+    // Use custom model's create_with_password, which now handles transactions internally
+    let user = match UserModel::create_with_password(&ctx, &ctx.db, &params).await {
         Ok(user) => user,
         Err(err) => {
             tracing::info!(
@@ -53,37 +45,48 @@ async fn register(
                 user_email = &params.email,
                 "could not register user",
             );
-            return format::json(());
+            // Return an appropriate error response, maybe bad request or conflict
+            return Err(Error::Model(err));
         }
     };
 
-    let user = user
-        .into_active_model()
-        .generate_email_verification_token(&ctx.db)
-        .await?;
+    // Generate token *after* successful creation
+    let token = match user.generate_email_verification_token(&ctx.db).await {
+         Ok(token) => token,
+         Err(e) => {
+              error!(error = ?e, user_pid = %user.pid, "Failed to generate verification token after registration");
+              // Decide how to handle this - user created but token failed
+              // Maybe log and proceed, or return internal server error?
+              return Err(Error::Model(e));
+         }
+    };
 
-    let user = user
-        .into_active_model()
-        .set_email_verification_sent(&ctx.db)
-        .await?;
+    // Refetch user to ensure we have the latest state with the token for the mailer
+    let user_with_token = match UserModel::find_by_id(&ctx.db, user.id).await {
+         Ok(u) => u,
+         Err(e) => {
+              error!(error = ?e, user_pid = %user.pid, "Failed to refetch user after generating verification token");
+              return Err(Error::Model(e));
+         }
+    };
 
-    AuthMailer::send_welcome(&ctx, &user).await?;
+    AuthMailer::send_welcome(&ctx, &user_with_token, &token).await?; // Pass token to mailer
 
-    format::json(())
+    format::json(()) // Return empty JSON on success
 }
 
 /// Verify register user. if the user not verified his email, he can't login to
 /// the system.
 #[debug_handler]
 async fn verify(State(ctx): State<AppContext>, Path(token): Path<String>) -> Result<Response> {
-    let user = users::Model::find_by_verification_token(&ctx.db, &token).await?;
+    let user = UserModel::find_by_email_verification_token(&ctx.db, &token).await?; // Use the correct find method
 
     if user.email_verified_at.is_some() {
         tracing::info!(pid = user.pid.to_string(), "user already verified");
     } else {
-        let active_model = user.into_active_model();
-        let user = active_model.verified(&ctx.db).await?;
-        tracing::info!(pid = user.pid.to_string(), "user verified");
+        // Use the verify_email method on the model instance
+        let _verified_user = user.verify_email(&ctx.db, &token).await?; // Use the token passed to verify
+        tracing::info!(pid = _verified_user.pid.to_string(), "user verified");
     }
 
     format::json(())
@@ -96,84 +99,97 @@ async fn verify(State(ctx): State<AppContext>, Path(token): Path<String>) -> Res
 #[debug_handler]
 async fn forgot(
     State(ctx): State<AppContext>,
-    Json(params): Json<ForgotParams>,
+    Json(params): Json<ForgotPasswordParams>, // Use ForgotPasswordParams from models::users
 ) -> Result<Response> {
-    let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
+    let Ok(user) = UserModel::find_by_email(&ctx.db, &params.email).await else {
         // we don't want to expose our users email. if the email is invalid we still
         // returning success to the caller
+        tracing::debug!(email = params.email, "Password reset requested for non-existent email");
         return format::json(());
     };
 
-    let user = user
-        .into_active_model()
-        .set_forgot_password_sent(&ctx.db)
-        .await?;
+    // Generate token using the model method
+    let token = match user.generate_reset_token(&ctx.db).await {
+         Ok(t) => t,
+         Err(e) => {
+             error!(error = ?e, user_pid = %user.pid, "Failed to generate password reset token");
+             return Err(Error::Model(e));
+         }
+    };
 
-    AuthMailer::forgot_password(&ctx, &user).await?;
+    // Refetch user to get updated state with token
+    let user_with_token = match UserModel::find_by_id(&ctx.db, user.id).await {
+         Ok(u) => u,
+         Err(e) => {
+             error!(error = ?e, user_pid = %user.pid, "Failed to refetch user after generating reset token");
+             return Err(Error::Model(e));
+         }
+    };
+
+    AuthMailer::send_reset_password(&ctx, &user_with_token, &token).await?; // Pass token to mailer
 
     format::json(())
 }
 
 /// reset user password by the given parameters
 #[debug_handler]
-async fn reset(State(ctx): State<AppContext>, Json(params): Json<ResetParams>) -> Result<Response> {
-    let Ok(user) = users::Model::find_by_reset_token(&ctx.db, &params.token).await else {
-        // we don't want to expose our users email. if the email is invalid we still
-        // returning success to the caller
-        tracing::info!("reset token not found");
-
-        return format::json(());
-    };
-    user.into_active_model()
-        .reset_password(&ctx.db, &params.password)
-        .await?;
-
-    format::json(())
+async fn reset(State(ctx): State<AppContext>, Json(params): Json<ResetPasswordParams>) -> Result<Response> { // Use ResetPasswordParams
+    // Call the static model method for password reset
+    match UserModel::reset_password(&ctx.db, &params).await {
+        Ok(_) => {
+            info!(token_prefix = &params.token[..5], "Password reset successful");
+            format::json(())
+        }
+        Err(ModelError::Message(msg)) if msg == "invalid reset token" || msg == "token expired" => {
+            warn!(token_prefix = &params.token[..5], message = msg, "Password reset failed (token invalid/expired)");
+            // Don't reveal specific reason to client for security
+            format::json(()) // Return success-like response
+        }
+        Err(e @ ModelError::Validation(_)) => {
+             warn!(error = ?e, token_prefix = &params.token[..5], "Password reset failed (validation)");
+             Err(Error::Model(e)) // Return validation error
+        }
+        Err(e) => {
+            error!(error = ?e, token_prefix = &params.token[..5], "Password reset failed (internal error)");
+            Err(Error::Model(e)) // Return internal error
+        }
+    }
 }
 
 /// Creates a user login and returns a token
 #[debug_handler]
-async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -> Result<Response> {
-    let user = users::Model::find_by_email(&ctx.db, &params.email).await?;
+async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -> Result<Response> { // Use LoginParams
+    // Use the model method which includes password verification and status check
+    let user = match UserModel::find_by_email_and_password(&ctx.db, &params).await {
+        Ok(u) => u,
+        Err(ModelError::EntityNotFound) | Err(ModelError::Message(_)) => {
+            // Treat not found and invalid password/status the same way
+            return Err(Error::Unauthorized("Invalid email or password.".to_string()));
+        }
+        Err(e) => return Err(Error::Model(e)), // Other errors
+    };
 
-    let valid = user.verify_password(&params.password);
-
-    if !valid {
-        return unauthorized("unauthorized!");
-    }
-
+    // If find_by_email_and_password succeeded, user is valid and approved
     let jwt_secret = ctx.config.get_jwt_config()?;
 
     let token = user
-        .generate_jwt(&jwt_secret.secret, &jwt_secret.expiration)
-        .or_else(|_| unauthorized("unauthorized!"))?;
+        .generate_token(&jwt_secret.secret, jwt_secret.expiration.unsigned_abs()) // Use generate_token from Authenticable
+        .map_err(|_| Error::InternalServerError)?;// Convert JWTError to InternalServerError
 
-    format::json(LoginResponse::new(&user, &token))
+    format::json(LoginResponse::new(&user, &token)) // Use LoginResponse view
 }
 
 #[debug_handler]
-async fn current(auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    format::json(CurrentResponse::new(&user))
+async fn current(auth: auth::JWTWithUser<UserModel>, State(ctx): State<AppContext>) -> Result<Response> { // Use JWTWithUser
+    // auth.user is already the UserModel instance loaded by the middleware
+    format::json(CurrentResponse::new(&auth.user)) // Use CurrentResponse view
 }
 
 /// Magic link authentication provides a secure and passwordless way to log in to the application.
-///
-/// # Flow
-/// 1. **Request a Magic Link**:  
-///    A registered user sends a POST request to `/magic-link` with their email.  
-///    If the email exists, a short-lived, one-time-use token is generated and sent to the user's email.  
-///    For security and to avoid exposing whether an email exists, the response always returns 200, even if the email is invalid.
-///
-/// 2. **Click the Magic Link**:  
-///    The user clicks the link (/magic-link/{token}), which validates the token and its expiration.  
-///    If valid, the server generates a JWT and responds with a [`LoginResponse`].  
-///    If invalid or expired, an unauthorized response is returned.
-///
-/// This flow enhances security by avoiding traditional passwords and providing a seamless login experience.
+#[debug_handler]
 async fn magic_link(
     State(ctx): State<AppContext>,
-    Json(params): Json<MagicLinkParams>,
+    Json(params): Json<MagicLinkParams>, // Use MagicLinkParams
 ) -> Result<Response> {
     let email_regex = get_allow_email_domain_re();
     if !email_regex.is_match(&params.email) {
@@ -181,68 +197,94 @@ async fn magic_link(
             email = params.email,
             "The provided email is invalid or does not match the allowed domains"
         );
-        return bad_request("invalid request");
+        return Err(Error::BadRequest("Invalid email domain.".to_string()));
     }
 
-    let Ok(user) = users::Model::find_by_email(&ctx.db, &params.email).await else {
-        // we don't want to expose our users email. if the email is invalid we still
-        // returning success to the caller
-        tracing::debug!(email = params.email, "user not found by email");
-        return format::empty_json();
+    let Ok(user) = UserModel::find_by_email(&ctx.db, &params.email).await else {
+        tracing::debug!(email = params.email, "Magic link requested for non-existent email");
+        return format::json(()); // Return success-like response
     };
 
-    let user = user.into_active_model().create_magic_link(&ctx.db).await?;
-    AuthMailer::send_magic_link(&ctx, &user).await?;
+    // Check if user is approved
+    if user.status != users::USER_STATUS_APPROVED {
+        tracing::warn!(user_pid = %user.pid, "Magic link requested for non-approved user");
+        return format::json(()); // Return success-like response, don't reveal status
+    }
 
-    format::empty_json()
+    // Generate magic link token using model method
+    let token = match user.generate_magic_link_token(&ctx.db).await {
+        Ok(t) => t,
+        Err(e) => {
+             error!(error = ?e, user_pid = %user.pid, "Failed to generate magic link token");
+             return Err(Error::Model(e));
+        }
+    };
+
+     // Refetch user to get updated state with token
+    let user_with_token = match UserModel::find_by_id(&ctx.db, user.id).await {
+         Ok(u) => u,
+         Err(e) => {
+             error!(error = ?e, user_pid = %user.pid, "Failed to refetch user after generating magic link token");
+             return Err(Error::Model(e));
+         }
+    };
+
+    AuthMailer::send_magic_link(&ctx, &user_with_token, &token).await?;
+
+    format::json(())
 }
 
 /// Verifies a magic link token and authenticates the user.
+#[debug_handler]
 async fn magic_link_verify(
     Path(token): Path<String>,
     State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    let Ok(user) = users::Model::find_by_magic_token(&ctx.db, &token).await else {
-        // we don't want to expose our users email. if the email is invalid we still
-        // returning success to the caller
-        return unauthorized("unauthorized!");
+    // Use the find_by method that also checks expiration
+    let user = match UserModel::find_by_magic_link_token(&ctx.db, &token).await {
+         Ok(u) => u,
+         Err(ModelError::EntityNotFound) | Err(ModelError::Message(_)) => {
+             // Treat not found and expired/invalid token the same
+             return Err(Error::Unauthorized("Invalid or expired magic link.".to_string()));
+         }
+         Err(e) => return Err(Error::Model(e)), // Other errors
     };
 
-    let user = user.into_active_model().clear_magic_link(&ctx.db).await?;
+    // Clear the magic link token after successful verification
+    let mut user_am: UserActiveModel = user.inner.clone().into();
+    user_am.magic_link_token = Set(None);
+    user_am.magic_link_expiration = Set(None);
+    let user_entity = user_am.update(&ctx.db).await.map_err(ModelError::from)?;
+    let updated_user = UserModel::from(user_entity); // Get the updated model
 
     let jwt_secret = ctx.config.get_jwt_config()?;
 
-    let token = user
-        .generate_jwt(&jwt_secret.secret, &jwt_secret.expiration)
-        .or_else(|_| unauthorized("unauthorized!"))?;
+    let jwt_token = updated_user
+        .generate_token(&jwt_secret.secret, jwt_secret.expiration.unsigned_abs())
+        .map_err(|_| Error::InternalServerError)?;
 
-    format::json(LoginResponse::new(&user, &token))
+    format::json(LoginResponse::new(&updated_user, &jwt_token))
 }
 
 /// Handles user logout by clearing the auth token cookie
 #[debug_handler]
 async fn logout() -> Result<Response> {
-    // TODO: This is not the correct way to implement this. APIs do not use Session cookies.
-    // - Instead of clearing the session cookie, the bearer token must be removed from the DB
-    let response = Response::builder()
-        .header(
-            "Set-Cookie",
-            "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
-        )
-        .body(axum::body::Body::empty())?;
-    Ok(response)
+    // API logout is typically handled client-side by discarding the token.
+    // If server-side token revocation is needed, it requires a different mechanism (e.g., blacklist).
+    // For now, return success.
+    tracing::info!("API logout endpoint called (client should discard token)");
+    format::json(())
 }
 
-pub fn routes() -> Routes {
-    Routes::new()
-        .prefix("/api/auth")
-        .add("/register", post(register))
-        .add("/verify/{token}", get(verify))
-        .add("/login", post(login))
-        .add("/forgot", post(forgot))
-        .add("/reset", post(reset))
-        .add("/current", get(current))
-        .add("/magic-link", post(magic_link))
-        .add("/magic-link/{token}", get(magic_link_verify))
-        .add("/logout", post(logout))
+pub fn routes() -> Router<AppContext> { // Use Router<AppContext>
+    Router::new() // Use Router::new()
+        .route("/register", post(register))
+        .route("/verify/:token", get(verify))
+        .route("/login", post(login))
+        .route("/forgot", post(forgot))
+        .route("/reset", post(reset))
+        .route("/current", get(current))
+        .route("/magic-link", post(magic_link))
+        .route("/magic-link/:token", get(magic_link_verify))
+        .route("/logout", post(logout))
 }

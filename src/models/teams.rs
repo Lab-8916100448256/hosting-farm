@@ -1,266 +1,450 @@
-use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait, ConnectionTrait, DbErr, DatabaseConnection}; // Removed QuerySelect
+use async_trait::async_trait; // Import async_trait
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::{self, Set, Unchanged}, ColumnTrait, ConnectionTrait, // REMOVED ActiveModelBehavior import
+    DbErr, EntityTrait, QueryFilter, TransactionTrait, QuerySelect, Condition, JoinType, RelationTrait
+};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use validator::Validate;
+use strum::{EnumIter, IntoEnumIterator}; // Import EnumIter and IntoEnumIterator
+use tracing;
+use validator::Validate; // Import Validate
 
-use super::_entities::teams::{self, ActiveModel, Model};
-use super::_entities::team_memberships;
-use super::_entities::users::{self, Model as UserModel};
+use crate::models::{
+    _entities::{team_memberships, teams, users},
+    team_memberships::Model as TeamMembershipModel, // Import TeamMembershipModel for return type
+    users::Model as UserModel, // Import UserModel
+};
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateTeamParams {
-    pub name: String,
-    pub description: Option<String>,
+// Import ActiveModelBehavior for implementation (If needed, but trying without first)
+pub use super::_entities::teams::{ActiveModel, Entity, Model as TeamEntityModel}; // Alias generated Model
+use crate::models::ModelError; // Import ModelError
+
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, Serialize, Deserialize, strum::IntoEnumIterator)] // Add EnumIter and IntoEnumIterator
+pub enum Role {
+    Owner,
+    Admin,
+    Developer,
+    Observer,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UpdateTeamParams {
-    pub name: String,
-    pub description: Option<String>,
+impl Role {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Role::Owner => "Owner",
+            Role::Admin => "Administrator",
+            Role::Developer => "Developer",
+            Role::Observer => "Observer",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "Owner" => Some(Role::Owner),
+            "Administrator" => Some(Role::Admin),
+            "Developer" => Some(Role::Developer),
+            "Observer" => Some(Role::Observer),
+            _ => None,
+        }
+    }
+
+    // Helper for permission checks (e.g., Admin implies Developer permissions)
+    pub fn includes(&self, required_role: &Role) -> bool {
+        match self {
+            Role::Owner => true, // Owner includes all roles
+            Role::Admin => required_role == &Role::Admin
+                || required_role == &Role::Developer
+                || required_role == &Role::Observer,
+            Role::Developer => required_role == &Role::Developer || required_role == &Role::Observer,
+            Role::Observer => required_role == &Role::Observer,
+        }
+    }
+    // Helper to get all roles except Observer, used for team membership check
+    pub fn member_roles() -> Vec<Role> {
+        vec![Role::Owner, Role::Admin, Role::Developer]
+    }
+
+    // Helper to get all possible roles
+    pub fn all_roles() -> Vec<Role> {
+        // Use IntoEnumIterator trait provided by strum
+        Role::iter().collect()
+    }
 }
 
-#[derive(Debug, Validate, Deserialize)]
-pub struct Validator {
-    #[validate(length(min = 2, message = "Name must be at least 2 characters long."))] 
-    pub name: String,
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
-impl Validatable for ActiveModel {
-    fn validator(&self) -> Box<dyn Validate> {
-        Box::new(Validator {
-            name: self.name.as_ref().to_owned(),
+// Implement FromStr for easy parsing in handlers
+impl std::str::FromStr for Role {
+    type Err = ModelError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Role::from_str(s).ok_or_else(|| {
+            ModelError::Message(format!("Invalid role string: {}", s))
         })
     }
 }
 
+// Add derive(Validate)
+#[derive(Debug, Deserialize, Validate, Serialize)]
+pub struct CreateTeamParams {
+    #[validate(length(min = 3, message = "Name must be at least 3 characters long."))]
+    pub name: String,
+    pub description: Option<String>,
+}
+
+// Add derive(Validate)
+#[derive(Debug, Deserialize, Validate, Serialize)]
+pub struct UpdateTeamParams {
+    #[validate(length(min = 3, message = "Name must be at least 3 characters long."))]
+    pub name: String,
+    pub description: Option<String>,
+}
+
+// NOTE: DeriveEntityModel in _entities/teams.rs handles the basic ActiveModelBehavior
+
+// Custom Model struct wrapping the entity Model
+#[derive(Debug, Clone, Serialize, Deserialize)] // Added Serialize, Deserialize for passing to views
+pub struct Model {
+    #[serde(flatten)] // Flatten the inner struct fields for direct access in JSON/templates
+    pub inner: TeamEntityModel,
+}
+
+// Implement Deref to easily access inner fields
+impl std::ops::Deref for Model {
+    type Target = TeamEntityModel;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+// Implement From<TeamEntityModel> for Model
+impl From<TeamEntityModel> for Model {
+    fn from(inner: TeamEntityModel) -> Self {
+        Self { inner }
+    }
+}
+
+// Implement From<&TeamEntityModel> for Model to handle references
+impl From<&TeamEntityModel> for Model {
+    fn from(inner: &TeamEntityModel) -> Self {
+        Self { inner: inner.clone() }
+    }
+}
+
 impl Model {
-    /// Finds a team by the provided pid
-    ///
-    /// # Errors
-    ///
-    /// When could not find team or DB query error
-    pub async fn find_by_pid(db: &DatabaseConnection, pid: &str) -> ModelResult<Self> {
-        tracing::debug!("Finding team by pid: {}", pid);
-
-        // Parse UUID
-        let parse_uuid = match Uuid::parse_str(pid) {
-            Ok(uuid) => uuid,
-            Err(e) => {
-                tracing::error!("Failed to parse UUID '{}': {}", pid, e);
-                return Err(ModelError::Any(e.into()));
-            }
-        };
-
-        // Find team
-        let team = teams::Entity::find()
+    /// Finds a team by its PID.
+    pub async fn find_by_pid(db: &impl ConnectionTrait, pid: &str) -> Result<Self, ModelError> {
+        let parse_uuid = sea_orm::prelude::Uuid::parse_str(pid).map_err(|e| ModelError::Any(e.into()))?;
+        let team = Entity::find()
             .filter(teams::Column::Pid.eq(parse_uuid))
             .one(db)
             .await?;
-
-        match team {
-            Some(team) => {
-                tracing::debug!("Found team with pid: {}, id: {}", team.pid, team.id);
-                Ok(team)
-            },
-            None => {
-                tracing::error!("Team not found with pid: {}", pid);
-                Err(ModelError::EntityNotFound)
-            }
-        }
+        team.map(Self::from)
+            .ok_or_else(|| ModelError::EntityNotFound)
     }
 
-    /// Creates a new team and adds the creator as the Owner
-    ///
-    /// # Errors
-    ///
-    /// When could not save the team or team membership into the DB, or if name is not unique
+    /// Creates a new team and assigns the creator as the owner.
+    // Constrain db with TransactionTrait for begin/commit
     pub async fn create_team(
-        db: &DatabaseConnection,
+        db: &impl TransactionTrait,
         user_id: i32,
         params: &CreateTeamParams,
-    ) -> ModelResult<Self> {
-        let txn = db.begin().await?;
+    ) -> Result<Self, ModelError> {
+        let txn = db.begin().await?; // Use TransactionTrait's begin
 
-        // Check for name uniqueness before creating
-        if teams::Entity::find()
-            .filter(teams::Column::Name.eq(&params.name))
+        // Validate parameters using the derived Validate trait
+        params
+            .validate()
+            .map_err(|e| ModelError::Validation(e.into()))?;
+
+        // Check for name uniqueness
+        let trimmed_name = params.name.trim();
+        if Entity::find()
+            .filter(teams::Column::Name.eq(trimmed_name))
             .one(&txn)
             .await?
             .is_some()
         {
-            // Return ModelError::Message for uniqueness constraints
-            return Err(ModelError::Message(format!("Team name '{}' already exists.", params.name)));
+            return Err(ModelError::Message(
+                "A team with this name already exists.".to_string(),
+            ));
         }
 
-        tracing::info!("Creating team with name: {}", params.name);
-
-        // Create team with explicit pid
-        let team_pid = Uuid::new_v4();
-        let team_model = teams::ActiveModel {
-            name: ActiveValue::set(params.name.to_string()),
-            description: ActiveValue::set(params.description.clone()),
-            pid: ActiveValue::set(team_pid), // Set PID explicitly here
+        // DeriveEntityModel's default behavior handles pid, created_at, updated_at
+        let team_am = teams::ActiveModel {
+            name: Set(trimmed_name.to_string()),
+            description: Set(params.description.clone()),
             ..Default::default()
         };
 
-        // Validate before inserting
-        team_model.validate()?; // Manually call validate before insert
-        let team = team_model.insert(&txn).await?; // Use standard insert
+        // Insert the team using the ActiveModel (before_save is called implicitly by derive)
+        let team = team_am.insert(&txn).await?;
 
-        tracing::info!("Team created with id: {}, pid: {}", team.id, team.pid);
-
-        // Add creator as owner
-        let membership = team_memberships::ActiveModel {
-            team_id: ActiveValue::set(team.id),
-            user_id: ActiveValue::set(user_id),
-            role: ActiveValue::set("Owner".to_string()),
-            pending: ActiveValue::set(false),
+        // Add creator as Owner
+        // DeriveEntityModel's default behavior handles pid, created_at, updated_at for memberships
+        let membership_am = team_memberships::ActiveModel {
+            user_id: Set(user_id),
+            team_id: Set(team.id),
+            role: Set(Role::Owner.as_str().to_string()),
+            pending: Set(false),
             ..Default::default()
-        }
-        .insert(&txn) // Membership doesn't need complex validation here
-        .await?;
-
-        tracing::info!("Team membership created with id: {}", membership.id);
+        };
+        // Insert membership
+        membership_am.insert(&txn).await?;
 
         txn.commit().await?;
-        tracing::info!("Transaction committed successfully");
 
-        Ok(team)
+        Ok(Self::from(team))
     }
 
-    /// Updates the team details
-    ///
-    /// # Errors
-    ///
-    /// When could not save the team into the DB, or if the new name is not unique
-    pub async fn update(&self, db: &DatabaseConnection, params: &UpdateTeamParams) -> ModelResult<Self> {
-        let mut team_model: teams::ActiveModel = self.clone().into();
+    /// Updates team details (name, description).
+    pub async fn update(
+        &self,
+        db: &impl ConnectionTrait,
+        params: &UpdateTeamParams,
+    ) -> Result<Self, ModelError> {
+        let mut team_am: ActiveModel = self.inner.clone().into();
 
-        // Check if name is being changed and if the new name already exists
-        // Note: params.name is the *new* proposed name from the form
-         if params.name != self.name { // Only check if the name is actually different
-            if teams::Entity::find()
-                .filter(teams::Column::Name.eq(&params.name)) // Check against the new name
-                .filter(teams::Column::Id.ne(self.id)) // Exclude the current team
-                .one(db)
-                .await?
-                .is_some()
-            {
-                // Return ModelError::Message for uniqueness constraints
-                 return Err(ModelError::Message(format!("Team name '{}' already exists.", params.name)));
-            }
-            team_model.name = ActiveValue::set(params.name.clone());
-         }
+        // Validate parameters using derived Validate
+        params
+            .validate()
+            .map_err(|e| ModelError::Validation(e.into()))?;
 
+        let trimmed_name = params.name.trim();
 
-        team_model.description = ActiveValue::set(params.description.clone());
+        // Only update if values changed
+        let mut changed = false;
+        if team_am.name.as_ref() != trimmed_name {
+             // Check for name uniqueness if name is changing
+             if Entity::find()
+                 .filter(teams::Column::Name.eq(trimmed_name))
+                 .filter(teams::Column::Id.ne(self.id)) // Exclude self
+                 .one(db)
+                 .await?
+                 .is_some()
+             {
+                 return Err(ModelError::Message(
+                     "A team with this name already exists.".to_string(),
+                 ));
+             }
+            team_am.name = Set(trimmed_name.to_string());
+            changed = true;
+        }
 
-        // Validate before updating
-        team_model.validate()?; // Manually call validate before update
-        team_model.update(db).await.map_err(|e| ModelError::Any(e.into())) // Use standard update
-    }
+        // Correctly compare Option<String> using ActiveValue::as_ref() and Option::as_deref()
+        if team_am.description.as_ref().as_deref() != params.description.as_deref() {
+            team_am.description = Set(params.description.clone());
+            changed = true;
+        }
 
-
-    /// Gets all team members with their roles
-    ///
-    /// # Errors
-    ///
-    /// When DB query error
-    pub async fn get_members(&self, db: &DatabaseConnection) -> ModelResult<Vec<(UserModel, String)>> {
-        let memberships = team_memberships::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(team_memberships::Column::TeamId, self.id)
-                    .eq(team_memberships::Column::Pending, false)
-                    .build(),
-            )
-            .find_with_related(users::Entity)
-            .all(db)
-            .await?;
-
-        let result = memberships
-            .into_iter()
-            .filter_map(|(membership, user_opt)| { // Use filter_map to handle potential None user
-                user_opt.into_iter().next().map(|user| (user, membership.role))
-            })
-            .collect();
-
-        Ok(result)
-    }
-
-
-    /// Checks if a user has a specific role or higher in the team
-    ///
-    /// # Errors
-    ///
-    /// When DB query error
-    pub async fn has_role(&self, db: &DatabaseConnection, user_id: i32, role: &str) -> ModelResult<bool> {
-        let role_level = match role {
-            "Owner" => 4,
-            "Administrator" => 3,
-            "Developer" => 2,
-            "Observer" => 1,
-            _ => return Ok(false),
-        };
-
-        let membership = team_memberships::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(team_memberships::Column::TeamId, self.id)
-                    .eq(team_memberships::Column::UserId, user_id)
-                    .eq(team_memberships::Column::Pending, false)
-                    .build(),
-            )
-            .one(db)
-            .await?;
-
-        if let Some(membership) = membership {
-            let member_role_level = match membership.role.as_str() {
-                "Owner" => 4,
-                "Administrator" => 3,
-                "Developer" => 2,
-                "Observer" => 1,
-                _ => 0,
-            };
-            Ok(member_role_level >= role_level)
+        if changed {
+            // Update should work, before_save handles updated_at
+            team_am.update(db).await.map(Self::from)
         } else {
-            Ok(false)
+            Ok(Self::from(self.inner.clone())) // Return self if no changes
         }
     }
 
-    /// Deletes the team and all associated memberships
-    ///
-    /// # Errors
-    ///
-    /// When could not delete the team from the DB
-    pub async fn delete(&self, db: &DatabaseConnection) -> ModelResult<()> {
-         let txn = db.begin().await?;
-        // Delete memberships first due to foreign key constraint
+    /// Deletes the team and all associated memberships.
+    // Constrain db with TransactionTrait for begin/commit
+    pub async fn delete(&self, db: &impl TransactionTrait) -> Result<(), ModelError> {
+        let txn = db.begin().await?;
+        // Delete memberships first
         team_memberships::Entity::delete_many()
             .filter(team_memberships::Column::TeamId.eq(self.id))
             .exec(&txn)
             .await?;
-
-        // Then delete the team
-        teams::Entity::delete_by_id(self.id)
-            .exec(&txn)
-            .await?;
-
+        // Delete the team
+        Entity::delete_by_id(self.id).exec(&txn).await?;
         txn.commit().await?;
         Ok(())
     }
+
+    /// Checks if a user has *at least* one of the specified roles within this team.
+    pub async fn has_role(
+        &self,
+        db: &impl ConnectionTrait,
+        user_id: i32,
+        required_roles: Vec<Role>,
+    ) -> Result<bool, ModelError> {
+        let membership = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(self.id))
+            .filter(team_memberships::Column::UserId.eq(user_id))
+            .filter(team_memberships::Column::Pending.eq(false)) // Ensure member is active
+            .one(db)
+            .await?;
+
+        match membership {
+            Some(m) => {
+                if let Some(user_role) = Role::from_str(&m.role) {
+                    // Check if the user's role includes any of the required roles
+                    Ok(required_roles
+                        .iter()
+                        .any(|required| user_role.includes(required)))
+                } else {
+                    // Invalid role string in DB, treat as no permission
+                    tracing::warn!("Invalid role '{}' found for user {} in team {}", m.role, user_id, self.id);
+                    Ok(false)
+                }
+            }
+            None => Ok(false), // User is not a member
+        }
+    }
+
+     /// Gets all active members of the team along with their roles.
+     pub async fn get_members(
+         &self,
+         db: &impl ConnectionTrait,
+     ) -> Result<Vec<(UserModel, Role)>, ModelError> {
+         self.get_members_internal(db, false).await
+     }
+
+     /// Gets all pending members (invitations) of the team.
+     pub async fn get_pending_members(
+         &self,
+         db: &impl ConnectionTrait,
+     ) -> Result<Vec<(UserModel, TeamMembershipModel)>, ModelError> { // Use TeamMembershipModel here
+         self.get_members_internal_pending(db).await
+     }
+
+     // Internal helper to get members (active)
+     async fn get_members_internal(
+         &self,
+         db: &impl ConnectionTrait,
+         pending: bool,
+     ) -> Result<Vec<(UserModel, Role)>, ModelError> {
+         let memberships_with_users = team_memberships::Entity::find()
+             .filter(team_memberships::Column::TeamId.eq(self.id))
+             .filter(team_memberships::Column::Pending.eq(pending))
+             .find_with_related(users::Entity)
+             .all(db)
+             .await?;
+
+         let mut members_with_roles = Vec::new();
+         for (membership, user_vec) in memberships_with_users {
+             if let Some(user_entity) = user_vec.into_iter().next() {
+                 if let Some(role) = Role::from_str(&membership.role) {
+                     members_with_roles.push((UserModel::from(user_entity), role));
+                 } else {
+                     tracing::warn!(
+                         "Invalid role string '{}' for user {} in team {}",
+                         membership.role,
+                         membership.user_id,
+                         self.id
+                     );
+                 }
+             } else {
+                 tracing::warn!(
+                     "Membership found (id: {}) but related user vector was empty or None.",
+                     membership.id
+                 );
+             }
+         }
+         Ok(members_with_roles)
+     }
+
+     // Internal helper to get pending members with full membership info
+     async fn get_members_internal_pending(
+        &self,
+        db: &impl ConnectionTrait,
+    ) -> Result<Vec<(UserModel, TeamMembershipModel)>, ModelError> { // Use TeamMembershipModel
+        let memberships_with_users = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(self.id))
+            .filter(team_memberships::Column::Pending.eq(true))
+            .find_with_related(users::Entity)
+            .all(db)
+            .await?;
+
+        let mut pending_members = Vec::new();
+        for (membership, user_vec) in memberships_with_users {
+            if let Some(user_entity) = user_vec.into_iter().next() {
+                // Convert the entity membership to the custom model
+                pending_members.push((UserModel::from(user_entity), TeamMembershipModel::from(membership)));
+            } else {
+                tracing::warn!(
+                    "Pending Membership found (id: {}) but related user vector was empty or None.",
+                    membership.id
+                );
+            }
+        }
+        Ok(pending_members)
+    }
+
+    /// Adds a member to the team or creates a pending invitation.
+    pub async fn add_member(
+        &self,
+        db: &impl TransactionTrait, // Requires transaction
+        user_id: i32,
+        role: Role,
+        pending: bool,
+    ) -> Result<team_memberships::Model, ModelError> { // Return the created entity membership
+        // Check if membership already exists (either pending or active)
+        if team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(self.id))
+            .filter(team_memberships::Column::UserId.eq(user_id))
+            .one(db)
+            .await?
+            .is_some()
+        {
+            return Err(ModelError::EntityAlreadyExists);
+        }
+
+        let token = if pending {
+            Some(sea_orm::prelude::Uuid::new_v4().to_string())
+        } else {
+            None
+        };
+        let sent_at = if pending { Some(chrono::Utc::now().into()) } else { None };
+
+        // Assume team_memberships also uses DeriveEntityModel for defaults
+        let membership_am = team_memberships::ActiveModel {
+            user_id: Set(user_id),
+            team_id: Set(self.id),
+            role: Set(role.to_string()),
+            pending: Set(pending),
+            invitation_token: Set(token),
+            invitation_sent_at: Set(sent_at),
+            ..Default::default()
+        };
+
+        membership_am.insert(db).await
+    }
+
+    /// Checks if a given user is the last owner of the team.
+    pub async fn is_last_owner(&self, db: &impl ConnectionTrait, user_id: i32) -> Result<bool, ModelError> {
+        // Find the membership for the user in question
+        let user_membership = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(self.id))
+            .filter(team_memberships::Column::UserId.eq(user_id))
+            .filter(team_memberships::Column::Pending.eq(false))
+            .one(db)
+            .await?;
+
+        // If the user is not an owner or not a member, they can't be the last owner
+        if !user_membership.map_or(false, |m| m.role == Role::Owner.as_str()) {
+            return Ok(false);
+        }
+
+        // Count how many *other* owners exist in the team
+        let other_owners_count = team_memberships::Entity::find()
+            .filter(team_memberships::Column::TeamId.eq(self.id))
+            .filter(team_memberships::Column::UserId.ne(user_id)) // Exclude the user in question
+            .filter(team_memberships::Column::Role.eq(Role::Owner.as_str()))
+            .filter(team_memberships::Column::Pending.eq(false))
+            .count(db)
+            .await?;
+
+        // If there are no other owners, this user is the last one
+        Ok(other_owners_count == 0)
+    }
+
 }
 
-#[async_trait::async_trait]
-impl ActiveModelBehavior for super::_entities::teams::ActiveModel {
-    async fn before_save<C>(self, _db: &C, _insert: bool) -> Result<Self, DbErr>
-    where
-        C: ConnectionTrait,
-    {
-        // Validation is now handled explicitly before insert/update in the Model methods
-        // self.validate()?;
-        // No need to set PID here as it's handled in create_team
-        Ok(self)
+// Implement IntoActiveModel for &Model to simplify updates
+impl<'a> IntoActiveModel<ActiveModel> for &'a Model {
+    fn into_active_model(self) -> ActiveModel {
+        self.inner.clone().into()
     }
 }

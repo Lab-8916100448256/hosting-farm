@@ -1,6 +1,12 @@
 use chrono::Utc;
-use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, QueryFilter};
+use loco_rs::prelude::*; // Keep the prelude for other things
+// Add explicit imports for types that seem missing or causing issues
+use sea_orm::{
+    ActiveModelBehavior, ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DbErr,
+    EntityTrait, ModelTrait, QueryFilter, RelationTrait,
+};
+// Import DatabaseConnection explicitly
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -22,9 +28,10 @@ pub const VALID_ROLES: [&str; 4] = ["Owner", "Administrator", "Developer", "Obse
 
 #[async_trait::async_trait]
 impl ActiveModelBehavior for ActiveModel {
+    // Added DbErr explicitly
     async fn before_save<C>(self, _db: &C, insert: bool) -> Result<Self, DbErr>
     where
-        C: ConnectionTrait,
+        C: ConnectionTrait, // Added ConnectionTrait explicitly
     {
         if insert {
             let mut this = self;
@@ -42,16 +49,15 @@ impl Model {
     /// # Errors
     ///
     /// When could not find membership or DB query error
-    pub async fn find_by_invitation_token(db: &DatabaseConnection, token: &str) -> ModelResult<Self> {
+    pub async fn find_by_invitation_token(
+        db: &DatabaseConnection,
+        token: &str,
+    ) -> ModelResult<Self> {
         let membership = Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(team_memberships::Column::InvitationToken, token)
-                    .build(),
-            )
+            .filter(team_memberships::Column::InvitationToken.eq(token)) // Simplified filter
             .one(db)
             .await?;
-        membership.ok_or_else(|| ModelError::EntityNotFound)
+        membership.ok_or_else(|| ModelError::EntityNotFound) // Added ModelError explicitly
     }
 
     /// Finds a membership by team and user IDs
@@ -59,18 +65,18 @@ impl Model {
     /// # Errors
     ///
     /// When could not find membership or DB query error
-    pub async fn find_by_team_and_user(db: &DatabaseConnection, team_id: i32, user_id: i32) -> ModelResult<Self> {
+    pub async fn find_by_team_and_user(
+        db: &DatabaseConnection,
+        team_id: i32,
+        user_id: i32,
+    ) -> ModelResult<Self> {
         let membership = Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(team_memberships::Column::TeamId, team_id)
-                    .eq(team_memberships::Column::UserId, user_id)
-                    .eq(team_memberships::Column::Pending, false)
-                    .build(),
-            )
+            .filter(team_memberships::Column::TeamId.eq(team_id))
+            .filter(team_memberships::Column::UserId.eq(user_id))
+            .filter(team_memberships::Column::Pending.eq(false))
             .one(db)
             .await?;
-        membership.ok_or_else(|| ModelError::EntityNotFound)
+        membership.ok_or_else(|| ModelError::EntityNotFound) // Added ModelError explicitly
     }
 
     /// Creates an invitation to join a team
@@ -85,38 +91,30 @@ impl Model {
     ) -> ModelResult<Self> {
         // Find user by email
         let user = users::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(users::Column::Email, email)
-                    .build(),
-            )
+            .filter(users::Column::Email.eq(email)) // Simplified filter
             .one(db)
             .await?
-            .ok_or_else(|| ModelError::msg("User not found"))?;
+            .ok_or_else(|| ModelError::msg("User not found"))?; // Added ModelError explicitly
 
         // Check if already a member
         let existing = Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(team_memberships::Column::TeamId, team_id)
-                    .eq(team_memberships::Column::UserId, user.id)
-                    .build(),
-            )
+            .filter(team_memberships::Column::TeamId.eq(team_id))
+            .filter(team_memberships::Column::UserId.eq(user.id))
             .one(db)
             .await?;
 
         if existing.is_some() {
-            return Err(ModelError::msg("User is already a member of this team"));
+            return Err(ModelError::msg("User is already a member of this team")); // Added ModelError explicitly
         }
 
         // Create invitation
         let membership = ActiveModel {
-            team_id: ActiveValue::set(team_id),
-            user_id: ActiveValue::set(user.id),
-            role: ActiveValue::set("Observer".to_string()), // Default role
-            pending: ActiveValue::set(true),
-            invitation_token: ActiveValue::set(Some(Uuid::new_v4().to_string())),
-            invitation_sent_at: ActiveValue::set(Some(Utc::now().into())),
+            team_id: ActiveValue::Set(team_id),
+            user_id: ActiveValue::Set(user.id),
+            role: ActiveValue::Set("Observer".to_string()), // Default role
+            pending: ActiveValue::Set(true),
+            invitation_token: ActiveValue::Set(Some(Uuid::new_v4().to_string())),
+            invitation_sent_at: ActiveValue::Set(Some(Utc::now().into())),
             ..Default::default()
         }
         .insert(db)
@@ -132,10 +130,13 @@ impl Model {
     /// When could not update the membership
     pub async fn accept_invitation(&self, db: &DatabaseConnection) -> ModelResult<Self> {
         let mut membership: ActiveModel = self.clone().into();
-        membership.pending = ActiveValue::set(false);
-        membership.invitation_token = ActiveValue::set(None);
-        
-        membership.update(db).await.map_err(|e| ModelError::Any(e.into()))
+        membership.pending = ActiveValue::Set(false);
+        membership.invitation_token = ActiveValue::Set(None);
+
+        membership
+            .update(db)
+            .await
+            .map_err(|e| ModelError::Any(e.into())) // Added ModelError explicitly
     }
 
     /// Declines an invitation to join a team by deleting the membership
@@ -147,7 +148,7 @@ impl Model {
         Entity::delete_by_id(self.id)
             .exec(db)
             .await
-            .map_err(|e| ModelError::Any(e.into()))?;
+            .map_err(|e| ModelError::Any(e.into()))?; // Added ModelError explicitly
         Ok(())
     }
 
@@ -159,13 +160,16 @@ impl Model {
     pub async fn update_role(&self, db: &DatabaseConnection, new_role: &str) -> ModelResult<Self> {
         // Validate role
         if !VALID_ROLES.contains(&new_role) {
-            return Err(ModelError::msg("Invalid role"));
+            return Err(ModelError::msg("Invalid role")); // Added ModelError explicitly
         }
 
         let mut membership: ActiveModel = self.clone().into();
-        membership.role = ActiveValue::set(new_role.to_string());
-        
-        membership.update(db).await.map_err(|e| ModelError::Any(e.into()))
+        membership.role = ActiveValue::Set(new_role.to_string());
+
+        membership
+            .update(db)
+            .await
+            .map_err(|e| ModelError::Any(e.into())) // Added ModelError explicitly
     }
 
     /// Gets all pending invitations for a user
@@ -173,14 +177,13 @@ impl Model {
     /// # Errors
     ///
     /// When DB query error
-    pub async fn get_user_invitations(db: &DatabaseConnection, user_id: i32) -> ModelResult<Vec<(Self, teams::Model)>> {
+    pub async fn get_user_invitations(
+        db: &DatabaseConnection,
+        user_id: i32,
+    ) -> ModelResult<Vec<(Self, teams::Model)>> {
         let invitations = Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(team_memberships::Column::UserId, user_id)
-                    .eq(team_memberships::Column::Pending, true)
-                    .build(),
-            )
+            .filter(team_memberships::Column::UserId.eq(user_id))
+            .filter(team_memberships::Column::Pending.eq(true))
             .find_with_related(teams::Entity)
             .all(db)
             .await?;
@@ -191,7 +194,9 @@ impl Model {
                 if let Some(team) = team.into_iter().next() {
                     (membership, team)
                 } else {
-                    unreachable!("Team must exist for membership")
+                    // This case should ideally not happen if DB constraints are set up correctly
+                    // Consider logging an error or handling it differently if it's possible
+                    panic!("Database inconsistency: Team membership found without a corresponding team.");
                 }
             })
             .collect();
@@ -208,7 +213,21 @@ impl Model {
         Entity::delete_by_id(self.id)
             .exec(db)
             .await
-            .map_err(|e| ModelError::Any(e.into()))?;
+            .map_err(|e| ModelError::Any(e.into()))?; // Added ModelError explicitly
         Ok(())
     }
-} 
+
+    /// Removes a user from all teams by deleting their memberships.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `DbErr` if the database operation fails.
+    // Replaced DbConn with DatabaseConnection
+    pub async fn remove_user_from_all_teams(db: &DatabaseConnection, user_id: i32) -> Result<(), DbErr> {
+        Entity::delete_many()
+            .filter(team_memberships::Column::UserId.eq(user_id))
+            .exec(db)
+            .await?;
+        Ok(())
+    }
+}

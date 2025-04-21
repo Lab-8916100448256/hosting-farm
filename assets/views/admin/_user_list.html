@@ -1,0 +1,71 @@
+{# Partial template for the user list table and pagination #}
+
+{# Error container specifically for partial updates (e.g., pagination errors) #}
+<div id="user-list-partial-error"></div>
+
+<div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+            <tr>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+            </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+            {% if users is defined and users is not empty %}
+                {% for user in users %}
+                {% include "admin/_user_row.html" %}
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="5" class="px-6 py-4 text-center text-sm text-gray-500">No users found matching the criteria.</td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+{# Pagination Controls #}
+{% if paginator is defined and paginator.num_pages > 1 %}
+<div class="mt-4 flex items-center justify-between">
+    <div class="text-sm text-gray-700">
+        Page {{ paginator.current_page }} of {{ paginator.num_pages }} ({{ paginator.num_items }} total users)
+    </div>
+    <div class="space-x-2">
+        {% set base_url = "/admin/users?status=" ~ (status_filter | default(value="all")) %}
+        
+        {# Previous Button #}
+        {% if paginator.has_prev %}
+            <button hx-get="{{ base_url }}&page={{ paginator.current_page - 1 }}" 
+                    hx-target="#user-list-container" 
+                    hx-swap="innerHTML"
+                    hx-indicator="#user-list-loading"
+                    class="px-3 py-1 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-100">
+                Previous
+            </button>
+        {% else %}
+            <button class="px-3 py-1 border border-gray-300 rounded text-sm text-gray-400 cursor-not-allowed" disabled>
+                Previous
+            </button>
+        {% endif %}
+
+        {# Next Button #}
+        {% if paginator.has_next %}
+            <button hx-get="{{ base_url }}&page={{ paginator.current_page + 1 }}" 
+                    hx-target="#user-list-container" 
+                    hx-swap="innerHTML"
+                    hx-indicator="#user-list-loading"
+                    class="px-3 py-1 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-100">
+                Next
+            </button>
+        {% else %}
+            <button class="px-3 py-1 border border-gray-300 rounded text-sm text-gray-400 cursor-not-allowed" disabled>
+                Next
+            </button>
+        {% endif %}
+    </div>
+</div>
+{% endif %}

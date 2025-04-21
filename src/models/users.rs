@@ -1,570 +1,559 @@
 use async_trait::async_trait;
-use chrono::{offset::Local, DateTime, Duration, Utc};
-use loco_rs::{auth::jwt, hash, prelude::*};
-use reqwest;
-use sea_orm::{ActiveValue, ConnectionTrait, DbErr, EntityTrait, QueryFilter, Set, ColumnTrait};
-use sequoia_openpgp::{self as openpgp, parse::Parse, policy::StandardPolicy};
+use bcrypt::{hash, verify, BcryptError, DEFAULT_COST};
+use loco_rs::prelude::*; // Rely fully on prelude for loco types/traits
+use loco_rs::app::AppContext; // Keep AppContext explicit
+use loco_rs::config::ConfigExt; // Keep ConfigExt trait explicit
+use loco_rs::authentication::users::DisplayUser; // Keep DisplayUser explicit for From impl
+// Explicit sea_orm imports
+use sea_orm::{
+    entity::prelude::*, // Still useful for Uuid, etc.
+    ActiveModelBehavior, ActiveModelTrait,
+    ActiveValue::{self, Set, Unchanged},
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
+    IntoActiveModel,
+    IntoCondition,
+    ModelTrait,
+    QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+    TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use validator::Validate;
+use uuid::Uuid; // Ensure Uuid is imported
 
-pub use super::_entities::users::{self, ActiveModel, Entity, Model};
+// Alias the generated entity model and related items
+pub use super::_entities::users::{ActiveModel, Column, Entity, Model as UserEntityModel};
+use crate::models::{
+    _entities::{team_memberships, teams},
+    teams::{CreateTeamParams, Model as TeamModel, Role},
+};
 
-pub const MAGIC_LINK_LENGTH: i8 = 32;
-pub const MAGIC_LINK_EXPIRATION_MIN: i8 = 5;
+// Define constants for user status
+pub const USER_STATUS_NEW: &str = "new";
+pub const USER_STATUS_APPROVED: &str = "approved";
+pub const USER_STATUS_REJECTED: &str = "rejected";
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct LoginParams {
-    pub email: String,
-    pub password: String,
-    #[serde(rename = "remember-me")]
-    pub remember_me: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ForgotPasswordParams {
-    pub email: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ResetPasswordParams {
-    pub token: String,
-    pub password: String,
-    pub password_confirmation: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
+// --- Structs for Params ---
+#[derive(Debug, Deserialize, Validate)]
 pub struct RegisterParams {
-    pub email: String,
-    pub password: String,
+    #[validate(length(min = 3, message = "Name must be at least 3 characters long."))]
     pub name: String,
+    #[validate(email(message = "Invalid email format."))]
+    pub email: String,
+    #[validate(length(min = 8, message = "Password must be at least 8 characters long."))]
+    pub password: String,
+    #[validate(must_match(other = "password", message = "Passwords must match."))]
     pub password_confirmation: String,
 }
 
-#[derive(Debug, Validate, Deserialize)]
-pub struct Validator {
-    #[validate(length(min = 2, message = "Name must be at least 2 characters long."))] 
-    pub name: String,
-    #[validate(custom(function = "validation::is_valid_email"))]
+#[derive(Debug, Deserialize, Validate)]
+pub struct LoginParams {
+    #[validate(email(message = "Invalid email format."))]
     pub email: String,
-    pub pgp_key: Option<String>,
+    #[validate(length(min = 8, message = "Password must be at least 8 characters long."))]
+    pub password: String,
 }
 
-impl Validatable for ActiveModel {
-    fn validator(&self) -> Box<dyn Validate> {
-        let name = match &self.name {
-            ActiveValue::Set(n) | ActiveValue::Unchanged(n) => n.clone(),
-            _ => "".to_string(),
-        };
-        let email = match &self.email {
-            ActiveValue::Set(e) | ActiveValue::Unchanged(e) => e.clone(),
-            _ => "".to_string(),
-        };
-        let pgp_key = match &self.pgp_key {
-            ActiveValue::Set(pk) | ActiveValue::Unchanged(pk) => pk.clone(),
-            _ => None,
-        };
-
-        Box::new(Validator {
-            name,
-            email,
-            pgp_key,
-        })
-    }
+#[derive(Debug, Deserialize, Validate)]
+pub struct ForgotPasswordParams {
+    #[validate(email(message = "Invalid email format."))]
+    pub email: String,
 }
 
-#[async_trait::async_trait]
-impl ActiveModelBehavior for super::_entities::users::ActiveModel {
-    async fn before_save<C>(self, _db: &C, insert: bool) -> Result<Self, DbErr>
+#[derive(Debug, Deserialize, Validate)]
+pub struct ResetPasswordParams {
+    #[validate(length(min = 8, message = "Password must be at least 8 characters long."))]
+    pub password: String,
+    #[validate(must_match(other = "password", message = "Passwords must match."))]
+    pub password_confirmation: String,
+    pub reset_token: String,
+}
+
+// --- ADDING ActiveModelBehavior implementation BACK ---
+#[async_trait]
+impl ActiveModelBehavior for ActiveModel {
+    // Called before saving an ActiveModel
+    async fn before_save<C>(mut self, _db: &C, insert: bool) -> std::result::Result<Self, DbErr> // Use std::result::Result
     where
         C: ConnectionTrait,
     {
-        self.validate()?;
-        if insert {
-            let mut this = self;
-            if matches!(this.pid, ActiveValue::NotSet) {
-                this.pid = ActiveValue::Set(Uuid::new_v4());
-            }
-            if matches!(this.api_key, ActiveValue::NotSet) {
-                this.api_key = ActiveValue::Set(format!("lo-{}", Uuid::new_v4()));
-            }
-            Ok(this)
-        } else {
-            Ok(self)
+        // Hash password BEFORE save if it's set and we are inserting or updating
+        if let ActiveValue::Set(password) = &self.password {
+             if !password.starts_with("$2b$") { // Avoid re-hashing existing hashes
+                let hashed_password = hash_password(password).map_err(|e| {
+                    // Convert ModelError to DbErr for ActiveModelBehavior
+                    DbErr::Custom(format!("Password hashing failed: {}", e))
+                })?;
+                self.password = Set(hashed_password);
+             }
         }
+
+        // Set PID and timestamps on insert
+        if insert {
+            if self.pid.is_not_set() {
+                self.pid = Set(Uuid::new_v4());
+            }
+            let now = chrono::Utc::now().into(); // DateTimeWithTimeZone
+            if self.created_at.is_not_set() {
+                self.created_at = Set(now);
+            }
+            if self.updated_at.is_not_set() {
+                self.updated_at = Set(now);
+            }
+            // Set default status on insert if not provided
+            if self.status.is_not_set() {
+                 self.status = Set(USER_STATUS_NEW.to_string());
+            }
+            // Generate API key on insert if not provided
+            if self.api_key.is_not_set() {
+                 self.api_key = Set(Some(Uuid::new_v4().to_string()));
+            }
+
+        } else {
+            // Only update `updated_at` timestamp on update
+            self.updated_at = Set(chrono::Utc::now().into());
+
+            // Ensure certain fields are not accidentally modified during update
+            // Set them to Unchanged if they were Set
+            if self.created_at.is_set() { self.created_at = Unchanged(self.created_at.take().unwrap()); }
+            if self.pid.is_set() { self.pid = Unchanged(self.pid.take().unwrap()); }
+            if self.email.is_set() { self.email = Unchanged(self.email.take().unwrap()); } // Email shouldn't change via generic update
+        }
+
+        Ok(self)
     }
 }
 
+
+// --- Custom Model struct wrapping the entity Model ---
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Model {
+    pub inner: UserEntityModel,
+}
+
+// Implement Deref to easily access inner fields
+impl std::ops::Deref for Model {
+    type Target = UserEntityModel;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+// Implement From<UserEntityModel> for Model
+impl From<UserEntityModel> for Model {
+    fn from(inner: UserEntityModel) -> Self {
+        Self { inner }
+    }
+}
+
+// Implement From<&UserEntityModel> for Model to handle references
+impl From<&UserEntityModel> for Model {
+    fn from(inner: &UserEntityModel) -> Self {
+        Self { inner: inner.clone() }
+    }
+}
+
+// --- Authenticable Implementation for Custom Model ---
+// Use the Authenticable trait from the prelude
 #[async_trait]
 impl Authenticable for Model {
-    async fn find_by_api_key(db: &DatabaseConnection, api_key: &str) -> ModelResult<Self> {
-        let user = users::Entity::find()
-            .filter(
-                model::query::condition()
-                    .eq(users::Column::ApiKey, api_key)
-                    .build(),
-            )
-            .one(db)
-            .await?;
-        user.ok_or_else(|| ModelError::EntityNotFound)
+    async fn find_by_claims_key(db: &DatabaseConnection, key: &str) -> ModelResult<Self> {
+        Self::find_by_pid(db, key).await
     }
 
-    async fn find_by_claims_key(db: &DatabaseConnection, claims_key: &str) -> ModelResult<Self> {
-        Self::find_by_pid(db, claims_key).await
+    fn get_claims_key(&self) -> String {
+        self.pid.to_string()
+    }
+
+    async fn find_by_api_key(db: &DatabaseConnection, api_key: &str) -> ModelResult<Self> {
+        Self::find_user(db, Column::ApiKey.eq(Some(api_key.to_string()))).await
     }
 }
 
+// --- Custom Model Methods ---
 impl Model {
-    /// finds a user by the provided email
-    ///
-    /// # Errors
-    ///
-    /// When could not find user by the given token or DB query error
-    pub async fn find_by_email(db: &DatabaseConnection, email: &str) -> ModelResult<Self> {
-        let user = users::Entity::find()
-            .filter(users::Column::Email.eq(email))
-            .one(db)
-            .await?;
-        user.ok_or_else(|| ModelError::EntityNotFound)
+    /// Find a user by pid
+    pub async fn find_by_pid(db: &impl ConnectionTrait, pid: &str) -> ModelResult<Self> {
+        let uuid = Uuid::parse_str(pid).map_err(|e| ModelError::Any(e.into()))?;
+        Self::find_user(db, Column::Pid.eq(uuid)).await
     }
 
-    /// finds a user by the provided verification token
-    ///
-    /// # Errors
-    ///
-    /// When could not find user by the given token or DB query error
-    pub async fn find_by_verification_token(
-        db: &DatabaseConnection,
-        token: &str,
+    /// Find a user by email
+    pub async fn find_by_email(db: &impl ConnectionTrait, email: &str) -> ModelResult<Self> {
+        Self::find_user(db, Column::Email.eq(email.to_lowercase())).await
+    }
+
+    /// Find a user by email and password, checking approval status
+    pub async fn find_by_email_and_password(
+        db: &impl ConnectionTrait,
+        params: &LoginParams,
     ) -> ModelResult<Self> {
-        let user = users::Entity::find()
-            .filter(users::Column::EmailVerificationToken.eq(token))
-            .one(db)
-            .await?;
-        user.ok_or_else(|| ModelError::EntityNotFound)
-    }
+        let user = Self::find_by_email(db, &params.email).await?;
 
-    /// finds a user by the magic token and verify and token expiration
-    ///
-    /// # Errors
-    ///
-    /// When could not find user by the given token or DB query error ot token expired
-    pub async fn find_by_magic_token(db: &DatabaseConnection, token: &str) -> ModelResult<Self> {
-        let user = users::Entity::find()
-            .filter(users::Column::MagicLinkToken.eq(token))
-            .one(db)
-            .await?;
-
-        let user = user.ok_or_else(|| ModelError::EntityNotFound)?;
-        if let Some(expired_at) = user.magic_link_expiration {
-            if expired_at >= Local::now() {
-                Ok(user)
-            } else {
-                tracing::debug!(
-                    user_pid = user.pid.to_string(),
-                    token_expiration = expired_at.to_string(),
-                    "magic token expired for the user."
-                );
-                Err(ModelError::msg("magic token expired"))
-            }
-        } else {
-            tracing::error!(
-                user_pid = user.pid.to_string(),
-                "magic link expiration time not exists"
-            );
-            Err(ModelError::msg("expiration token not exists"))
-        }
-    }
-
-    /// finds a user by the provided reset token
-    ///
-    /// # Errors
-    ///
-    /// When could not find user by the given token or DB query error
-    pub async fn find_by_reset_token(db: &DatabaseConnection, token: &str) -> ModelResult<Self> {
-        let user = users::Entity::find()
-            .filter(users::Column::ResetToken.eq(token))
-            .one(db)
-            .await?;
-        user.ok_or_else(|| ModelError::EntityNotFound)
-    }
-
-    /// finds a user by the provided pid
-    ///
-    /// # Errors
-    ///
-    /// When could not find user  or DB query error
-    pub async fn find_by_pid(db: &DatabaseConnection, pid: &str) -> ModelResult<Self> {
-        let parse_uuid = Uuid::parse_str(pid).map_err(|e| ModelError::Any(e.into()))?;
-        let user = users::Entity::find()
-            .filter(users::Column::Pid.eq(parse_uuid))
-            .one(db)
-            .await?;
-        user.ok_or_else(|| ModelError::EntityNotFound)
-    }
-
-    /// finds a user by the provided api key
-    ///
-    /// # Errors
-    ///
-    /// When could not find user by the given token or DB query error
-    pub async fn find_by_api_key(db: &DatabaseConnection, api_key: &str) -> ModelResult<Self> {
-        let user = users::Entity::find()
-            .filter(users::Column::ApiKey.eq(api_key))
-            .one(db)
-            .await?;
-        user.ok_or_else(|| ModelError::EntityNotFound)
-    }
-
-    /// Verifies whether the provided plain password matches the hashed password
-    ///
-    /// # Errors
-    ///
-    /// when could not verify password
-    #[must_use]
-    pub fn verify_password(&self, password: &str) -> bool {
-        hash::verify_password(password, &self.password)
-    }
-
-    /// Asynchronously creates a user with a password and saves it to the
-    /// database.
-    ///
-    /// # Errors
-    ///
-    /// When could not save the user into the DB or if email/name is not unique
-    pub async fn create_with_password(
-        db: &DatabaseConnection,
-        params: &RegisterParams,
-    ) -> ModelResult<Self> {
-        let txn = db.begin().await?;
-
-        // Check for email uniqueness
-        if users::Entity::find()
-            .filter(users::Column::Email.eq(&params.email))
-            .one(&txn)
-            .await?
-            .is_some()
-        {
-            return Err(ModelError::Message("Email already registered.".to_string()));
+        // User must be approved to log in
+        if user.status != USER_STATUS_APPROVED {
+            tracing::warn!("Attempted login by non-approved user: {}", params.email);
+            return Err(ModelError::Message(
+                "Your account is not approved. Please wait for an administrator to approve it."
+                    .to_string(),
+            ));
         }
 
-        // Check for name uniqueness
-        if users::Entity::find()
-            .filter(users::Column::Name.eq(&*params.name.trim())) // Trim username for the check
-            .one(&txn)
-            .await?
-            .is_some()
-        {
-            return Err(ModelError::Message("Username already taken. Please choose another.".to_string()));
-        }
+        let password_hash = &user.password;
 
-        let password_hash =
-            hash::hash_password(&params.password).map_err(|e| ModelError::Any(e.into()))?;
-        let user = users::ActiveModel {
-            email: ActiveValue::set(params.email.to_string()),
-            password: ActiveValue::set(password_hash),
-            name: ActiveValue::set(params.name.trim().to_string()),
-            ..Default::default()
-        }
-        .insert(&txn)
-        .await?;
-
-        txn.commit().await?;
-
+        verify_password(password_hash, &params.password)?;
         Ok(user)
     }
 
-    /// Creates a JWT
-    ///
-    /// # Errors
-    ///
-    /// when could not convert user claims to jwt token
-    pub fn generate_jwt(&self, secret: &str, expiration: &u64) -> ModelResult<String> {
-        Ok(jwt::JWT::new(secret).generate_token(
-            *expiration,
-            self.pid.to_string(),
-            serde_json::Map::new(),
-        )?)
-    }
+    /// Create a new user with the given parameters.
+    /// Handles uniqueness checks, default status, and admin team creation for the first user.
+    /// Password hashing is handled by ActiveModelBehavior::before_save.
+    #[tracing::instrument(name = "create_user_with_password", skip(ctx, db, params))]
+    pub async fn create_with_password(
+        ctx: &AppContext,
+        db: &impl TransactionTrait, // Changed to TransactionTrait
+        params: &RegisterParams,
+    ) -> ModelResult<Self> {
+        tracing::info!(email = params.email, name = params.name, "creating user");
 
-    /// finds a user by the provided id
-    ///
-    /// # Errors
-    ///
-    /// When could not find user or DB query error
-    pub async fn find_by_id(db: &DatabaseConnection, id: i32) -> ModelResult<Self> {
-        let user = users::Entity::find_by_id(id).one(db).await?;
-        user.ok_or_else(|| ModelError::EntityNotFound)
-    }
+        // Trim inputs
+        let trimmed_email = params.email.trim().to_lowercase();
+        let trimmed_name = params.name.trim();
 
-    /// Parses the user's PGP key string.
-    fn parse_pgp_key(key_str: &str) -> openpgp::Result<openpgp::Cert> {
-        openpgp::Cert::from_bytes(key_str.as_bytes())
-    }
-
-    /// Parses the user's PGP key and returns its fingerprint.
-    pub fn pgp_fingerprint(&self) -> Option<String> {
-        self.pgp_key
-            .as_ref()
-            .and_then(|key_str| match Self::parse_pgp_key(key_str) {
-                Ok(cert) => Some(cert.fingerprint().to_hex()),
-                Err(e) => {
-                    tracing::warn!("Failed to parse PGP key for fingerprint: {}", e);
-                    None
-                }
-            })
-    }
-
-    /// Parses the user's PGP key and returns its expiration date string.
-    pub fn pgp_validity(&self) -> Option<String> {
-        self.pgp_key
-            .as_ref()
-            .and_then(|key_str| match Self::parse_pgp_key(key_str) {
-                Ok(cert) => {
-                    let policy = &StandardPolicy::new();
-                    match cert.with_policy(policy, None) {
-                        Ok(cert_verifier) => cert_verifier
-                            .primary_key()
-                            .key_expiration_time()
-                            .map(|st| DateTime::<Utc>::from(st))
-                            .map(|dt| dt.format("%Y-%m-%d").to_string()),
-                        Err(e) => {
-                            tracing::warn!("Failed policy check for PGP key validity: {}", e);
-                            None
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to parse PGP key for validity: {}", e);
-                    None
-                }
-            })
-    }
-}
-
-impl ActiveModel {
-    /// Sets the email verification token for the user and
-    /// updates it in the database.
-    ///
-    /// This method is used to generate a unique verification token for the user.
-    ///
-    /// # Errors
-    ///
-    /// when has DB query error
-    pub async fn generate_email_verification_token(
-        mut self,
-        db: &DatabaseConnection,
-    ) -> ModelResult<Model> {
-        self.email_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
-        Ok(self.update(db).await?)
-    }
-
-    /// Sets the email verification send timestamp for the user and
-    /// updates it in the database.
-    ///
-    /// This method is used to record the timestamp when the email verification
-    /// was sent.
-    ///
-    /// # Errors
-    ///
-    /// when has DB query error
-    pub async fn set_email_verification_sent(
-        mut self,
-        db: &DatabaseConnection,
-    ) -> ModelResult<Model> {
-        self.email_verification_sent_at = ActiveValue::set(Some(Local::now().into()));
-        Ok(self.update(db).await?)
-    }
-
-    /// Sets the information for a reset password request,
-    /// generates a unique reset password token, and updates it in the
-    /// database.
-    ///
-    /// This method records the timestamp when the reset password token is sent
-    /// and generates a unique token for the user.
-    ///
-    /// # Arguments
-    ///
-    /// # Errors
-    ///
-    /// when has DB query error
-    pub async fn set_forgot_password_sent(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        self.reset_sent_at = ActiveValue::set(Some(Local::now().into()));
-        self.reset_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
-        Ok(self.update(db).await?)
-    }
-
-    /// Records the verification time when a user verifies their
-    /// email and updates it in the database.
-    ///
-    /// This method sets the timestamp when the user successfully verifies their
-    /// email.
-    ///
-    /// # Errors
-    ///
-    /// when has DB query error
-    pub async fn verified(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        self.email_verified_at = ActiveValue::set(Some(Local::now().into()));
-        Ok(self.update(db).await?)
-    }
-
-    /// Resets the current user password with a new password and
-    /// updates it in the database.
-    ///
-    /// This method hashes the provided password and sets it as the new password
-    /// for the user.
-    ///
-    /// # Errors
-    ///
-    /// when has DB query error or could not hashed the given password
-    pub async fn reset_password(
-        mut self,
-        db: &DatabaseConnection,
-        password: &str,
-    ) -> ModelResult<Model> {
-        self.password =
-            ActiveValue::set(hash::hash_password(password).map_err(|e| ModelError::Any(e.into()))?);
-        self.reset_token = ActiveValue::Set(None);
-        self.reset_sent_at = ActiveValue::Set(None);
-        Ok(self.update(db).await?)
-    }
-
-    /// Sets the PGP verification token for the user and
-    /// updates it in the database.
-    ///
-    /// This method is used to generate a unique PGP verification token for the user.
-    ///
-    /// # Errors
-    ///
-    /// when has DB query error
-    pub async fn generate_pgp_verification_token(
-        mut self,
-        db: &DatabaseConnection,
-    ) -> ModelResult<Model> {
-        self.pgp_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
-        // We might want to record the sent time too, similar to email verification
-        // self.pgp_verification_sent_at = ActiveValue::set(Some(Local::now().into()));
-        Ok(self.update(db).await?)
-    }
-
-    /// Records the PGP verification time when a user verifies their
-    /// PGP communication capability and updates it in the database.
-    ///
-    /// This method sets the timestamp when the user successfully verifies their
-    /// PGP email setup and clears the verification token.
-    ///
-    /// # Errors
-    ///
-    /// when has DB query error
-    pub async fn set_pgp_verified(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        self.pgp_verified_at = ActiveValue::Set(Some(Utc::now().naive_utc())); // Use naive_utc() for NaiveDateTime
-        self.pgp_verification_token = ActiveValue::Set(None);
-        Ok(self.update(db).await?)
-    }
-
-    /// Creates a magic link token for passwordless authentication.
-    ///
-    /// Generates a random token with a specified length and sets an expiration time
-    /// for the magic link. This method is used to initiate the magic link authentication flow.
-    ///
-    /// # Errors
-    /// - Returns an error if database update fails
-    pub async fn create_magic_link(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        let random_str = hash::random_string(MAGIC_LINK_LENGTH as usize);
-        let expired = Local::now() + Duration::minutes(MAGIC_LINK_EXPIRATION_MIN.into());
-
-        self.magic_link_token = ActiveValue::set(Some(random_str));
-        self.magic_link_expiration = ActiveValue::set(Some(expired.into()));
-        Ok(self.update(db).await?)
-    }
-
-    /// Verifies and invalidates the magic link after successful authentication.
-    ///
-    /// Clears the magic link token and expiration time after the user has
-    /// successfully authenticated using the magic link.
-    ///
-    /// # Errors
-    /// - Returns an error if database update fails
-    pub async fn clear_magic_link(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        self.magic_link_token = ActiveValue::set(None);
-        self.magic_link_expiration = ActiveValue::set(None);
-        Ok(self.update(db).await?)
-    }
-
-    /// Fetches PGP key from keys.openpgp.org based on the user's email,
-    /// validates it, and updates the user record.
-    /// Returns the updated Model if successful.
-    pub async fn fetch_and_update_pgp_key(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        let email = match &self.email {
-            ActiveValue::Set(e) | ActiveValue::Unchanged(e) => e.clone(),
-            _ => return Err(ModelError::msg("User email not set in ActiveModel")),
-        };
-        let user_pid_str = match &self.pid {
-            ActiveValue::Set(p) | ActiveValue::Unchanged(p) => p.to_string(),
-            _ => "unknown_pid".to_string(),
-        };
-
-        let pgp_key_url = format!("https://keys.openpgp.org/vks/v1/by-email/{}", email);
-        let mut key_found_and_valid = false;
-        let mut fetched_key_text: Option<String> = None;
-
-        tracing::debug!(user_email = %email, url = %pgp_key_url, "Attempting PGP key lookup");
-
-        match reqwest::get(&pgp_key_url).await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    match response.text().await {
-                        Ok(key_text) => {
-                            if !key_text.is_empty() {
-                                // Basic validation: Check if it looks like an armored key
-                                // More robust validation happens on parsing
-                                if key_text.contains("-----BEGIN PGP PUBLIC KEY BLOCK-----") {
-                                    // Further validate by trying to parse it
-                                    match openpgp::Cert::from_bytes(key_text.as_bytes()) {
-                                        Ok(_) => {
-                                            key_found_and_valid = true;
-                                            fetched_key_text = Some(key_text);
-                                            tracing::info!(user_email = %email, "Successfully found and validated PGP key.");
-                                        }
-                                        Err(parse_err) => {
-                                            tracing::warn!(user_email = %email, error = ?parse_err, "Found key text, but failed to parse as valid PGP key.");
-                                        }
-                                    }
-                                } else {
-                                    tracing::info!(user_email = %email, "No valid PGP key found on keyserver (invalid response format).");
-                                }
-                            } else {
-                                tracing::info!(user_email = %email, "No PGP key found on keyserver (empty response).");
-                            }
-                        }
-                        Err(text_err) => {
-                            tracing::warn!(user_email = %email, error = ?text_err, "Failed to read PGP key response body.");
-                        }
-                    }
-                } else if response.status() == reqwest::StatusCode::NOT_FOUND {
-                    tracing::info!(user_email = %email, "No PGP key found on keyserver (404).");
-                } else {
-                    tracing::warn!(user_email = %email, status = ?response.status(), "Unexpected status code when fetching PGP key.");
-                }
-            }
-            Err(req_err) => {
-                // Log error but don't fail the whole operation, just proceed without updating the key
-                tracing::error!(user_email = %email, error = ?req_err, "Failed to query PGP keyserver.");
-            }
+        // --- Uniqueness Checks (Inside Transaction) ---
+        if Entity::find()
+            .filter(Column::Email.eq(&trimmed_email))
+            .one(db) // Use the transaction object
+            .await?
+            .is_some()
+        {
+            return Err(ModelError::Message(
+                "A user with this email already exists.".to_string(),
+            ));
+        }
+        if Entity::find()
+            .filter(Column::Name.eq(trimmed_name))
+            .one(db) // Use the transaction object
+            .await?
+            .is_some()
+        {
+            return Err(ModelError::Message(
+                "A user with this name already exists.".to_string(),
+            ));
         }
 
-        // Update the model only if a valid key was found
-        if key_found_and_valid {
-            self.pgp_key = Set(fetched_key_text);
-            tracing::debug!(user_pid=%user_pid_str, "Updating user PGP key in database.");
-            self.update(db).await.map_err(ModelError::DbErr)
+        // --- Determine Status ---
+        let is_first_user = Entity::find().count(db).await? == 0; // Use transaction object
+        let initial_status = if is_first_user {
+            USER_STATUS_APPROVED
         } else {
-            tracing::debug!(user_pid=%user_pid_str, "No valid PGP key found/fetched, skipping database update.");
-            // Let's update self.pgp_key to None if not found/invalid.
-            // This makes the state consistent with the fetch result.
-            self.pgp_key = Set(None);
-            tracing::debug!(user_pid=%user_pid_str, "Setting user PGP key to None in database.");
-            self.update(db).await.map_err(ModelError::DbErr)
+            USER_STATUS_NEW
+        };
+
+        let now = chrono::Utc::now();
+        let email_verified_at = if is_first_user { Some(now.into()) } else { None };
+
+        // --- Create ActiveModel ---
+        let user_am = ActiveModel {
+            name: Set(trimmed_name.to_string()),
+            email: Set(trimmed_email),
+            password: Set(params.password.to_string()), // Set raw password, before_save will hash
+            status: Set(initial_status.to_string()),    // Set status explicitly
+            email_verified_at: Set(email_verified_at),
+            ..Default::default()
+        };
+
+        // --- Insert User ---
+        // Use transaction object for insert; before_save is called automatically
+        let user_entity = user_am.insert(db).await?;
+        let user_model = Model::from(user_entity);
+
+        // --- First User Admin Team Setup ---
+        if is_first_user {
+            tracing::info!("First user registered. Creating Administrators team and assigning ownership.");
+            let admin_team_name = get_admin_team_name(ctx)?; // Get config value
+
+            match TeamModel::create_team(
+                db, // Use the transaction object
+                user_model.id,
+                &CreateTeamParams {
+                    name: admin_team_name.clone(),
+                    description: Some("System Administrators".to_string()),
+                },
+            )
+            .await
+            {
+                Ok(team) => {
+                    tracing::info!(
+                        "Administrators team created (id: {}) for first user (id: {})",
+                        team.id,
+                        user_model.id
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create Administrators team for first user {}: {}",
+                        user_model.id,
+                        e
+                    );
+                    // Rollback is handled by the caller (e.g., controller) if db is a transaction
+                    return Err(ModelError::Message(
+                        "Failed to set up initial administrator team.".to_string(),
+                    ));
+                }
+            }
+        }
+        // Removed explicit transaction commit/rollback - should be handled by caller
+
+        tracing::info!(user_id = user_model.id, "user created successfully");
+        Ok(user_model)
+    }
+
+    /// Generate an API key for the user.
+    pub async fn generate_api_key(&self, db: &impl ConnectionTrait) -> ModelResult<String> {
+        let mut user_am: ActiveModel = self.inner.clone().into();
+        let new_key = Uuid::new_v4().to_string();
+        user_am.api_key = Set(Some(new_key.clone()));
+        let updated_entity = user_am.update(db).await.map_err(ModelError::from)?;
+        Ok(updated_entity.api_key.unwrap_or_default())
+    }
+
+    /// Generate a reset token and set the reset_sent_at time.
+    pub async fn generate_reset_token(&self, db: &impl ConnectionTrait) -> ModelResult<String> {
+        let mut user_am: ActiveModel = self.inner.clone().into();
+        let token = uuid::Uuid::new_v4().to_string();
+        user_am.reset_token = Set(Some(token.clone()));
+        user_am.reset_sent_at = Set(Some(chrono::Utc::now().into()));
+        let _updated_entity = user_am.update(db).await.map_err(ModelError::from)?;
+        Ok(token)
+    }
+
+    /// Generate an email verification token and set the sent_at time.
+    pub async fn generate_email_verification_token(
+        &self,
+        db: &impl ConnectionTrait,
+    ) -> ModelResult<String> {
+        let mut user_am: ActiveModel = self.inner.clone().into();
+        let token = uuid::Uuid::new_v4().to_string();
+        user_am.email_verification_token = Set(Some(token.clone()));
+        user_am.email_verification_sent_at = Set(Some(chrono::Utc::now().into()));
+        let _updated_entity = user_am.update(db).await.map_err(ModelError::from)?;
+        Ok(token)
+    }
+
+    /// Verify the email verification token and mark email as verified.
+    pub async fn verify_email(&self, db: &impl ConnectionTrait, token: &str) -> ModelResult<Self> {
+        if self.email_verification_token.as_ref() != Some(&token.to_string()) {
+            return Err(ModelError::Message("invalid token".to_string()));
+        }
+        let mut user_am: ActiveModel = self.inner.clone().into();
+        user_am.email_verified_at = Set(Some(chrono::Utc::now().into()));
+        user_am.email_verification_token = Set(None); // Clear token
+        let updated_entity = user_am.update(db).await.map_err(ModelError::from)?;
+        Ok(Self::from(updated_entity))
+    }
+
+    /// Generate a PGP verification token.
+    pub async fn generate_pgp_verification_token(
+        &self,
+        db: &impl ConnectionTrait,
+    ) -> ModelResult<String> {
+        let mut user_am: ActiveModel = self.inner.clone().into();
+        let token = uuid::Uuid::new_v4().to_string();
+        user_am.pgp_verification_token = Set(Some(token.clone()));
+        let _updated_entity = user_am.update(db).await.map_err(ModelError::from)?;
+        Ok(token)
+    }
+
+    /// Verify the PGP verification token and mark PGP as verified.
+    pub async fn verify_pgp(&self, db: &impl ConnectionTrait, token: &str) -> ModelResult<Self> {
+        if self.pgp_verification_token.as_ref() != Some(&token.to_string()) {
+            return Err(ModelError::Message("invalid token".to_string()));
+        }
+        let mut user_am: ActiveModel = self.inner.clone().into();
+        user_am.pgp_verified_at = Set(Some(chrono::Utc::now().into()));
+        user_am.pgp_verification_token = Set(None); // Clear token
+        let updated_entity = user_am.update(db).await.map_err(ModelError::from)?;
+        Ok(Self::from(updated_entity))
+    }
+
+    /// Update the user's password using the reset token.
+    pub async fn reset_password(
+        db: &impl ConnectionTrait, // Can be Connection or Transaction
+        params: &ResetPasswordParams,
+    ) -> ModelResult<Self> {
+        params
+            .validate()
+            .map_err(|e| ModelError::Validation(ModelValidationErrors::from(e)))?; // Use ModelValidationErrors::from
+
+        let user_entity = Entity::find()
+            .filter(Column::ResetToken.eq(params.reset_token.clone()))
+            .one(db)
+            .await?;
+
+        let Some(user_entity) = user_entity else {
+            return Err(ModelError::Message("invalid reset token".to_string()));
+        };
+
+        // Token Expiry Check
+        if let Some(sent_at) = user_entity.reset_sent_at {
+            if sent_at + chrono::Duration::hours(1) < chrono::Utc::now() {
+                return Err(ModelError::Message("token expired".to_string()));
+            }
+        } else {
+            return Err(ModelError::Message(
+                "invalid reset token state".to_string(),
+            ));
+        }
+
+        // Set raw password, before_save will hash it
+        let mut user_am: ActiveModel = user_entity.into();
+        user_am.password = Set(params.password.clone());
+        user_am.reset_token = Set(None);
+        user_am.reset_sent_at = Set(None);
+        let updated_entity = user_am.update(db).await.map_err(ModelError::from)?;
+        Ok(Self::from(updated_entity))
+    }
+
+    /// Update the user's status (e.g., approve/reject).
+    pub async fn update_status(&self, db: &impl ConnectionTrait, new_status: &str) -> ModelResult<Self> {
+        if ![USER_STATUS_NEW, USER_STATUS_APPROVED, USER_STATUS_REJECTED].contains(&new_status) {
+            return Err(ModelError::Message(format!("Invalid status: {}", new_status)));
+        }
+        let mut user_am = self.inner.clone().into_active_model(); // Use trait method
+        user_am.status = Set(new_status.to_string());
+        let updated_entity = user_am.update(db).await.map_err(ModelError::from)?;
+        Ok(Self::from(updated_entity))
+    }
+
+    /// Internal helper to find a user by a condition.
+    async fn find_user<T>(db: &impl ConnectionTrait, condition: T) -> ModelResult<Self>
+    where
+        T: IntoCondition + Send,
+    {
+        Entity::find()
+            .filter(condition)
+            .one(db)
+            .await?
+            .map(Self::from)
+            .ok_or_else(|| ModelError::EntityNotFound)
+    }
+
+    /// Check if the user is a system administrator.
+    // Use loco_rs::Result here, not ModelResult
+    pub async fn is_system_admin(ctx: &AppContext, user: &Model) -> Result<bool> {
+        let admin_team_name = get_admin_team_name(ctx)?; // Use helper
+
+        let admin_team_opt = teams::Entity::find()
+            .filter(teams::Column::Name.eq(&admin_team_name))
+            .one(&ctx.db)
+            .await.map_err(|e| Error::Model(ModelError::Any(e.into())))?; // Convert DbErr to loco Error
+
+        let Some(admin_team) = admin_team_opt else {
+            tracing::warn!(
+                "Configured admin team '{}' not found in the database.",
+                admin_team_name
+            );
+            return Ok(false);
+        };
+
+        let admin_team_model = TeamModel::from(admin_team);
+        admin_team_model
+            .has_role(
+                &ctx.db,
+                user.id,
+                vec![Role::Owner, Role::Admin],
+            )
+            .await.map_err(Error::Model) // Propagate ModelError as loco Error
+    }
+
+    /// Convert custom Model into ActiveModel for updates.
+    pub fn into_active_model(self) -> ActiveModel {
+        self.inner.into_active_model()
+    }
+
+    /// Helper function to get all users, optionally filtered by status.
+    pub async fn get_all(
+        db: &impl ConnectionTrait,
+        status_filter: Option<String>,
+    ) -> ModelResult<Vec<Self>> {
+        let mut query = Entity::find().order_by_asc(Column::Id);
+        if let Some(status) = status_filter {
+            query = query.filter(Column::Status.eq(status));
+        }
+        query
+            .all(db)
+            .await
+            .map_err(ModelError::from)
+            .map(|entities| entities.into_iter().map(Self::from).collect())
+    }
+}
+
+// --- Helper Functions ---
+
+/// Helper function to hash a password.
+fn hash_password(password: &str) -> std::result::Result<String, ModelError> { // Use std::result::Result
+    hash(password, DEFAULT_COST).map_err(|e| {
+        tracing::error!(error = ?e, "failed to hash password");
+        ModelError::BcryptError(e)
+    })
+}
+
+/// Helper function to verify a password against a hash.
+pub fn verify_password(hash: &str, password: &str) -> std::result::Result<(), ModelError> { // Use std::result::Result
+    verify(password, hash).map_err(|e| match e {
+        BcryptError::InvalidHash(_) | BcryptError::InvalidPrefix(_) => {
+            tracing::error!(
+                error = ?e,
+                "password hash verification failed due to invalid hash format"
+            );
+            ModelError::BcryptError(e)
+        }
+        _ => {
+            tracing::debug!(error = ?e, "password hash verification failed (likely mismatch)");
+            ModelError::Message("invalid email or password".to_string())
+        }
+    })
+}
+
+/// Helper to get the configured admin team name.
+// Use std::result::Result<String, loco_rs::config::Error>
+fn get_admin_team_name(ctx: &AppContext) -> std::result::Result<String, loco_rs::config::Error> {
+    let admin_team_name_res: std::result::Result<String, loco_rs::config::Error> =
+        ctx.config.get("app.admin_team_name"); // Use ConfigExt trait method
+    Ok(admin_team_name_res.unwrap_or_else(|e| {
+        // Use loco_rs::config::Error::NotFound
+        if let loco_rs::config::Error::NotFound(_) = e {
+            tracing::debug!(
+                "'app.admin_team_name' not found in config. Using default 'Administrators'"
+            );
+        } else {
+            tracing::warn!(
+                "Failed to read 'app.admin_team_name' from config ({}). Using default 'Administrators'",
+                e
+            );
+        }
+        "Administrators".to_string()
+    }))
+}
+
+
+/// Convert a `Model` to a `DisplayUser` used by the auth middleware.
+impl From<&Model> for DisplayUser {
+    fn from(user: &Model) -> Self {
+        Self {
+            pid: user.pid.to_string(),
+            name: user.name.clone(),
+            email: user.email.clone(),
+            email_verified: user.email_verified_at.is_some(),
         }
     }
 }
+
+// Implement IntoActiveModel for &Model to simplify updates
+impl<'a> IntoActiveModel<ActiveModel> for &'a Model {
+    fn into_active_model(self) -> ActiveModel {
+        self.inner.clone().into()
+    }
+}
+
+// ActiveModelBehavior hooks are defined above within the `impl ActiveModelBehavior for ActiveModel` block.

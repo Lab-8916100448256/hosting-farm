@@ -1,3 +1,5 @@
+pub mod admin_api;
+pub mod admin_pages; // Added admin_pages
 pub mod auth_api;
 pub mod auth_pages;
 pub mod home_pages;

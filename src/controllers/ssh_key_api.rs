@@ -31,7 +31,7 @@ pub fn is_valid_ssh_public_key(key: &str) -> bool {
 }
 
 async fn list_keys(auth: auth::JWT, State(ctx): State<AppContext>) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
 
     let keys = ssh_keys::Entity::find()
         .filter(ssh_keys::Column::UserId.eq(user.id))
@@ -46,7 +46,7 @@ async fn add_key(
     State(ctx): State<AppContext>,
     Form(params): Form<SshKeyPayload>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
 
     // Validate the input
     if params.public_key.is_empty() {
@@ -97,7 +97,7 @@ async fn delete_key(
     State(ctx): State<AppContext>,
     Path(key_id): Path<i32>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let user = crate::models::users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
 
     let key = ssh_keys::Entity::find_by_id(key_id)
         .filter(ssh_keys::Column::UserId.eq(user.id)) // Ensure the key belongs to the user

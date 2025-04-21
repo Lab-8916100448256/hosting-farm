@@ -1,26 +1,27 @@
 use async_trait::async_trait;
 use loco_rs::{
-    app::{AppContext, Hooks, Initializer},
-    bgworker::{BackgroundWorker, Queue},
+    app::{AppContext, Hooks},
     boot::{create_app, BootResult, StartMode},
-    config::Config,
     controller::AppRoutes,
-    db::truncate_table,
+    db::{self, truncate_table},
     environment::Environment,
     task::Tasks,
+    worker::{Processor, Workers},
     Result,
 };
-use migration::Migrator;
-use sea_orm::{ActiveModelTrait, ActiveValue};
-use std::path::Path;
-use uuid;
+use migration::{Migrator, MigratorTrait}; // Import MigratorTrait
+use sea_orm::DatabaseConnection;
+use std::path::Path; // Import std::path::Path
 
-#[allow(unused_imports)]
 use crate::{
-    controllers, initializers,
+    controllers::{
+        admin_api, admin_pages, auth_api, auth_pages, home_pages, pgp_pages, ssh_key_api,
+        teams_api, teams_pages, users_pages,
+    },
+    initializers::view_engine,
     models::_entities::{ssh_keys, team_memberships, teams, users},
     tasks,
-    workers::downloader::DownloadWorker,
+    // workers::downloader::DownloadWorker, // Commented out if unused
 };
 
 pub struct App;
@@ -34,77 +35,77 @@ impl Hooks for App {
         format!(
             "{} ({})",
             env!("CARGO_PKG_VERSION"),
-            option_env!("BUILD_SHA")
-                .or(option_env!("GITHUB_SHA"))
-                .unwrap_or("dev")
+            option_env!("BUILD_SHA").unwrap_or("dev")
         )
     }
 
-    async fn boot(
-        mode: StartMode,
-        environment: &Environment,
-        config: Config,
-    ) -> Result<BootResult> {
-        create_app::<Self, Migrator>(mode, environment, config).await
-    }
-
-    async fn initializers(_ctx: &AppContext) -> Result<Vec<Box<dyn Initializer>>> {
-        Ok(vec![Box::new(
-            initializers::view_engine::ViewEngineInitializer,
-        )])
+    async fn boot(mode: StartMode, environment: &Environment) -> Result<BootResult> {
+        // Add Migrator as the second generic argument
+        create_app::<Self, Migrator>(mode, environment).await
     }
 
     fn routes(_ctx: &AppContext) -> AppRoutes {
-        AppRoutes::with_default_routes() // controller routes below
-            .add_route(controllers::auth_api::routes())
-            .add_route(controllers::teams_api::routes())
-            .add_route(controllers::ssh_key_api::routes())
-            .add_route(controllers::home_pages::routes())
-            .add_route(controllers::users_pages::routes())
-            .add_route(controllers::auth_pages::routes())
-            .add_route(controllers::teams_pages::routes())
-            .add_route(controllers::pgp_pages::routes())
+        AppRoutes::empty()
+            // -- Add page routes below --
+            .prefix("") // Reset prefix for top-level pages
+            .add_router(home_pages::routes())
+            .add_router(auth_pages::routes())
+            .add_router(users_pages::routes())
+            .add_router(teams_pages::routes())
+            .add_router(pgp_pages::routes())
+            // -- Add Admin routes (API and Pages) --
+            // Merging admin_api and admin_pages under /admin prefix
+            .prefix("/admin")
+            .add_router(admin_api::routes().merge(admin_pages::routes())) // Ensure merge happens correctly
+            // -- Add API routes below --
+            // Prefix /api AFTER admin routes to avoid conflict
+            .prefix("/api")
+            .add_router(auth_api::routes())
+            .add_router(ssh_key_api::routes())
+            .add_router(teams_api::routes())
     }
 
-    fn register_tasks(_tasks: &mut Tasks) {
-        // tasks-inject (do not remove)
+    fn connect_workers<'a>(_p: &'a mut Processor, _ctx: &'a AppContext) {
+        // p.register(DownloadWorker::build(ctx));
     }
 
-    async fn connect_workers(ctx: &AppContext, queue: &Queue) -> Result<()> {
-        queue.register(DownloadWorker::build(ctx)).await?;
+    fn register_tasks(t: &mut Tasks) {
+        t.register(tasks::user_report::UserReport);
+        t.register(tasks::seed_task::SeedTask);
+    }
+
+    async fn migrate(db: &DatabaseConnection) {
+        // Use MigratorTrait::up
+        Migrator::up(db, None).await.unwrap();
+    }
+
+    async fn after_context(ctx: AppContext) -> Result<AppContext> {
+        // Must initialize the view engine instance before using it
+        let initialized_ctx = view_engine::initialize(&ctx).unwrap();
+        Ok(initialized_ctx)
+    }
+
+    async fn truncate(db: &DatabaseConnection) -> Result<()> {
+        // Need to truncate in reverse order of foreign key constraints
+        truncate_table(db, team_memberships::Entity).await?;
+        truncate_table(db, ssh_keys::Entity).await?;
+        truncate_table(db, teams::Entity).await?;
+        truncate_table(db, users::Entity).await?;
         Ok(())
     }
 
-    async fn truncate(ctx: &AppContext) -> Result<()> {
-        truncate_table(&ctx.db, team_memberships::Entity).await?;
-        truncate_table(&ctx.db, teams::Entity).await?;
-        truncate_table(&ctx.db, users::Entity).await?;
-        truncate_table(&ctx.db, ssh_keys::Entity).await?;
-        Ok(())
-    }
-
-    async fn seed(ctx: &AppContext, _base: &Path) -> Result<()> {
-        let user = users::ActiveModel {
-            id: ActiveValue::set(1),
-            pid: ActiveValue::set(uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap()),
-            email: ActiveValue::set("user1@example.com".to_string()),
-            password: ActiveValue::set("$argon2id$v=19$m=19456,t=2,p=1$ETQBx4rTgNAZhSaeYZKOZg$eYTdH26CRT6nUJtacLDEboP0li6xUwUF/q5nSlQ8uuc".to_string()),
-            api_key: ActiveValue::set("lo-95ec80d7-cb60-4b70-9b4b-9ef74cb88758".to_string()),
-            name: ActiveValue::set("user1".to_string()),
-            created_at: ActiveValue::set(chrono::DateTime::parse_from_rfc3339("2023-11-12T12:34:56.789+00:00").unwrap().into()),
-            updated_at: ActiveValue::set(chrono::DateTime::parse_from_rfc3339("2023-11-12T12:34:56.789+00:00").unwrap().into()),
-            reset_token: ActiveValue::NotSet,
-            reset_sent_at: ActiveValue::NotSet,
-            email_verification_token: ActiveValue::NotSet,
-            email_verification_sent_at: ActiveValue::NotSet,
-            email_verified_at: ActiveValue::NotSet,
-            magic_link_token: ActiveValue::NotSet,
-            magic_link_expiration: ActiveValue::NotSet,
-            pgp_key: Default::default(),
-            pgp_verification_token: ActiveValue::NotSet,
-            pgp_verified_at: ActiveValue::NotSet,
-        };
-        user.insert(&ctx.db).await?;
+    async fn seed(db: &DatabaseConnection, _base_path: &str) -> Result<()> {
+        // Use Path::new(_base_path).join()
+        db::seed::<users::ActiveModel>(
+            db,
+            &Path::new(_base_path)
+                .join("users.yaml")
+                .display()
+                .to_string(),
+        )
+        .await?;
+        // db::seed::<teams::ActiveModel>(db, &Path::new(_base_path).join("teams.yaml").display().to_string()).await?;
+        // db::seed::<team_memberships::ActiveModel>(db, &Path::new(_base_path).join("team_memberships.yaml").display().to_string()).await?;
         Ok(())
     }
 }

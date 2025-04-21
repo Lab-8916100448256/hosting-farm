@@ -36,6 +36,8 @@ chrono = { version = "0.4" }
 validator = { version = "0.20.0" }
 uuid = { version = "1.6.0", features = ["v4"] }
 include_dir = { version = "0.7" }
+strum = { version = "0.26", features = ["derive"] }
+strum_macros = "0.26"
 # view engine i18n
 fluent-templates = { version = "0.8.0", features = ["tera"] }
 unic-langid = { version = "0.9.4" }
@@ -43,7 +45,8 @@ tera = { version = "1.19.1" }
 # /view engine
 base64 = "0.21"
 # Re-add lettre with explicit features, hoping loco-rs doesn't conflict now
-lettre = { version = "0.11.15", default-features = false, features = ["tokio1", "builder", "smtp-transport", "rustls-tls"] }
+# Removed explicit lettre dependency to rely on loco-rs version
+# lettre = { version = "0.11.15", default-features = false, features = ["tokio1", "builder", "smtp-transport", "rustls-tls"] }
 reqwest = "0.12.15"
 sequoia-openpgp = { version = "2", default-features = false, features = ["crypto-openssl"] }
 sha1 = "0.10"

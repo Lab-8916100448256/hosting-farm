@@ -1,6 +1,7 @@
 use axum::debug_handler;
 use loco_rs::prelude::*;
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait};
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QuerySelect, TryIntoModel}; // Import TryIntoModel
+use strum::IntoEnumIterator; // Import strum trait for iter()
 
 use crate::{
     mailers::team::TeamMailer,
@@ -10,12 +11,12 @@ use crate::{
                 self, Column as TeamMembershipColumn, Entity as TeamMembershipEntity,
                 Model as TeamMembershipModel,
             },
-            teams::{Entity as TeamEntity, Model as TeamModel},
+            teams::{Entity as TeamEntity, Model as TeamEntityModel}, // Import Entity and Model alias
             users::Entity as UserEntity,
         },
-        team_memberships::{InviteMemberParams, UpdateRoleParams, VALID_ROLES},
-        teams::{CreateTeamParams, UpdateTeamParams},
-        users,
+        team_memberships::{InviteMemberParams, UpdateRoleParams, Model as TeamMembershipCustomModel}, // Added custom model for team_memberships
+        teams::{CreateTeamParams, UpdateTeamParams, Role, Model as TeamModel}, // Import Role and custom TeamModel
+        users::{self, Model as UserModel},
     },
     views::teams::{MemberResponse, TeamResponse},
 };
@@ -30,9 +31,11 @@ async fn create_team(
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
 
-    // Create a new team
+    // Create a new team using the custom model method
+    // Call create_team on the custom TeamModel, not the entity
     let team = TeamModel::create_team(&ctx.db, user.id, &params).await?;
 
+    // Pass the custom TeamModel to TeamResponse::from
     format::json(TeamResponse::from(&team))
 }
 
@@ -41,24 +44,29 @@ async fn list_teams(auth: JWT, State(ctx): State<AppContext>) -> Result<Response
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
 
     // Get all teams where the user is a member
-    let teams = TeamEntity::find()
-        .find_with_related(TeamMembershipEntity)
+    let memberships = TeamMembershipEntity::find()
+        .filter(TeamMembershipColumn::UserId.eq(user.id))
+        .filter(TeamMembershipColumn::Pending.eq(false))
         .all(&ctx.db)
-        .await?
-        .into_iter()
-        .filter_map(|(team, memberships)| {
-            let is_member = memberships
-                .iter()
-                .any(|m| m.user_id == user.id && !m.pending);
-            if is_member {
-                Some(TeamResponse::from(&team))
-            } else {
-                None
-            }
-        })
+        .await?;
+
+    let team_ids = memberships.iter().map(|m| m.team_id).collect::<Vec<_>>();
+
+    if team_ids.is_empty() {
+        return format::json(Vec::<TeamResponse>::new());
+    }
+
+    let teams = TeamEntity::find()
+        .filter(crate::models::_entities::teams::Column::Id.is_in(team_ids))
+        .all(&ctx.db)
+        .await?;
+
+    let team_responses = teams.into_iter()
+        // Pass the entity model to TeamResponse::from
+        .map(|team_entity| TeamResponse::from(&team_entity))
         .collect::<Vec<_>>();
 
-    format::json(teams)
+    format::json(team_responses)
 }
 
 #[debug_handler]
@@ -68,15 +76,16 @@ async fn get_team(
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let team_model = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
 
-    // Check if user is a member of this team
-    let has_access = team.has_role(&ctx.db, user.id, "Observer").await?;
+    // Check if user is a member of this team (any role)
+    let has_access = team_model.has_role(&ctx.db, user.id, vec![Role::Observer, Role::Developer, Role::Admin, Role::Owner]).await?;
     if !has_access {
         return unauthorized("You are not a member of this team");
     }
 
-    format::json(TeamResponse::from(&team))
+    // Pass the custom TeamModel to TeamResponse::from
+    format::json(TeamResponse::from(&team_model))
 }
 
 #[debug_handler]
@@ -87,17 +96,18 @@ async fn update_team(
     Json(params): Json<UpdateTeamParams>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let team_model = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
 
     // Check if user is an owner of this team
-    let is_owner = team.has_role(&ctx.db, user.id, "Owner").await?;
+    let is_owner = team_model.has_role(&ctx.db, user.id, vec![Role::Owner]).await?;
     if !is_owner {
         return unauthorized("Only team owners can update team details");
     }
 
-    let updated_team = team.update(&ctx.db, &params).await?;
+    let updated_team_model = team_model.update(&ctx.db, &params).await?;
 
-    format::json(TeamResponse::from(&updated_team))
+    // Pass the updated custom TeamModel to TeamResponse::from
+    format::json(TeamResponse::from(&updated_team_model))
 }
 
 #[debug_handler]
@@ -107,16 +117,16 @@ async fn delete_team(
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let team_model = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
 
     // Check if user is an owner of this team
-    let is_owner = team.has_role(&ctx.db, user.id, "Owner").await?;
+    let is_owner = team_model.has_role(&ctx.db, user.id, vec![Role::Owner]).await?;
     if !is_owner {
         return unauthorized("Only team owners can delete a team");
     }
 
-    // Delete the team
-    team.delete(&ctx.db).await?;
+    // Delete the team using the custom model
+    team_model.delete(&ctx.db).await?;
 
     // Instead of returning empty JSON, send a redirect to the teams list page
     let response = Response::builder()
@@ -134,36 +144,26 @@ async fn list_members(
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let team_model = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
 
     // Check if user is a member of this team
-    let has_access = team.has_role(&ctx.db, user.id, "Observer").await?;
+    let has_access = team_model.has_role(&ctx.db, user.id, vec![Role::Observer, Role::Developer, Role::Admin, Role::Owner]).await?;
     if !has_access {
         return unauthorized("You are not a member of this team");
     }
 
-    // Get all memberships for this team
-    let memberships = TeamMembershipEntity::find()
-        .filter(TeamMembershipColumn::TeamId.eq(team.id))
-        .filter(TeamMembershipColumn::Pending.eq(false))
-        .all(&ctx.db)
-        .await?;
+    // Get all memberships for this team using the custom model method
+    let members = team_model.get_members(&ctx.db).await?;
 
-    // Get user details for each membership
-    let mut responses = Vec::new();
-    for membership in memberships {
-        let user = UserEntity::find_by_id(membership.user_id)
-            .one(&ctx.db)
-            .await?;
-        if let Some(user) = user {
-            responses.push(MemberResponse {
-                user_pid: user.pid.to_string(),
-                name: user.name,
-                email: user.email,
-                role: membership.role,
-            });
-        }
-    }
+    let responses = members
+        .into_iter()
+        .map(|(user_model, role)| MemberResponse {
+            user_pid: user_model.pid.to_string(),
+            name: user_model.name,
+            email: user_model.email,
+            role: role.to_string(), // Convert Role enum to String
+        })
+        .collect::<Vec<_>>();
 
     format::json(responses)
 }
@@ -175,13 +175,13 @@ async fn invite_member(
     Path(team_pid): Path<String>,
     Json(params): Json<InviteMemberParams>,
 ) -> Result<Response> {
-    let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
+    let team_model = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
 
-    // Check if user is an admin of this team
-    let is_admin = team.has_role(&ctx.db, user.id, "Administrator").await?;
+    // Check if user is an admin or owner of this team
+    let is_admin = team_model.has_role(&ctx.db, current_user.id, vec![Role::Admin, Role::Owner]).await?;
     if !is_admin {
-        return unauthorized("Only team administrators can invite members");
+        return unauthorized("Only team administrators or owners can invite members");
     }
 
     // Find the target user by email
@@ -193,9 +193,9 @@ async fn invite_member(
     };
 
     // Check if user is already a member or has a pending invitation
-    let existing_membership = team_memberships::Entity::find()
-        .filter(team_memberships::Column::TeamId.eq(team.id))
-        .filter(team_memberships::Column::UserId.eq(target_user.id))
+    let existing_membership = TeamMembershipEntity::find()
+        .filter(TeamMembershipColumn::TeamId.eq(team_model.id))
+        .filter(TeamMembershipColumn::UserId.eq(target_user.id))
         .one(&ctx.db)
         .await?;
 
@@ -215,31 +215,33 @@ async fn invite_member(
     // If we get here, the user exists but isn't a member,
     // so, proceed with inviting to the team
 
-    // Create invitation entity
-    /*let invitation =*/
-    match team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await {
-        Ok(invit) => invit,
+    // Create invitation entity using the model function from team_memberships
+    match TeamMembershipCustomModel::create_invitation(&ctx.db, team_model.id, &params.email).await {
+        Ok(_invitation) => {
+             // Refetch the Team *Entity* Model needed by the mailer
+             let team_entity = TeamEntity::find_by_id(team_model.id).one(&ctx.db).await?;
+             if let Some(team_entity) = team_entity {
+                 // Send notification e_mail to target user
+                 TeamMailer::send_invitation(&ctx, &current_user, &target_user, &team_entity).await?;
+                 format::empty_json()
+             } else {
+                  tracing::error!("Could not refetch team entity (id: {}) after creating invitation for mailer.", team_model.id);
+                  // Still return success to API, but log the mail failure
+                  format::empty_json()
+             }
+        }
         Err(e) => {
             // Something terribly wrong happened, abort with an error message
-
-            // First log the error
             let message = "Failed to create a team invitation entity";
             tracing::error!(
                 error = e.to_string(),
-                team_id = team.id,
+                team_id = team_model.id,
                 target_user = &params.email,
-                message
+                %message
             );
-
-            // then return an error to the caller
-            return Err(Error::InternalServerError);
+            Err(Error::InternalServerError)
         }
-    };
-
-    // Send notification e_mail to target user
-    TeamMailer::send_invitation(&ctx, &user, &target_user, &team).await?;
-
-    format::empty_json()
+    }
 }
 
 #[debug_handler]
@@ -250,29 +252,45 @@ async fn update_member_role(
     Json(params): Json<UpdateRoleParams>,
 ) -> Result<Response> {
     let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let team_model = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
     let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
 
-    // Validate role
-    if !VALID_ROLES.contains(&params.role.as_str()) {
-        return bad_request(&format!("Invalid role. Valid roles are: {:?}", VALID_ROLES));
-    }
+    // Validate role string and convert to Role enum
+    let new_role = match Role::from_str(&params.role) {
+        Some(role) => role,
+        None => {
+            // Use Role::iter() here
+            let valid_roles_str = Role::iter() // Use iter() here
+                .map(|r| r.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return bad_request(&format!("Invalid role. Valid roles are: {}", valid_roles_str));
+        }
+    };
 
     // Check if current user is an owner of this team
-    let is_owner = team.has_role(&ctx.db, current_user.id, "Owner").await?;
+    let is_owner = team_model.has_role(&ctx.db, current_user.id, vec![Role::Owner]).await?;
     if !is_owner {
         return unauthorized("Only team owners can update member roles");
     }
 
-    // Get membership
-    let membership =
-        TeamMembershipModel::find_by_team_and_user(&ctx.db, team.id, target_user.id).await?;
+    // Get membership entity
+    let membership_entity =
+        TeamMembershipEntity::find()
+            .filter(TeamMembershipColumn::TeamId.eq(team_model.id))
+            .filter(TeamMembershipColumn::UserId.eq(target_user.id))
+            .one(&ctx.db)
+            .await?
+            .ok_or_else(|| ModelError::msg("User is not a member of this team"))?;
+
+    // Convert entity to custom Model to call update_role
+    let membership_model: TeamMembershipCustomModel = membership_entity.try_into_model()?;
 
     // Cannot change owner's role if there's only one owner
-    if membership.role == "Owner" && params.role != "Owner" {
+    if membership_model.role == Role::Owner.as_str() && new_role != Role::Owner {
         let owners_count = TeamMembershipEntity::find()
-            .filter(TeamMembershipColumn::TeamId.eq(team.id))
-            .filter(TeamMembershipColumn::Role.eq("Owner"))
+            .filter(TeamMembershipColumn::TeamId.eq(team_model.id))
+            .filter(TeamMembershipColumn::Role.eq(Role::Owner.as_str()))
             .count(&ctx.db)
             .await?;
 
@@ -281,8 +299,8 @@ async fn update_member_role(
         }
     }
 
-    // Update role
-    membership.update_role(&ctx.db, &params.role).await?;
+    // Update role using the model method
+    membership_model.update_role(&ctx.db, new_role.as_str()).await?;
 
     format::empty_json()
 }
@@ -294,7 +312,7 @@ async fn remove_member(
     Path((team_pid, user_pid)): Path<(String, String)>,
 ) -> Result<Response> {
     let current_user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let team_model = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
     let target_user = users::Model::find_by_pid(&ctx.db, &user_pid).await?;
 
     // Cannot remove yourself - use leave_team for that
@@ -302,42 +320,43 @@ async fn remove_member(
         return bad_request("Cannot remove yourself from a team. Use leave_team instead.");
     }
 
-    // Get target user's membership
-    let target_membership = TeamMembershipEntity::find()
-        .filter(TeamMembershipColumn::TeamId.eq(team.id))
+    // Get target user's membership entity
+    let target_membership_entity = TeamMembershipEntity::find()
+        .filter(TeamMembershipColumn::TeamId.eq(team_model.id))
         .filter(TeamMembershipColumn::UserId.eq(target_user.id))
         .filter(TeamMembershipColumn::Pending.eq(false))
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ModelError::msg("User is not a member of this team"))?;
 
+    // Convert entity to custom model to call methods
+    let target_membership: TeamMembershipCustomModel = target_membership_entity.try_into_model()?;
+    let target_role = Role::from_str(&target_membership.role).unwrap_or(Role::Observer); // Default to Observer if invalid
+
     // Check permissions
-    let current_user_is_owner = team.has_role(&ctx.db, current_user.id, "Owner").await?;
-    let current_user_is_admin = team
-        .has_role(&ctx.db, current_user.id, "Administrator")
-        .await?;
+    let current_user_is_owner = team_model.has_role(&ctx.db, current_user.id, vec![Role::Owner]).await?;
+    let current_user_is_admin = team_model.has_role(&ctx.db, current_user.id, vec![Role::Admin, Role::Owner]).await?;
 
     // Cannot remove an owner unless you're an owner
-    if target_membership.role == "Owner" && !current_user_is_owner {
+    if target_role == Role::Owner && !current_user_is_owner {
         return unauthorized("Only team owners can remove another owner");
     }
 
     // Cannot remove an admin unless you're an owner
-    if target_membership.role == "Administrator" && !current_user_is_owner {
+    if target_role == Role::Admin && !current_user_is_owner {
         return unauthorized("Only team owners can remove an administrator");
     }
 
     // Cannot remove a developer/observer unless you're an admin or owner
-    if !current_user_is_admin {
+    if (target_role == Role::Developer || target_role == Role::Observer) && !current_user_is_admin {
         return unauthorized("Only team administrators and owners can remove members");
     }
 
     // Special case: Prevent removing the last owner
-    if target_membership.role == "Owner" {
-        // Count owners
+    if target_role == Role::Owner {
         let owner_count = TeamMembershipEntity::find()
-            .filter(TeamMembershipColumn::TeamId.eq(team.id))
-            .filter(TeamMembershipColumn::Role.eq("Owner"))
+            .filter(TeamMembershipColumn::TeamId.eq(team_model.id))
+            .filter(TeamMembershipColumn::Role.eq(Role::Owner.as_str()))
             .filter(TeamMembershipColumn::Pending.eq(false))
             .count(&ctx.db)
             .await?;
@@ -347,7 +366,7 @@ async fn remove_member(
         }
     }
 
-    // Remove the member
+    // Remove the member using the model method
     target_membership.remove_from_team(&ctx.db).await?;
 
     format::empty_json()
@@ -360,23 +379,26 @@ async fn leave_team(
     Path(team_pid): Path<String>,
 ) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
-    let team = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
+    let team_model = TeamModel::find_by_pid(&ctx.db, &team_pid).await?;
 
-    // Get the user's membership
-    let membership = TeamMembershipEntity::find()
-        .filter(TeamMembershipColumn::TeamId.eq(team.id))
+    // Get the user's membership entity
+    let membership_entity = TeamMembershipEntity::find()
+        .filter(TeamMembershipColumn::TeamId.eq(team_model.id))
         .filter(TeamMembershipColumn::UserId.eq(user.id))
         .filter(TeamMembershipColumn::Pending.eq(false))
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ModelError::msg("You are not a member of this team"))?;
 
+    // Convert to custom model to call methods
+    let membership: TeamMembershipCustomModel = membership_entity.try_into_model()?;
+    let member_role = Role::from_str(&membership.role).unwrap_or(Role::Observer);
+
     // If user is an owner, check if they're the last owner
-    if membership.role == "Owner" {
-        // Count owners
+    if member_role == Role::Owner {
         let owner_count = TeamMembershipEntity::find()
-            .filter(TeamMembershipColumn::TeamId.eq(team.id))
-            .filter(TeamMembershipColumn::Role.eq("Owner"))
+            .filter(TeamMembershipColumn::TeamId.eq(team_model.id))
+            .filter(TeamMembershipColumn::Role.eq(Role::Owner.as_str()))
             .filter(TeamMembershipColumn::Pending.eq(false))
             .count(&ctx.db)
             .await?;
@@ -386,7 +408,7 @@ async fn leave_team(
         }
     }
 
-    // Remove the membership
+    // Remove the membership using the model method
     membership.remove_from_team(&ctx.db).await?;
 
     format::empty_json()
@@ -396,11 +418,12 @@ async fn leave_team(
 async fn list_invitations(auth: JWT, State(ctx): State<AppContext>) -> Result<Response> {
     let user = users::Model::find_by_pid(&ctx.db, &auth.claims.pid).await?;
 
-    let invitations = team_memberships::Model::get_user_invitations(&ctx.db, user.id).await?;
+    let invitations = TeamMembershipCustomModel::get_user_invitations(&ctx.db, user.id).await?;
 
     let responses = invitations
         .into_iter()
         .map(|(membership, team)| {
+            // Use the team *entity* model here (as returned by get_user_invitations)
             serde_json::json!({
                 "token": membership.invitation_token,
                 "team": {

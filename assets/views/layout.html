@@ -15,6 +15,18 @@
         .selected {
             background-color: #e5e7eb; /* Equivalent to Tailwind's bg-gray-200 */
         }
+        /* Basic HTMX indicator styling */
+        .htmx-indicator{
+            display:inline-block;
+            opacity: 0;
+            transition: opacity 200ms ease-in;
+        }
+        .htmx-request .htmx-indicator{
+            opacity: 1
+        }
+        .htmx-request.htmx-indicator{
+            opacity: 1
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -38,6 +50,12 @@
                         <a href="/users/profile" class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'profile' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %}">
                             Profile
                         </a>
+                        {# Add link to admin user management page if user is admin - Placeholder for future task #}
+                        {# {% if is_system_admin %}
+                        <a href="/admin/users" class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'admin_users' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %}">
+                            Manage Users
+                        </a>
+                        {% endif %} #}
                         {% endif %}
                     </nav>
                 </div>
@@ -50,11 +68,32 @@
                         </svg>
                         <div id="invitation-count-badge" 
                              hx-get="/users/invitations/count" 
-                             hx-trigger="updateInvitationCount from:body, every 30s" 
+                             hx-trigger="updateInvitationCount from:body, load delay:200ms, every 30s" 
                              hx-swap="innerHTML">
                              {% include "users/_invitation_count_badge.html" %}
                         </div>
                     </a>
+
+                    {# Span to load the pending users count badge for admins #}
+                    <span 
+                        id="admin-pending-badge-container"
+                        hx-get="/admin/pending-users/count" 
+                        hx-trigger="load delay:500ms, every 60s, adminUserListChanged from:body" {# Trigger on load, timer, and custom event #}
+                        hx-swap="innerHTML"
+                        class="inline-block ml-2"> {# Use inline-block for spacing. Content will be filled by HTMX #}
+                        {# Optional: Add htmx-indicator class to show loading state if desired #}
+                    </span>
+
+                    {# Span to load the pending users count badge for admins #}
+                    <span 
+                        id="admin-pending-badge-container"
+                        hx-get="/admin/pending-users/count" 
+                        hx-trigger="load delay:500ms, every 60s, adminUserListChanged from:body" 
+                        hx-swap="innerHTML"
+                        class="inline-block ml-2"> {# Use inline-block for spacing #}
+                        {# Optional loading indicator (can be styled better) #}
+                        {# <span class="htmx-indicator text-xs text-gray-400">...</span> #}
+                    </span>
 
                     <div class="ml-3 relative">
                         <!-- user menu button -->
@@ -113,7 +152,7 @@
 
             // Close the menu when clicking outside
             document.addEventListener('click', function(e) {
-                if (!menu.contains(e.target) && !menuButton.contains(e.target)) {
+                if (menu && !menu.classList.contains('hidden') && !menu.contains(e.target) && !menuButton.contains(e.target)) {
                     menu.classList.add('hidden');
                 }
             });
@@ -121,10 +160,19 @@
 
         // Initialize HTMX
         document.addEventListener('DOMContentLoaded', function() {
-            htmx.logAll(); // Enable HTMX logging for debugging
+            // htmx.logAll(); // Enable HTMX logging for debugging
         });
+
+        // Close user menu on navigation
+        document.body.addEventListener('htmx:beforeSwap', function(evt) {
+            const menu = document.getElementById('user-menu');
+            if (menu && !menu.classList.contains('hidden')) {
+                 menu.classList.add('hidden');
+            }
+        });
+
     </script>
     
     {% block script %}{% endblock %}
 </body>
-</html> 
+</html>
