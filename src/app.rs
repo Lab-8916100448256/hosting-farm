@@ -1,4 +1,3 @@
-use crate::controllers;
 use async_trait::async_trait;
 use loco_rs::{
     app::{AppContext, Hooks, Initializer},
@@ -8,7 +7,6 @@ use loco_rs::{
     controller::AppRoutes,
     db::truncate_table,
     environment::Environment,
-    prelude::*,
     task::Tasks,
     Result,
 };
@@ -17,9 +15,8 @@ use sea_orm::{ActiveModelTrait, ActiveValue};
 use std::path::Path;
 use uuid;
 
-#[allow(unused_imports)]
 use crate::{
-    initializers,
+    controllers, initializers,
     models::_entities::{ssh_keys, team_memberships, teams, users},
     tasks,
     workers::downloader::DownloadWorker,
@@ -29,11 +26,17 @@ pub struct App;
 #[async_trait]
 impl Hooks for App {
     fn app_name() -> &'static str {
-        env!("CARGO_PKG_NAME")
+        env!("CARGO_CRATE_NAME")
     }
 
     fn app_version() -> String {
-        format!("{}", env!("CARGO_PKG_VERSION"),)
+        format!(
+            "{} ({})",
+            env!("CARGO_PKG_VERSION"),
+            option_env!("BUILD_SHA")
+                .or(option_env!("GITHUB_SHA"))
+                .unwrap_or("dev")
+        )
     }
 
     async fn boot(
@@ -46,14 +49,15 @@ impl Hooks for App {
 
     fn routes(_ctx: &AppContext) -> AppRoutes {
         AppRoutes::with_default_routes()
-            .add_route(controllers::home_pages::routes())
-            .add_route(controllers::auth_pages::routes())
-            .add_route(controllers::users_pages::routes())
-            .add_route(controllers::teams_pages::routes())
             .add_route(controllers::admin_pages::routes())
             .add_route(controllers::auth_api::routes())
+            .add_route(controllers::auth_pages::routes())
+            .add_route(controllers::home_pages::routes())
+            .add_route(controllers::pgp_pages::routes())
             .add_route(controllers::ssh_key_api::routes())
             .add_route(controllers::teams_api::routes())
+            .add_route(controllers::teams_pages::routes())
+            .add_route(controllers::users_pages::routes())
     }
 
     async fn initializers(_ctx: &AppContext) -> Result<Vec<Box<dyn Initializer>>> {

@@ -8,14 +8,15 @@
             </tr>
         </thead>
         <tbody hx-target="closest tr" hx-swap="outerHTML">
-            {% for user in users %}
-                {# Include the view row template initially #}
-                {{ render_fragment(name="admin/_user_row_view.html", data={"user": user}) | safe }}
+            {% if users is defined and users | length > 0 %}
+                {% for user in users %}
+                    {% include "admin/_user_row_view.html" %}
+                {% endfor %}
             {% else %}
             <tr>
                 <td colspan="3" class="text-center py-4 text-gray-500">No users found.</td>
             </tr>
-            {% endfor %}
+            {% endif %}
         </tbody>
     </table>
 </div>
@@ -26,7 +27,7 @@
     <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
         {# Previous Button #}
         <button 
-            hx-get="{{ url_for('admin_pages.get_user_list_fragment') }}?page={{ current_page - 1 }}&page_size={{ page_size }}" 
+            {# hx-get="URL_FOR_PREVIOUS_PAGE" set by controller #}
             hx-target="#user-list-container" 
             hx-swap="innerHTML" 
             hx-indicator="#user-list-container"
@@ -43,11 +44,11 @@
         {# Page Numbers #}
         {% for i in range(start=1, end=total_pages + 1) %}
         <button 
-            hx-get="{{ url_for('admin_pages.get_user_list_fragment') }}?page={{ i }}&page_size={{ page_size }}" 
+            {# hx-get="URL_FOR_PAGE_i" set by controller #}
             hx-target="#user-list-container" 
             hx-swap="innerHTML" 
             hx-indicator="#user-list-container"
-            aria-current="{{ 'page' if i == current_page else 'false' }}" 
+            aria-current="{% if i == current_page %}page{% else %}false{% endif %}" 
             class="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium 
                    {% if i == current_page %} z-10 bg-indigo-50 border-indigo-500 text-indigo-600 {% else %} bg-white text-gray-700 hover:bg-gray-50 {% endif %}"
         >
@@ -57,7 +58,7 @@
 
         {# Next Button #}
         <button 
-            hx-get="{{ url_for('admin_pages.get_user_list_fragment') }}?page={{ current_page + 1 }}&page_size={{ page_size }}" 
+            {# hx-get="URL_FOR_NEXT_PAGE" set by controller #}
             hx-target="#user-list-container" 
             hx-swap="innerHTML" 
             hx-indicator="#user-list-container"

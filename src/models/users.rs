@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use chrono::{offset::Local, DateTime, Duration, Utc};
-use loco_rs::hash;
-use loco_rs::prelude::*;
+use loco_rs::{auth::jwt, hash, prelude::*};
 use reqwest;
 use sea_orm::{
     ActiveValue, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, Set,
@@ -288,10 +287,17 @@ impl Model {
         Ok(user)
     }
 
-    /// Generate JWT token
+    /// Creates a JWT
+    ///
+    /// # Errors
+    ///
+    /// when could not convert user claims to jwt token
     pub fn generate_jwt(&self, secret: &str, expiration: &u64) -> ModelResult<String> {
-        loco_rs::auth::jwt::create(&self.pid.to_string(), secret, expiration)
-            .map_err(|e| ModelError::Any(e.into()))
+        Ok(jwt::JWT::new(secret).generate_token(
+            *expiration,
+            self.pid.to_string(),
+            serde_json::Map::new(),
+        )?)
     }
 
     /// finds a user by the provided id

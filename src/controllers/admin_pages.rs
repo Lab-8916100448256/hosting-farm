@@ -107,21 +107,32 @@ async fn manage_users_page(
         .paginate(&ctx.db, page_size);
 
     let num_pages = paginator.num_pages().await?;
-    let users_list = paginator.fetch_page(page - 1).await?;
+    // Fetching the first page here might be redundant if HTMX loads it immediately,
+    // but it could be useful if HTMX fails or for initial state.
+    // Let's keep it for now, but remove the users_list from the context as it's loaded via HTMX.
+    // let users_list = paginator.fetch_page(page - 1).await?;
 
     let is_admin = admin_user.is_admin(&ctx.db, &ctx).await.unwrap_or(false);
+
+    // Construct the URL for the initial fragment load
+    let user_list_fragment_url = format!(
+        "/admin/users/fragment?page={}&page_size={}",
+        page, page_size
+    );
 
     render_template(
         &v,
         "admin/manage_users.html",
         data!({
-            "users": &users_list,
-            "current_page": page,
-            "total_pages": num_pages,
-            "page_size": page_size,
-            "current_user": &admin_user,
+            // "users": &users_list, // Remove this, it will be loaded via HTMX
+            "current_page": page, // Still needed for potential non-HTMX fallback or context
+            "total_pages": num_pages, // Still needed for context/UI elements outside the list
+            "page_size": page_size, // Still needed for context/UI elements
+            "user": &admin_user,
+            "invitation_count": 0, // TODO: Add actual invitation count
             "active_page": "admin_users",
-            "is_admin": is_admin
+            "is_admin": is_admin,
+            "user_list_fragment_url": &user_list_fragment_url // Add the fragment URL
         }),
     )
 }

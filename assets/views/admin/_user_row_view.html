@@ -4,18 +4,17 @@
     <td class="border-dashed border-t border-gray-200 px-6 py-3">
         <div class="flex items-center space-x-2">
             {# Edit Button #}
-            <button 
-                hx-get="{{ url_for('admin_pages.get_user_edit_form', user_pid=user.pid) }}" 
-                hx-target="#user-row-{{ user.id }}" 
+            <button class="text-blue-500 hover:text-blue-700 mr-2"
+                hx-target="#user-row-{{ user.id }}"
                 hx-swap="outerHTML"
-                class="px-3 py-1 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded transition duration-150 ease-in-out"
-            >
+                {# hx-get="URL_FOR_USER_EDIT_FORM" set by controller #} 
+                title="Edit user">
                 Edit
             </button>
 
             {# Reset Password Button #}
             <button 
-                hx-post="{{ url_for('admin_pages.trigger_password_reset_admin', user_pid=user.pid) }}" 
+                {# hx-post="URL_FOR_PASSWORD_RESET" set by controller #} 
                 hx-target="#admin-user-messages" {# Target a message area #}
                 hx-swap="innerHTML"
                 hx-confirm="Are you sure you want to send a password reset email to {{ user.email }}?"
