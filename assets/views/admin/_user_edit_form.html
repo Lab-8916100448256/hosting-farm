@@ -1,0 +1,50 @@
+<tr id="user-row-{{ user.id }}" hx-trigger="cancel_edit from:body" hx-get="{{ url_for('admin_pages.get_user_row_view', user_pid=user.pid) }}" hx-swap="outerHTML">
+    <td class="border-dashed border-t border-gray-200 px-6 py-3">
+        <input 
+            type="text" 
+            name="name" 
+            value="{{ user.name }}" 
+            class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            required
+            minlength="2"
+        >
+        {# Placeholder for name validation errors #}
+        <div id="edit-name-error-{{ user.id }}" class="text-red-500 text-xs italic mt-1"></div> 
+    </td>
+    <td class="border-dashed border-t border-gray-200 px-6 py-3">
+        <input 
+            type="email" 
+            name="email" 
+            value="{{ user.email }}"
+            class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            required
+        >
+         {# Placeholder for email validation errors #}
+        <div id="edit-email-error-{{ user.id }}" class="text-red-500 text-xs italic mt-1"></div>
+    </td>
+    <td class="border-dashed border-t border-gray-200 px-6 py-3">
+        <div class="flex items-center space-x-2">
+            {# Save Button #}
+            <button 
+                hx-put="{{ url_for('admin_pages.update_user_details_admin', user_pid=user.pid) }}" 
+                hx-include="closest tr input"
+                hx-target="closest tr"
+                hx-swap="outerHTML"
+                class="px-3 py-1 text-sm bg-green-500 hover:bg-green-600 text-white rounded transition duration-150 ease-in-out"
+            >
+                Save
+            </button>
+            {# Cancel Button #}
+            <button 
+                hx-get="{{ url_for('admin_pages.get_user_row_view', user_pid=user.pid) }}" 
+                hx-target="closest tr"
+                hx-swap="outerHTML"
+                class="px-3 py-1 text-sm bg-gray-500 hover:bg-gray-600 text-white rounded transition duration-150 ease-in-out"
+            >
+                Cancel
+            </button>
+        </div>
+        {# Container for row-specific errors during save #}
+        <div id="edit-row-error-{{ user.id }}" class="text-red-500 text-xs italic mt-2"></div> 
+    </td>
+</tr> 

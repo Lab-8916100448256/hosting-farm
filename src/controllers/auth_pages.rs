@@ -392,79 +392,57 @@ async fn forgot_password(
     ViewEngine(v): ViewEngine<TeraView>,
     State(_ctx): State<AppContext>,
 ) -> Result<Response> {
-    format::render().view(&v, "auth/forgot-password.html", data!({}))
+    render_template(&v, "auth/forgot_password.html", data!({}))
 }
 
-/// Renders the page shown after requesting a password reset link.
+/// Renders the reset email sent confirmation page
 #[debug_handler]
 async fn render_reset_email_sent_page(
     ViewEngine(v): ViewEngine<TeraView>,
     State(_ctx): State<AppContext>, // May not need ctx if just rendering static page
 ) -> Result<Response> {
-    format::render().view(&v, "auth/reset-email-sent.html", data!({}))
+    render_template(&v, "auth/reset_email_sent.html", data!({}))
 }
 
+/// Handles the forgot password form submission
 #[debug_handler]
 async fn handle_forgot_password(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Form(form): Form<ForgotPasswordParams>,
 ) -> Result<Response> {
-    let params = ForgotPasswordParams {
-        email: form.email.clone(),
-    };
-
-    // Find user by email
-    match users::Model::find_by_email(&ctx.db, &params.email).await {
+    match users::Model::find_by_email(&ctx.db, &form.email).await {
         Ok(user) => {
-            // User found, generate reset token and send email
-            match user
-                .into_active_model()
-                .set_forgot_password_sent(&ctx.db)
-                .await
-            {
-                Ok(updated_user) => {
-                    // Send forgot password email
-                    if let Err(e) = AuthMailer::forgot_password(&ctx, &updated_user).await {
-                        // Log error but proceed to redirect
-                        tracing::error!(
-                            "Failed to send forgot password email to {}: {}",
-                            &params.email,
-                            e
-                        );
-                    } else {
-                        tracing::info!("Forgot password email sent to {}", &params.email);
-                    }
-                }
+            let user_with_token = match user.initiate_password_reset(&ctx.db).await {
+                Ok(u) => u,
                 Err(e) => {
-                    // Log error but proceed to redirect
-                    tracing::error!(
-                        "Failed to set forgot password token for {}: {}",
-                        &params.email,
-                        e
-                    );
+                    error!(user_email = %form.email, error = ?e, "Failed to initiate password reset (token generation/save)");
+                    return redirect("/auth/reset-email-sent", headers);
+                }
+            };
+
+            // Correct mailer function name: forgot_password
+            if let Err(e) = AuthMailer::forgot_password(&ctx, &user_with_token).await {
+                error!(user_email = %form.email, error = ?e, "Failed to send forgot password email");
+            } else {
+                if let Err(e) = user_with_token
+                    .clone()
+                    .into_active_model()
+                    .set_forgot_password_sent(&ctx.db)
+                    .await
+                {
+                    error!(user_email = %form.email, error = ?e, "Failed to set forgot password sent timestamp");
                 }
             }
         }
         Err(ModelError::EntityNotFound) => {
-            // User not found, log but proceed as if successful to prevent email enumeration
-            tracing::info!(
-                "Forgot password attempt for non-existent user: {}",
-                &params.email
-            );
+            info!(user_email = %form.email, "Forgot password requested for non-existent user");
         }
         Err(e) => {
-            // Other DB error, log but proceed
-            tracing::error!(
-                "Database error during forgot password for {}: {}",
-                &params.email,
-                e
-            );
+            error!(user_email = %form.email, error = ?e, "Database error finding user for password reset");
         }
     }
 
-    // Always redirect to the confirmation page
-    // TODO: There is still someting wrong in the `auth/reset-email-sent.html` view.
     redirect("/auth/reset-email-sent", headers)
 }
 

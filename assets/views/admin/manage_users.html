@@ -1,0 +1,24 @@
+{% extends "_layout_base.html" %}
+
+{% block title %}Admin - User Management{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <h1 class="text-3xl font-semibold text-gray-800 mb-6">User Management</h1>
+
+    {# Container for HTMX messages (errors, success) #}
+    <div id="admin-user-messages"></div>
+
+    <div 
+        id="user-list-container" 
+        hx-get="{{ url_for('admin_pages.get_user_list_fragment') }}?page={{ current_page }}&page_size={{ page_size }}" 
+        hx-trigger="load" 
+        hx-swap="innerHTML"
+    >
+        {# Initial loading state (optional) #}
+        <p class="text-center text-gray-500">Loading users...</p>
+        {# The actual list will be loaded here by HTMX #}
+    </div>
+
+</div>
+{% endblock %} 

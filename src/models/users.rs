@@ -1,14 +1,18 @@
 use async_trait::async_trait;
 use chrono::{offset::Local, DateTime, Duration, Utc};
-use loco_rs::{auth::jwt, hash, prelude::*};
+use loco_rs::hash;
+use loco_rs::prelude::*;
 use reqwest;
-use sea_orm::{ActiveValue, ConnectionTrait, DbErr, EntityTrait, QueryFilter, Set, ColumnTrait};
+use sea_orm::{
+    ActiveValue, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, PaginatorTrait, QueryFilter, Set,
+};
 use sequoia_openpgp::{self as openpgp, parse::Parse, policy::StandardPolicy};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
 pub use super::_entities::users::{self, ActiveModel, Entity, Model};
+use super::_entities::{team_memberships, teams};
 
 pub const MAGIC_LINK_LENGTH: i8 = 32;
 pub const MAGIC_LINK_EXPIRATION_MIN: i8 = 5;
@@ -41,11 +45,19 @@ pub struct RegisterParams {
     pub password_confirmation: String,
 }
 
+#[derive(Debug, Deserialize, Serialize, Validate)]
+pub struct UpdateDetailsParams {
+    #[validate(length(min = 2, message = "Name must be at least 2 characters long."))]
+    pub name: String,
+    #[validate(email(message = "Invalid email format."))]
+    pub email: String,
+}
+
 #[derive(Debug, Validate, Deserialize)]
 pub struct Validator {
-    #[validate(length(min = 2, message = "Name must be at least 2 characters long."))] 
+    #[validate(length(min = 2, message = "Name must be at least 2 characters long."))]
     pub name: String,
-    #[validate(custom(function = "validation::is_valid_email"))]
+    #[validate(email(message = "Invalid email format."))]
     pub email: String,
     pub pgp_key: Option<String>,
 }
@@ -157,7 +169,7 @@ impl Model {
 
         let user = user.ok_or_else(|| ModelError::EntityNotFound)?;
         if let Some(expired_at) = user.magic_link_expiration {
-            if expired_at >= Local::now() {
+            if expired_at.with_timezone(&Utc) >= Utc::now() {
                 Ok(user)
             } else {
                 tracing::debug!(
@@ -255,7 +267,9 @@ impl Model {
             .await?
             .is_some()
         {
-            return Err(ModelError::Message("Username already taken. Please choose another.".to_string()));
+            return Err(ModelError::Message(
+                "Username already taken. Please choose another.".to_string(),
+            ));
         }
 
         let password_hash =
@@ -274,17 +288,10 @@ impl Model {
         Ok(user)
     }
 
-    /// Creates a JWT
-    ///
-    /// # Errors
-    ///
-    /// when could not convert user claims to jwt token
+    /// Generate JWT token
     pub fn generate_jwt(&self, secret: &str, expiration: &u64) -> ModelResult<String> {
-        Ok(jwt::JWT::new(secret).generate_token(
-            *expiration,
-            self.pid.to_string(),
-            serde_json::Map::new(),
-        )?)
+        loco_rs::auth::jwt::create(&self.pid.to_string(), secret, expiration)
+            .map_err(|e| ModelError::Any(e.into()))
     }
 
     /// finds a user by the provided id
@@ -340,6 +347,143 @@ impl Model {
                 }
             })
     }
+
+    /// Helper function to get the admin team name from config
+    /// Moved from teams_pages.rs
+    pub fn get_admin_team_name(ctx: &AppContext) -> String {
+        ctx.config
+            .settings
+            .as_ref() // Get Option<&Value>
+            .and_then(|settings| settings.get("app")) // Get Option<&Value> for "app" key
+            .and_then(|app_settings| app_settings.get("admin_team_name")) // Get Option<&Value> for "admin_team_name"
+            .and_then(|value| value.as_str()) // Get Option<&str>
+            .map(|s| s.to_string()) // Convert to Option<String>
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    "'app.admin_team_name' not found or not a string in config, using default 'Administrators'"
+                );
+                "Administrators".to_string()
+            })
+    }
+
+    /// Checks if a given user is a member of the configured administrator team.
+    ///
+    /// # Arguments
+    ///
+    /// * `db` - The database connection.
+    /// * `ctx` - The application context to read configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ModelError` if database queries fail.
+    pub async fn is_admin(&self, db: &DatabaseConnection, ctx: &AppContext) -> ModelResult<bool> {
+        let admin_team_name = Self::get_admin_team_name(ctx);
+
+        // Find the admin team by name
+        let admin_team = teams::Entity::find()
+            .filter(teams::Column::Name.eq(admin_team_name))
+            .one(db)
+            .await?;
+
+        if let Some(team) = admin_team {
+            // Check if the user is a member of this team (non-pending)
+            let is_member = team_memberships::Entity::find()
+                .filter(team_memberships::Column::TeamId.eq(team.id))
+                .filter(team_memberships::Column::UserId.eq(self.id))
+                .filter(team_memberships::Column::Pending.eq(false))
+                .count(db) // Use count for efficiency
+                .await?
+                > 0;
+            Ok(is_member)
+        } else {
+            // Admin team not found, so user cannot be an admin
+            Ok(false)
+        }
+    }
+
+    /// Updates the profile details (name, email) for a user.
+    /// Handles validation, email uniqueness check, and resetting verification status if email changes.
+    ///
+    /// # Arguments
+    ///
+    /// * `db` - The database connection.
+    /// * `params` - The new details to update.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ModelError` if validation fails, email is already taken, or database update fails.
+    pub async fn update_profile_details(
+        &self,
+        db: &DatabaseConnection,
+        params: &UpdateDetailsParams,
+    ) -> ModelResult<Self> {
+        // Handle validation error mapping correctly
+        params
+            .validate()
+            .map_err(|e| ModelError::Message(e.to_string()))?;
+
+        let mut active_user: ActiveModel = self.clone().into();
+        let mut email_changed = false;
+
+        let new_name = params.name.trim().to_string();
+        let new_email = params.email.trim().to_lowercase();
+
+        if self.name != new_name {
+            active_user.name = Set(new_name);
+        }
+
+        if self.email != new_email {
+            let existing_user = Entity::find()
+                .filter(users::Column::Email.eq(&new_email))
+                .filter(users::Column::Id.ne(self.id))
+                .one(db)
+                .await?;
+
+            if existing_user.is_some() {
+                return Err(ModelError::Message(
+                    "Email address is already in use.".to_string(),
+                ));
+            }
+
+            active_user.email = Set(new_email);
+            active_user.email_verified_at = Set(None);
+            active_user.email_verification_token = Set(None);
+            active_user.email_verification_sent_at = Set(None);
+            active_user.pgp_key = Set(None);
+            active_user.pgp_verified_at = Set(None);
+            active_user.pgp_verification_token = Set(None);
+
+            email_changed = true;
+        }
+
+        let updated_user = active_user.update(db).await?;
+
+        if email_changed {
+            tracing::info!(
+                user_pid = updated_user.pid.to_string(),
+                "User email changed, verification status reset."
+            );
+        }
+
+        Ok(updated_user)
+    }
+
+    /// Generates and saves a password reset token and its expiration time for the user.
+    ///
+    /// # Arguments
+    ///
+    /// * `db` - The database connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ModelError` if the database update fails.
+    pub async fn initiate_password_reset(&self, db: &DatabaseConnection) -> ModelResult<Self> {
+        let mut user_model: ActiveModel = self.clone().into();
+        let token = Uuid::new_v4().to_string();
+        user_model.reset_token = ActiveValue::Set(Some(token));
+        user_model.reset_sent_at = ActiveValue::Set(Some(Utc::now().into()));
+        user_model.update(db).await.map_err(Into::into)
+    }
 }
 
 impl ActiveModel {
@@ -355,7 +499,9 @@ impl ActiveModel {
         mut self,
         db: &DatabaseConnection,
     ) -> ModelResult<Model> {
-        self.email_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
+        let token = Uuid::new_v4().to_string();
+        self.email_verification_token = Set(Some(token));
+        self.email_verification_sent_at = Set(None);
         Ok(self.update(db).await?)
     }
 
@@ -372,26 +518,14 @@ impl ActiveModel {
         mut self,
         db: &DatabaseConnection,
     ) -> ModelResult<Model> {
-        self.email_verification_sent_at = ActiveValue::set(Some(Local::now().into()));
+        self.email_verification_sent_at = Set(Some(Utc::now().into()));
         Ok(self.update(db).await?)
     }
 
-    /// Sets the information for a reset password request,
-    /// generates a unique reset password token, and updates it in the
-    /// database.
-    ///
-    /// This method records the timestamp when the reset password token is sent
-    /// and generates a unique token for the user.
-    ///
-    /// # Arguments
-    ///
-    /// # Errors
-    ///
-    /// when has DB query error
+    /// Sets the forgot password sent timestamp.
     pub async fn set_forgot_password_sent(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        self.reset_sent_at = ActiveValue::set(Some(Local::now().into()));
-        self.reset_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
-        Ok(self.update(db).await?)
+        self.reset_sent_at = Set(Some(Utc::now().into()));
+        self.update(db).await.map_err(Into::into)
     }
 
     /// Records the verification time when a user verifies their
@@ -404,7 +538,8 @@ impl ActiveModel {
     ///
     /// when has DB query error
     pub async fn verified(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        self.email_verified_at = ActiveValue::set(Some(Local::now().into()));
+        self.email_verified_at = Set(Some(Utc::now().into()));
+        self.email_verification_token = Set(None);
         Ok(self.update(db).await?)
     }
 
@@ -422,10 +557,9 @@ impl ActiveModel {
         db: &DatabaseConnection,
         password: &str,
     ) -> ModelResult<Model> {
-        self.password =
-            ActiveValue::set(hash::hash_password(password).map_err(|e| ModelError::Any(e.into()))?);
-        self.reset_token = ActiveValue::Set(None);
-        self.reset_sent_at = ActiveValue::Set(None);
+        self.password = Set(hash::hash_password(password).map_err(|e| ModelError::Any(e.into()))?);
+        self.reset_token = Set(None);
+        self.reset_sent_at = Set(None);
         Ok(self.update(db).await?)
     }
 
@@ -441,9 +575,7 @@ impl ActiveModel {
         mut self,
         db: &DatabaseConnection,
     ) -> ModelResult<Model> {
-        self.pgp_verification_token = ActiveValue::Set(Some(Uuid::new_v4().to_string()));
-        // We might want to record the sent time too, similar to email verification
-        // self.pgp_verification_sent_at = ActiveValue::set(Some(Local::now().into()));
+        self.pgp_verification_token = Set(Some(Uuid::new_v4().to_string()));
         Ok(self.update(db).await?)
     }
 
@@ -457,8 +589,8 @@ impl ActiveModel {
     ///
     /// when has DB query error
     pub async fn set_pgp_verified(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        self.pgp_verified_at = ActiveValue::Set(Some(Utc::now().naive_utc())); // Use naive_utc() for NaiveDateTime
-        self.pgp_verification_token = ActiveValue::Set(None);
+        self.pgp_verified_at = Set(Some(Utc::now().naive_utc()));
+        self.pgp_verification_token = Set(None);
         Ok(self.update(db).await?)
     }
 
@@ -473,8 +605,8 @@ impl ActiveModel {
         let random_str = hash::random_string(MAGIC_LINK_LENGTH as usize);
         let expired = Local::now() + Duration::minutes(MAGIC_LINK_EXPIRATION_MIN.into());
 
-        self.magic_link_token = ActiveValue::set(Some(random_str));
-        self.magic_link_expiration = ActiveValue::set(Some(expired.into()));
+        self.magic_link_token = Set(Some(random_str));
+        self.magic_link_expiration = Set(Some(expired.into()));
         Ok(self.update(db).await?)
     }
 
@@ -486,8 +618,8 @@ impl ActiveModel {
     /// # Errors
     /// - Returns an error if database update fails
     pub async fn clear_magic_link(mut self, db: &DatabaseConnection) -> ModelResult<Model> {
-        self.magic_link_token = ActiveValue::set(None);
-        self.magic_link_expiration = ActiveValue::set(None);
+        self.magic_link_token = Set(None);
+        self.magic_link_expiration = Set(None);
         Ok(self.update(db).await?)
     }
 
@@ -566,5 +698,19 @@ impl ActiveModel {
             tracing::debug!(user_pid=%user_pid_str, "Setting user PGP key to None in database.");
             self.update(db).await.map_err(ModelError::DbErr)
         }
+    }
+
+    /// Sets the password for the user, hashing it before saving.
+    ///
+    /// # Errors
+    ///
+    /// when has DB query error
+    pub async fn set_password(
+        mut self,
+        db: &DatabaseConnection,
+        password: &str,
+    ) -> ModelResult<Model> {
+        self.password = Set(hash::hash_password(password).map_err(|e| ModelError::Any(e.into()))?);
+        Ok(self.update(db).await?)
     }
 }

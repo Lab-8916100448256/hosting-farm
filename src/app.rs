@@ -1,3 +1,4 @@
+use crate::controllers;
 use async_trait::async_trait;
 use loco_rs::{
     app::{AppContext, Hooks, Initializer},
@@ -7,6 +8,7 @@ use loco_rs::{
     controller::AppRoutes,
     db::truncate_table,
     environment::Environment,
+    prelude::*,
     task::Tasks,
     Result,
 };
@@ -17,7 +19,7 @@ use uuid;
 
 #[allow(unused_imports)]
 use crate::{
-    controllers, initializers,
+    initializers,
     models::_entities::{ssh_keys, team_memberships, teams, users},
     tasks,
     workers::downloader::DownloadWorker,
@@ -27,17 +29,11 @@ pub struct App;
 #[async_trait]
 impl Hooks for App {
     fn app_name() -> &'static str {
-        env!("CARGO_CRATE_NAME")
+        env!("CARGO_PKG_NAME")
     }
 
     fn app_version() -> String {
-        format!(
-            "{} ({})",
-            env!("CARGO_PKG_VERSION"),
-            option_env!("BUILD_SHA")
-                .or(option_env!("GITHUB_SHA"))
-                .unwrap_or("dev")
-        )
+        format!("{}", env!("CARGO_PKG_VERSION"),)
     }
 
     async fn boot(
@@ -48,22 +44,22 @@ impl Hooks for App {
         create_app::<Self, Migrator>(mode, environment, config).await
     }
 
+    fn routes(_ctx: &AppContext) -> AppRoutes {
+        AppRoutes::with_default_routes()
+            .add_route(controllers::home_pages::routes())
+            .add_route(controllers::auth_pages::routes())
+            .add_route(controllers::users_pages::routes())
+            .add_route(controllers::teams_pages::routes())
+            .add_route(controllers::admin_pages::routes())
+            .add_route(controllers::auth_api::routes())
+            .add_route(controllers::ssh_key_api::routes())
+            .add_route(controllers::teams_api::routes())
+    }
+
     async fn initializers(_ctx: &AppContext) -> Result<Vec<Box<dyn Initializer>>> {
         Ok(vec![Box::new(
             initializers::view_engine::ViewEngineInitializer,
         )])
-    }
-
-    fn routes(_ctx: &AppContext) -> AppRoutes {
-        AppRoutes::with_default_routes() // controller routes below
-            .add_route(controllers::auth_api::routes())
-            .add_route(controllers::teams_api::routes())
-            .add_route(controllers::ssh_key_api::routes())
-            .add_route(controllers::home_pages::routes())
-            .add_route(controllers::users_pages::routes())
-            .add_route(controllers::auth_pages::routes())
-            .add_route(controllers::teams_pages::routes())
-            .add_route(controllers::pgp_pages::routes())
     }
 
     fn register_tasks(_tasks: &mut Tasks) {

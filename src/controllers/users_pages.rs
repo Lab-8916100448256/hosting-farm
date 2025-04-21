@@ -3,7 +3,10 @@ use crate::{
     mailers::auth::AuthMailer,
     middleware::auth_no_error::JWTWithUserOpt,
     models::{
-        _entities::ssh_keys, _entities::team_memberships, _entities::teams, users,
+        _entities::ssh_keys,
+        _entities::team_memberships,
+        _entities::teams,
+        users,
         users::users::Column as UsersColumn, // Import Column specifically for users
     },
     views::{error_fragment, error_page, redirect, render_template},
@@ -14,7 +17,7 @@ use axum::response::Response;
 use axum::{
     debug_handler,
     extract::{Form, Query, State},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use loco_rs::prelude::Result;
 use loco_rs::prelude::*;
@@ -294,7 +297,7 @@ async fn update_profile(
 
     if user.email != trimmed_email {
         email_changed = true; // Mark email as changed
-        // Check if the *new* email exists.
+                              // Check if the *new* email exists.
         match users::Model::find_by_email(&ctx.db, &trimmed_email).await {
             Ok(_) => {
                 return error_fragment(&v, "Email already in use", "#notification-container");
@@ -315,15 +318,15 @@ async fn update_profile(
             }
         }
     } else {
-         // Ensure the possibly-trimmed email is set even if logically unchanged
-         user_model.email = Set(trimmed_email);
+        // Ensure the possibly-trimmed email is set even if logically unchanged
+        user_model.email = Set(trimmed_email);
     }
 
     // --- Prepare Name Changes ---
     let new_name = params.name.trim().to_string();
 
     if user.name != new_name {
-         // Check if the new name already exists
+        // Check if the new name already exists
         match users::Entity::find()
             .filter(UsersColumn::Name.eq(&new_name)) // Use imported UsersColumn
             .filter(UsersColumn::Id.ne(user.id)) // Exclude self
@@ -347,8 +350,8 @@ async fn update_profile(
             }
         }
     } else {
-         // Ensure the possibly-trimmed name is set even if logically unchanged
-         user_model.name = Set(new_name);
+        // Ensure the possibly-trimmed name is set even if logically unchanged
+        user_model.name = Set(new_name);
     }
 
     // --- Perform the database update ---
@@ -448,9 +451,9 @@ async fn update_profile(
                 .body(axum::body::Body::from(combined_html))?)
         }
         Err(db_err) => {
-             // Handle DbErr generically. Uniqueness errors should ideally be caught
-             // by the pre-checks above, but handle other DB errors here.
-             tracing::error!(error = ?db_err, user_id = user.id, "Failed to update user profile in database");
+            // Handle DbErr generically. Uniqueness errors should ideally be caught
+            // by the pre-checks above, but handle other DB errors here.
+            tracing::error!(error = ?db_err, user_id = user.id, "Failed to update user profile in database");
             error_fragment(
                 &v,
                 "Could not update profile due to a database error. Please try again.",
@@ -459,7 +462,6 @@ async fn update_profile(
         }
     }
 }
-
 
 /// Update user password
 #[debug_handler]
@@ -669,13 +671,13 @@ async fn resend_verification_email(
     if user.email_verified_at.is_some() {
         // Instead of rendering profile, return a success message indicating it's already verified
         return render_template(
-             &v,
-             "fragments/success_message.html",
-             data!({
-                 "message": "Your email is already verified.",
-                 "target": "notification-container",
-             }),
-         );
+            &v,
+            "fragments/success_message.html",
+            data!({
+                "message": "Your email is already verified.",
+                "target": "notification-container",
+            }),
+        );
     }
 
     // Generate email verification token
@@ -903,6 +905,72 @@ async fn verify_pgp_sending(
     }
 }
 
+/// Deletes an SSH key
+#[debug_handler]
+async fn delete_ssh_key(
+    auth: JWTWithUserOpt<users::Model>,
+    ViewEngine(v): ViewEngine<TeraView>,
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+    Form(params): Form<HashMap<String, String>>,
+) -> Result<Response> {
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
+
+    let key_id_str = match params.get("key_id") {
+        Some(id) => id,
+        None => {
+            return error_fragment(&v, "Missing key ID", "#ssh-key-error-container");
+        }
+    };
+
+    let key_id = match key_id_str.parse::<i32>() {
+        Ok(id) => id,
+        Err(_) => {
+            return error_fragment(&v, "Invalid key ID format", "#ssh-key-error-container");
+        }
+    };
+
+    // Find the key
+    let key_result = ssh_keys::Entity::find_by_id(key_id).one(&ctx.db).await?;
+
+    let key = match key_result {
+        Some(k) => k,
+        None => {
+            return error_fragment(&v, "SSH Key not found", "#ssh-key-error-container");
+        }
+    };
+
+    // Verify ownership
+    if key.user_id != user.id {
+        return error_fragment(
+            &v,
+            "You do not own this SSH key",
+            "#ssh-key-error-container",
+        );
+    }
+
+    // Delete the key
+    let key_model: ssh_keys::ActiveModel = key.into();
+    match key_model.delete(&ctx.db).await {
+        Ok(_) => {
+            // Return an empty response with OK status code
+            // HTMX will remove the element based on hx-target="closest div"
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "text/html") // Ensure correct content type for HTMX
+                .body(axum::body::Body::empty())?)
+        }
+        Err(e) => {
+            tracing::error!("Failed to delete SSH key {}: {}", key_id, e);
+            error_fragment(&v, "Failed to delete SSH key.", "#ssh-key-error-container")
+        }
+    }
+}
+
 /// User routes
 pub fn routes() -> Routes {
     Routes::new()
@@ -919,4 +987,5 @@ pub fn routes() -> Routes {
         )
         .add("/profile/refresh-pgp", post(refresh_pgp))
         .add("/profile/verify-pgp", post(verify_pgp_sending))
+        .add("/profile/ssh_keys", delete(delete_ssh_key))
 }
