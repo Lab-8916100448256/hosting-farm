@@ -168,6 +168,8 @@ async fn get_user_list_fragment(
             "current_page": page,
             "total_pages": num_pages,
             "page_size": page_size,
+            "edit_url_base": "/admin/users/",
+            "reset_password_url_base": "/admin/users/"
         }),
     )
 }
@@ -187,7 +189,17 @@ async fn get_user_edit_form(
 
     match users::Model::find_by_pid(&ctx.db, &user_pid).await {
         Ok(user) => {
-            format::render().view(&v, "admin/_user_edit_form.html", data!({ "user": &user }))
+            let update_url = format!("/admin/users/{}", user_pid);
+            let cancel_url = update_url.clone(); // Same URL for cancel (GET)
+            format::render().view(
+                &v,
+                "admin/_user_edit_form.html",
+                data!({
+                    "user": &user,
+                    "update_url": &update_url,
+                    "cancel_url": &cancel_url
+                }),
+            )
         }
         Err(e) => {
             tracing::error!(error = ?e, user_pid = user_pid, "Failed to find user for editing");
@@ -214,7 +226,18 @@ async fn get_user_row_view(
 
     match users::Model::find_by_pid(&ctx.db, &user_pid).await {
         Ok(user) => {
-            format::render().view(&v, "admin/_user_row_view.html", data!({ "user": &user }))
+            // Construct URLs needed by the _user_row_view template
+            let edit_url = format!("/admin/users/{}/edit", user.pid);
+            let reset_password_url = format!("/admin/users/{}/reset-password", user.pid);
+            format::render().view(
+                &v,
+                "admin/_user_row_view.html",
+                data!({
+                    "user": &user,
+                    "edit_url": &edit_url,
+                    "reset_password_url": &reset_password_url
+                }),
+            )
         }
         Err(e) => {
             tracing::error!(error = ?e, user_pid = user_pid, "Failed to find user for display row");
@@ -287,21 +310,32 @@ async fn update_user_details_admin(
                 }
             }
 
+            let edit_url = format!("/admin/users/{}/edit", updated_user.pid);
+            let reset_password_url = format!("/admin/users/{}/reset-password", updated_user.pid);
+
             format::render().view(
                 &v,
                 "admin/_user_row_view.html",
-                data!({ "user": &final_user_state }),
+                data!({
+                   "user": &final_user_state,
+                   "edit_url": &edit_url,
+                   "reset_password_url": &reset_password_url
+                }),
             )
         }
         Err(e) => {
             tracing::error!(error = ?e, user_pid = user_pid, "Failed to update user details by admin {}", admin_user.pid);
             let error_message = e.to_string();
+            let update_url = format!("/admin/users/{}", user_pid);
+            let cancel_url = update_url.clone();
             format::render().view(
                 &v,
                 "admin/_user_edit_form.html",
                 data!({
                     "user": &target_user,
-                    "error_message": &error_message
+                    "error_message": &error_message,
+                    "update_url": &update_url,
+                    "cancel_url": &cancel_url
                 }),
             )
         }
@@ -361,7 +395,7 @@ async fn trigger_password_reset_admin(
         tracing::info!(admin_user_pid=%admin_user.pid, target_user_pid=%target_user.pid, "Password reset email sent by admin.");
         format::render().view(
             &v,
-            "fragments/htmx_success_message.html",
+            "fragments/success_message.html",
             data!({
                 "message": format!("Password reset email sent to {}.", target_user.email)
             }),
@@ -376,7 +410,7 @@ pub fn routes() -> Routes {
         .add("/users", get(manage_users_page))
         .add("/users/fragment", get(get_user_list_fragment))
         .add("/users/{user_pid}/edit", get(get_user_edit_form))
-        .add("/users/{user_pid}", put(update_user_details_admin))
+        .add("/users/{user_pid}", post(update_user_details_admin))
         .add("/users/{user_pid}", get(get_user_row_view))
         .add(
             "/users/{user_pid}/reset-password",

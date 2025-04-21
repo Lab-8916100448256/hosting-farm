@@ -7,14 +7,14 @@
             <button class="text-blue-500 hover:text-blue-700 mr-2"
                 hx-target="#user-row-{{ user.id }}"
                 hx-swap="outerHTML"
-                {# hx-get="URL_FOR_USER_EDIT_FORM" set by controller #} 
+                hx-get="{{ edit_url }}" 
                 title="Edit user">
                 Edit
             </button>
 
             {# Reset Password Button #}
             <button 
-                {# hx-post="URL_FOR_PASSWORD_RESET" set by controller #} 
+                hx-post="{{ reset_password_url }}" 
                 hx-target="#admin-user-messages" {# Target a message area #}
                 hx-swap="innerHTML"
                 hx-confirm="Are you sure you want to send a password reset email to {{ user.email }}?"

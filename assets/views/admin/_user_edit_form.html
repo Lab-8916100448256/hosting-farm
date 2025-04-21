@@ -1,4 +1,5 @@
-<tr id="user-row-{{ user.id }}" hx-trigger="cancel_edit from:body" {# hx-get="URL_FOR_USER_ROW_VIEW" set by controller #} hx-swap="outerHTML">
+<tr id="user-row-{{ user.id }}" hx-trigger="cancel_edit from:body" hx-swap="outerHTML">
+    {# Input cells remain direct children of tr #}
     <td class="border-dashed border-t border-gray-200 px-6 py-3">
         <input 
             type="text" 
@@ -22,13 +23,14 @@
          {# Placeholder for email validation errors #}
         <div id="edit-email-error-{{ user.id }}" class="text-red-500 text-xs italic mt-1"></div>
     </td>
+    {# Actions cell #}
     <td class="border-dashed border-t border-gray-200 px-6 py-3">
         <div class="flex items-center space-x-2">
-            {# Save Button #}
+            {# Save Button - relies on hx-include #}
             <button 
-                {# hx-put="URL_FOR_UPDATE_USER" set by controller #}
-                hx-include="closest tr input"
-                hx-target="closest tr"
+                hx-post="{{ update_url }}"
+                hx-include="closest tr"
+                hx-target="closest tr" 
                 hx-swap="outerHTML"
                 class="px-3 py-1 text-sm bg-green-500 hover:bg-green-600 text-white rounded transition duration-150 ease-in-out"
             >
@@ -36,8 +38,8 @@
             </button>
             {# Cancel Button #}
             <button 
-                {# hx-get="URL_FOR_USER_ROW_VIEW" set by controller #}
-                hx-target="closest tr"
+                hx-get="{{ cancel_url }}"
+                hx-target="closest tr" 
                 hx-swap="outerHTML"
                 class="px-3 py-1 text-sm bg-gray-500 hover:bg-gray-600 text-white rounded transition duration-150 ease-in-out"
             >

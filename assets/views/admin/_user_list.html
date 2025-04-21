@@ -10,6 +10,8 @@
         <tbody hx-target="closest tr" hx-swap="outerHTML">
             {% if users is defined and users | length > 0 %}
                 {% for user in users %}
+                    {% set edit_url = edit_url_base ~ user.pid ~ "/edit" %}
+                    {% set reset_password_url = reset_password_url_base ~ user.pid ~ "/reset-password" %}
                     {% include "admin/_user_row_view.html" %}
                 {% endfor %}
             {% else %}
