@@ -27,9 +27,9 @@
 {% if total_pages > 1 %}
 <div class="mt-6 flex justify-center">
     <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-        {# Previous Button #}
+        {# Previous Button - Check if prev_page_url exists and has a value #}
         <button 
-            {# hx-get="URL_FOR_PREVIOUS_PAGE" set by controller #}
+            {% if prev_page_url %}hx-get="{{ prev_page_url }}"{% endif %}
             hx-target="#user-list-container" 
             hx-swap="innerHTML" 
             hx-indicator="#user-list-container"
@@ -46,7 +46,8 @@
         {# Page Numbers #}
         {% for i in range(start=1, end=total_pages + 1) %}
         <button 
-            {# hx-get="URL_FOR_PAGE_i" set by controller #}
+            {# Construct page URL: base + page_number + page_size_suffix #}
+            hx-get="{{ page_url_base ~ i ~ page_size_suffix }}"
             hx-target="#user-list-container" 
             hx-swap="innerHTML" 
             hx-indicator="#user-list-container"
@@ -58,9 +59,9 @@
         </button>
         {% endfor %}
 
-        {# Next Button #}
+        {# Next Button - Check if next_page_url exists and has a value #}
         <button 
-            {# hx-get="URL_FOR_NEXT_PAGE" set by controller #}
+            {% if next_page_url %}hx-get="{{ next_page_url }}"{% endif %}
             hx-target="#user-list-container" 
             hx-swap="innerHTML" 
             hx-indicator="#user-list-container"

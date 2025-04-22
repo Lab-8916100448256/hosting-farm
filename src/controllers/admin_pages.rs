@@ -30,7 +30,7 @@ fn default_page() -> u64 {
 }
 
 fn default_page_size() -> u64 {
-    25
+    12
 }
 
 /// Helper to check for admin privileges
@@ -160,6 +160,32 @@ async fn get_user_list_fragment(
     let num_pages = paginator.num_pages().await?;
     let users = paginator.fetch_page(page - 1).await?;
 
+    // Calculate pagination URLs
+    let base_url = "/admin/users/fragment";
+    let prev_page_url = if page > 1 {
+        Some(format!(
+            "{}?page={}&page_size={}",
+            base_url,
+            page - 1,
+            page_size
+        ))
+    } else {
+        None
+    };
+    let next_page_url = if page < num_pages {
+        Some(format!(
+            "{}?page={}&page_size={}",
+            base_url,
+            page + 1,
+            page_size
+        ))
+    } else {
+        None
+    };
+    // Base URL for page number links (page number will be appended in template)
+    let page_url_base = format!("{}?page=", base_url);
+    let page_size_suffix = format!("&page_size={}", page_size); // Store suffix separately
+
     format::render().view(
         &v,
         "admin/_user_list.html",
@@ -169,7 +195,11 @@ async fn get_user_list_fragment(
             "total_pages": num_pages,
             "page_size": page_size,
             "edit_url_base": "/admin/users/",
-            "reset_password_url_base": "/admin/users/"
+            "reset_password_url_base": "/admin/users/",
+            "prev_page_url": &prev_page_url, // Add prev page URL
+            "next_page_url": &next_page_url, // Add next page URL
+            "page_url_base": &page_url_base, // Add base for page links
+            "page_size_suffix": &page_size_suffix // Add page size suffix for page links
         }),
     )
 }
