@@ -1,8 +1,8 @@
 <tr id="user-row-{{ user.id }}">
     <td class="border-dashed border-t border-gray-200 px-6 py-3">{{ user.name }}</td>
     <td class="border-dashed border-t border-gray-200 px-6 py-3">{{ user.email }}</td>
-    <td class="border-dashed border-t border-gray-200 px-6 py-3">
-        <div class="flex items-center space-x-2">
+    <td class="border-dashed border-t border-gray-200 px-6 py-3 w-px whitespace-nowrap">
+        <div class="flex items-center justify-end space-x-2">
             {# Edit Button #}
             <button
                 hx-target="#user-row-{{ user.id }}"
