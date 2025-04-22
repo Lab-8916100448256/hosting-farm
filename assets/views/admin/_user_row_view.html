@@ -1,0 +1,28 @@
+<tr id="user-row-{{ user.id }}">
+    <td class="border-dashed border-t border-gray-200 px-6 py-3">{{ user.name }}</td>
+    <td class="border-dashed border-t border-gray-200 px-6 py-3">{{ user.email }}</td>
+    <td class="border-dashed border-t border-gray-200 px-6 py-3 w-px whitespace-nowrap">
+        <div class="flex items-center justify-end space-x-2">
+            {# Edit Button #}
+            <button
+                hx-target="#user-row-{{ user.id }}"
+                hx-swap="outerHTML"
+                hx-get="{{ edit_url }}" 
+                class="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 text-white rounded transition duration-150 ease-in-out"
+                title="Edit user">
+                Edit
+            </button>
+
+            {# Reset Password Button #}
+            <button 
+                hx-post="{{ reset_password_url }}" 
+                hx-target="#admin-user-messages" {# Target a message area #}
+                hx-swap="innerHTML"
+                hx-confirm="Are you sure you want to send a password reset email to {{ user.email }}?"
+                class="px-3 py-1 text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded transition duration-150 ease-in-out"
+                title="Reset user password">
+                Reset Password
+            </button>
+        </div>
+    </td>
+</tr> 

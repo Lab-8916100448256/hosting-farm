@@ -23,24 +23,6 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing;
 
-/// Helper function to get the admin team name from config
-fn get_admin_team_name(ctx: &AppContext) -> String {
-    ctx.config
-        .settings
-        .as_ref() // Get Option<&Value>
-        .and_then(|settings| settings.get("app")) // Get Option<&Value> for "app" key
-        .and_then(|app_settings| app_settings.get("admin_team_name")) // Get Option<&Value> for "admin_team_name"
-        .and_then(|value| value.as_str()) // Get Option<&str>
-        .map(|s| s.to_string()) // Convert to Option<String>
-        .unwrap_or_else(|| {
-            tracing::warn!(
-                "'app.admin_team_name' not found or not a string in config, using default 'Administrators'"
-            );
-            "Administrators".to_string()
-        })
-}
-
-
 /// Create team page
 #[debug_handler]
 async fn create_team_page(
@@ -258,7 +240,7 @@ async fn team_details(
     };
 
     // Retrieve the configured administrator team name
-    let admin_team_name = get_admin_team_name(&ctx);
+    let admin_team_name = users::Model::get_admin_team_name(&ctx);
     // Check if the current team is the administrators team
     let is_system_admin_team = team.name == admin_team_name;
 
@@ -401,7 +383,7 @@ async fn team_details(
             "is_admin": &is_admin,
             "active_page": "teams",
             "invitation_count": &invitations,
-            "is_system_admin_team": &is_system_admin_team // Add this line
+            "is_system_admin_team": &is_system_admin_team
         }),
     )
 }
@@ -678,8 +660,7 @@ async fn create_team_handler(
     // Redirect to the team details page with explicit .to_string() to ensure proper conversion
     let redirect_url = format!("/teams/{}", team.pid);
     redirect(&redirect_url, headers)
-} // Added missing closing brace here
-
+}
 
 /// Update team handler
 #[debug_handler]
@@ -744,12 +725,16 @@ async fn update_team_handler(
     }
 
     // Prevent renaming the admin team
-    let admin_team_name = get_admin_team_name(&ctx);
+    let admin_team_name = users::Model::get_admin_team_name(&ctx);
 
     let incoming_name = params.name.trim(); // Trim incoming name for comparison
     if team.name == admin_team_name && incoming_name != team.name {
         // If it's the admin team AND the name is being changed, return an error fragment
-        return error_fragment(&v, "The administrators team cannot be renamed.", "#error-container");
+        return error_fragment(
+            &v,
+            "The administrators team cannot be renamed.",
+            "#error-container",
+        );
     }
 
     // Trim whitespace from team name before update
@@ -1365,7 +1350,7 @@ async fn delete_team(
     }
 
     // Read admin team name from configuration using helper
-    let admin_team_name = get_admin_team_name(&ctx);
+    let admin_team_name = users::Model::get_admin_team_name(&ctx);
 
     // Check if this is the admin team
     if team.name == admin_team_name {

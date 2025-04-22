@@ -1,0 +1,52 @@
+<tr id="user-row-{{ user.id }}" hx-trigger="cancel_edit from:body" hx-swap="outerHTML">
+    {# Input cells remain direct children of tr #}
+    <td class="border-dashed border-t border-gray-200 px-6 py-3">
+        <input 
+            type="text" 
+            name="name" 
+            value="{{ user.name }}" 
+            class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            required
+            minlength="2"
+        >
+        {# Placeholder for name validation errors #}
+        <div id="edit-name-error-{{ user.id }}" class="text-red-500 text-xs italic mt-1"></div> 
+    </td>
+    <td class="border-dashed border-t border-gray-200 px-6 py-3">
+        <input 
+            type="email" 
+            name="email" 
+            value="{{ user.email }}"
+            class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            required
+        >
+         {# Placeholder for email validation errors #}
+        <div id="edit-email-error-{{ user.id }}" class="text-red-500 text-xs italic mt-1"></div>
+    </td>
+    {# Actions cell #}
+    <td class="border-dashed border-t border-gray-200 px-6 py-3 w-px whitespace-nowrap">
+        <div class="flex items-center justify-end space-x-2">
+            {# Save Button - relies on hx-include #}
+            <button 
+                hx-post="{{ update_url }}"
+                hx-include="closest tr"
+                hx-target="closest tr" 
+                hx-swap="outerHTML"
+                class="px-3 py-1 text-sm bg-green-500 hover:bg-green-600 text-white rounded transition duration-150 ease-in-out"
+            >
+                Save
+            </button>
+            {# Cancel Button #}
+            <button 
+                hx-get="{{ cancel_url }}"
+                hx-target="closest tr" 
+                hx-swap="outerHTML"
+                class="px-3 py-1 text-sm bg-gray-500 hover:bg-gray-600 text-white rounded transition duration-150 ease-in-out"
+            >
+                Cancel
+            </button>
+        </div>
+        {# Container for row-specific errors during save #}
+        <div id="edit-row-error-{{ user.id }}" class="text-red-500 text-xs italic mt-2"></div> 
+    </td>
+</tr> 

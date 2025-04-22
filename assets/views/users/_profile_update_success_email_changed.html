@@ -1,0 +1,9 @@
+<div id="profile-success-container" class="mt-4 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded relative" role="alert">
+    <strong class="font-bold">Profile Updated!</strong>
+    <span class="block sm:inline">Your profile details have been updated. A verification email has been sent to your new address. Please check your inbox to verify it.</span>
+    {# Include email verification banner #}
+    <div hx-get="/users/profile?fragment=email_verification_banner" hx-trigger="load" hx-target="#email-verification-banner-container" hx-swap="outerHTML"></div>
+    {# Include PGP warning banner #}
+    <div hx-get="/users/profile?fragment=pgp_warning_banner" hx-trigger="load" hx-target="#pgp-warning-banner-container" hx-swap="outerHTML"></div>
+
+</div> 
