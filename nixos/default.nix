@@ -4,15 +4,17 @@ let
   hosting-farm =
     let
       defaultNix = builtins.fetchurl {
-        url = "https://raw.githubusercontent.com/Lab-8916100448256/hosting-farm/refs/heads/dev-cursor/default.nix";
-        sha256 = "sha256:1a3dgnkz5kvc9axj2v7ybh7w08qap21fq3n856fldwh9351q969y"; #### You will have to update the hash here. Run nix-build and pick the hash from the error
+        url = "https://raw.githubusercontent.com/Lab-8916100448256/hosting-farm/refs/tags/v0.1.11/default.nix"; #### update release tag here ####
+        sha256 = lib.fakeSha256;
+        #sha256 = "1yzhv7zfc4rimjcd37i9i7agrc93c1yi4nl8jybal8xs3pfsxhkq";  #### You will have to replace the fakeSha256 and update the hash here. Run nix-build and pick the hash from the error
       };
     in pkgs.callPackage defaultNix {
       src = pkgs.fetchFromGitHub {
         owner = "Lab-8916100448256";
         repo = "hosting-farm";
-        rev = "dev-cursor";  # REPLACE WITH A RELEASE TAG!
-        sha256 = "sha256-0UqD4J18rbysxkursEzm/iTmIYVc0/rzOCktNOohhFA="; #### You will have to update the hash here. Run nix-build and pick the hash from the error
+        rev = "v0.1.11"; #### update release tag here ####
+        sha256 = lib.fakeSha256;
+        #sha256 = "sha256-0UqD4J18rbysxkursEzm/iTmIYVc0/rzOCktNOohhFA="; #### You will have to replace the fakeSha256 and update the hash here. Run nix-build and pick the hash from the error
       } + "/.";
     };
   in [

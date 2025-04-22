@@ -6,19 +6,17 @@ let
   # Define the hosting-farm package derivation once
   hosting-farm-pkg = let
       defaultNix = builtins.fetchurl {
-        # IMPORTANT: Use the raw URL of desired version of default.nix
-        url = "https://raw.githubusercontent.com/Lab-8916100448256/hosting-farm/refs/tags/v0.1.3/default.nix"; # UPDATE VERSION TAG IN URL IF NEEDED
-        # You might need to update the hash.
-        # You will get the correct hash from the error message during nixos-rebuild build
-        sha256 = lib.fakeSha256; # UPDATE HASH
+        url = "https://raw.githubusercontent.com/Lab-8916100448256/hosting-farm/refs/tags/v0.1.11/default.nix"; #### update release tag here ####
+        sha256 = lib.fakeSha256;
+        #sha256 = "1yzhv7zfc4rimjcd37i9i7agrc93c1yi4nl8jybal8xs3pfsxhkq";  #### You will have to replace the fakeSha256 and update the hash here. Run nix-build and pick the hash from the e>
       };
     in pkgs.callPackage defaultNix {
       src = pkgs.fetchFromGitHub {
         owner = "Lab-8916100448256";
         repo = "hosting-farm";
-        rev = "v0.1.3";  # UPDATE VERSION TAG IF NEEDED
-        # You will get the correct hash from the error message during nixos-rebuild build
-        sha256 = lib.fakeSha256; # UPDATE HASH
+        rev = "v0.1.11"; #### update release tag here ####
+        sha256 = lib.fakeSha256;
+        #sha256 = "sha256-0UqD4J18rbysxkursEzm/iTmIYVc0/rzOCktNOohhFA="; #### You will have to replace the fakeSha256 and update the hash here. Run nix-build and pick the hash from the err>
       };
     };
 in {
