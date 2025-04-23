@@ -37,30 +37,7 @@ async fn create_team_page(
         return redirect("/auth/login", headers);
     };
 
-    // Get pending invitations count
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
 
     render_template(
         &v,
@@ -68,7 +45,9 @@ async fn create_team_page(
         data!({
             "user": &user,
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }
@@ -87,6 +66,7 @@ async fn list_teams(
         return redirect("/auth/login", headers);
     };
 
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
     // Get all teams where the user is a member
     let teams_data_result = teams::Entity::find()
         .find_with_related(team_memberships::Entity)
@@ -131,31 +111,6 @@ async fn list_teams(
         })
         .collect::<Vec<_>>();
 
-    // Get pending invitations count
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
-
     render_template(
         &v,
         "teams/list.html",
@@ -163,7 +118,9 @@ async fn list_teams(
             "user": &user,
             "teams": &teams_result,
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }
@@ -184,6 +141,8 @@ async fn team_details(
     };
 
     tracing::info!("Accessing team details for team pid: {}", team_pid);
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
 
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -344,31 +303,6 @@ async fn team_details(
         }
     }
 
-    // Get pending invitations count for current user
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
-
     render_template(
         &v,
         "teams/show.html",
@@ -382,7 +316,9 @@ async fn team_details(
             "members": &members,
             "is_admin": &is_admin,
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
             "is_system_admin_team": &is_system_admin_team
         }),
     )
@@ -403,6 +339,7 @@ async fn invite_member_page(
         return redirect("/auth/login", headers);
     };
 
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
@@ -455,31 +392,6 @@ async fn invite_member_page(
         return error_page(&v, "You are not a member of this team", None);
     }
 
-    // Get pending invitations count for current user
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
-
     render_template(
         &v,
         "teams/invite.html",
@@ -491,7 +403,9 @@ async fn invite_member_page(
                 "description": team.description
             },
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }
@@ -510,6 +424,8 @@ async fn edit_team_page(
     } else {
         return redirect("/auth/login", headers);
     };
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
 
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -563,31 +479,6 @@ async fn edit_team_page(
         return error_page(&v, "You are not a member of this team", None);
     }
 
-    // Get pending invitations count for current user
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
-
     render_template(
         &v,
         "teams/edit.html",
@@ -599,7 +490,9 @@ async fn edit_team_page(
                 "description": team.description
             },
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }
@@ -897,38 +790,22 @@ async fn cancel_invitation(
     };
 
     // Check if user is an admin or owner of this team
-    let membership_result = team_memberships::Entity::find()
-        .filter(team_memberships::Column::TeamId.eq(team.id))
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(false))
-        .one(&ctx.db)
-        .await;
-
-    let membership = match membership_result {
-        Ok(value) => value,
-        Err(err) => {
-            tracing::error!("Failed to find membership: {:?}", err);
-            return error_page(&v, "Database error while searching for membership", None);
+    let is_admin_result = team.has_role(&ctx.db, user.id, "Administrator").await;
+    let is_admin = match is_admin_result {
+        Ok(is_admin) => is_admin,
+        Err(e) => {
+            tracing::error!(
+                "Failed to check admin role for user {} in team {}: {}",
+                user.id,
+                team.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Failed to check if you are administrator of this team",
+                None,
+            );
         }
-    };
-
-    if membership.is_none() {
-        tracing::error!(
-            "Access to team {} by unauthorized user: {:?}",
-            team.name,
-            user
-        );
-        return error_page(
-            &v,
-            "You are not authorized to cancel invitations for this team because you are not one of its administrators",
-            None,
-        );
-    }
-
-    let is_admin = if let Some(membership) = &membership {
-        membership.role == "Owner" || membership.role == "Administrator"
-    } else {
-        false
     };
 
     if !is_admin {
@@ -1426,21 +1303,21 @@ async fn invite_member_handler(
         );
     }
 
-    // Find the target user by email
-    let target_user = match users::Model::find_by_email(&ctx.db, &params.email).await {
+    // Find the target user by name
+    let target_user = match users::Model::find_by_name(&ctx.db, &params.user_name).await {
         Ok(user) => user,
         Err(ModelError::EntityNotFound) => {
             return error_fragment(
                 &v,
-                &format!("No user found with e-mail {}", &params.email),
+                &format!("No user found with name {}", &params.user_name),
                 "#error-container",
             );
         }
         Err(e) => {
-            tracing::error!("Failed to find user by email: {}", e);
+            tracing::error!("Failed to find user by name: {}", e);
             return error_fragment(
                 &v,
-                &format!("Error searching for user with e-mail {}", &params.email),
+                &format!("Error searching for user with name {}", &params.user_name),
                 "#error-container",
             );
         }
@@ -1475,10 +1352,10 @@ async fn invite_member_handler(
         let error_message = if membership.pending {
             format!(
                 "User {} already has a pending invitation to this team",
-                params.email
+                params.user_name
             )
         } else {
-            format!("User {} is already a member of this team", params.email)
+            format!("User {} is already a member of this team", params.user_name)
         };
         return error_fragment(&v, &error_message, "#error-container");
     }
@@ -1488,7 +1365,7 @@ async fn invite_member_handler(
 
     // Create invitation entity
     /*let invitation =*/
-    match team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await {
+    match team_memberships::Model::create_invitation(&ctx.db, team.id, &params.user_name).await {
         Ok(invit) => invit,
         Err(e) => {
             // Something terribly wrong happened, abort with an error message
@@ -1498,7 +1375,7 @@ async fn invite_member_handler(
             tracing::error!(
                 error = e.to_string(),
                 team_id = team.id,
-                target_user = &params.email,
+                target_user = &params.user_name,
                 message
             );
 

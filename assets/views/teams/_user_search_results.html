@@ -6,16 +6,16 @@
            hide me
        end
        on click from window
-         if event.target is not #email and event.target is not me and not me.contains(event.target)
+         if event.target is not #user_name and event.target is not me and not me.contains(event.target)
            hide me
        end">
     {% for user in users %}
     <li class="search-result-item px-4 py-2 hover:bg-gray-100 cursor-pointer"
-        data-email="{{ user.email }}"
+        data-name="{{ user.name }}"
         _="on click
-             set the value of #email to my.dataset.email
+             set the value of #user_name to my.dataset.name
              hide the closest <ul/>">
-        {{ user.name }} ({{ user.email }})
+        {{ user.name }}{# ({{ user.email }})#}
     </li>
     {% endfor %}
 </ul>
