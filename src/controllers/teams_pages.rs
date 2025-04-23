@@ -790,38 +790,22 @@ async fn cancel_invitation(
     };
 
     // Check if user is an admin or owner of this team
-    let membership_result = team_memberships::Entity::find()
-        .filter(team_memberships::Column::TeamId.eq(team.id))
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(false))
-        .one(&ctx.db)
-        .await;
-
-    let membership = match membership_result {
-        Ok(value) => value,
-        Err(err) => {
-            tracing::error!("Failed to find membership: {:?}", err);
-            return error_page(&v, "Database error while searching for membership", None);
+    let is_admin_result = team.has_role(&ctx.db, user.id, "Administrator").await;
+    let is_admin = match is_admin_result {
+        Ok(is_admin) => is_admin,
+        Err(e) => {
+            tracing::error!(
+                "Failed to check admin role for user {} in team {}: {}",
+                user.id,
+                team.id,
+                e
+            );
+            return error_page(
+                &v,
+                "Failed to check if you are administrator of this team",
+                None,
+            );
         }
-    };
-
-    if membership.is_none() {
-        tracing::error!(
-            "Access to team {} by unauthorized user: {:?}",
-            team.name,
-            user
-        );
-        return error_page(
-            &v,
-            "You are not authorized to cancel invitations for this team because you are not one of its administrators",
-            None,
-        );
-    }
-
-    let is_admin = if let Some(membership) = &membership {
-        membership.role == "Owner" || membership.role == "Administrator"
-    } else {
-        false
     };
 
     if !is_admin {
