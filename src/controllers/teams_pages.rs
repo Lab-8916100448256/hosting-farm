@@ -37,30 +37,7 @@ async fn create_team_page(
         return redirect("/auth/login", headers);
     };
 
-    // Get pending invitations count
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
 
     render_template(
         &v,
@@ -68,7 +45,9 @@ async fn create_team_page(
         data!({
             "user": &user,
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }
@@ -87,6 +66,7 @@ async fn list_teams(
         return redirect("/auth/login", headers);
     };
 
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
     // Get all teams where the user is a member
     let teams_data_result = teams::Entity::find()
         .find_with_related(team_memberships::Entity)
@@ -131,31 +111,6 @@ async fn list_teams(
         })
         .collect::<Vec<_>>();
 
-    // Get pending invitations count
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
-
     render_template(
         &v,
         "teams/list.html",
@@ -163,7 +118,9 @@ async fn list_teams(
             "user": &user,
             "teams": &teams_result,
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }
@@ -184,6 +141,8 @@ async fn team_details(
     };
 
     tracing::info!("Accessing team details for team pid: {}", team_pid);
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
 
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -344,31 +303,6 @@ async fn team_details(
         }
     }
 
-    // Get pending invitations count for current user
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
-
     render_template(
         &v,
         "teams/show.html",
@@ -382,7 +316,9 @@ async fn team_details(
             "members": &members,
             "is_admin": &is_admin,
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
             "is_system_admin_team": &is_system_admin_team
         }),
     )
@@ -403,6 +339,7 @@ async fn invite_member_page(
         return redirect("/auth/login", headers);
     };
 
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
         Ok(team) => team,
@@ -455,31 +392,6 @@ async fn invite_member_page(
         return error_page(&v, "You are not a member of this team", None);
     }
 
-    // Get pending invitations count for current user
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
-
     render_template(
         &v,
         "teams/invite.html",
@@ -491,7 +403,9 @@ async fn invite_member_page(
                 "description": team.description
             },
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }
@@ -510,6 +424,8 @@ async fn edit_team_page(
     } else {
         return redirect("/auth/login", headers);
     };
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
 
     // Find team
     let team = match teams::Model::find_by_pid(&ctx.db, &team_pid).await {
@@ -563,31 +479,6 @@ async fn edit_team_page(
         return error_page(&v, "You are not a member of this team", None);
     }
 
-    // Get pending invitations count for current user
-    let invitations_result = team_memberships::Entity::find()
-        .find_with_related(teams::Entity)
-        .all(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(data) => data
-            .into_iter()
-            .filter(|(membership, _)| membership.user_id == user.id && membership.pending)
-            .count(),
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
-
     render_template(
         &v,
         "teams/edit.html",
@@ -599,7 +490,9 @@ async fn edit_team_page(
                 "description": team.description
             },
             "active_page": "teams",
-            "invitation_count": &invitations,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }

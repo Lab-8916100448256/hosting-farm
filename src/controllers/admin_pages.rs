@@ -94,10 +94,17 @@ async fn manage_users_page(
     headers: HeaderMap,
     Query(pagination): Query<PaginationParams>,
 ) -> Result<Response> {
-    let admin_user = match require_admin(&auth, &ctx, &v, &headers).await {
-        Ok(user) => user,
-        Err(response) => return Ok(response),
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
     };
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
+
+    if !layout_context.is_app_admin {
+        return error_page(&v, "Admin check failed.", None);
+    }
 
     let page = pagination.page.max(1);
     let page_size = pagination.page_size.max(1).min(100);
@@ -111,8 +118,6 @@ async fn manage_users_page(
     // but it could be useful if HTMX fails or for initial state.
     // Let's keep it for now, but remove the users_list from the context as it's loaded via HTMX.
     // let users_list = paginator.fetch_page(page - 1).await?;
-
-    let is_admin = admin_user.is_admin(&ctx.db, &ctx).await.unwrap_or(false);
 
     // Construct the URL for the initial fragment load
     let user_list_fragment_url = format!(
@@ -128,10 +133,11 @@ async fn manage_users_page(
             "current_page": page, // Still needed for potential non-HTMX fallback or context
             "total_pages": num_pages, // Still needed for context/UI elements outside the list
             "page_size": page_size, // Still needed for context/UI elements
-            "user": &admin_user,
-            "invitation_count": 0, // TODO: Add actual invitation count
+            "user": &user,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
             "active_page": "admin_users",
-            "is_admin": is_admin,
             "user_list_fragment_url": &user_list_fragment_url // Add the fragment URL
         }),
     )
@@ -146,8 +152,16 @@ async fn get_user_list_fragment(
     headers: HeaderMap,
     Query(pagination): Query<PaginationParams>,
 ) -> Result<Response> {
-    if require_admin(&auth, &ctx, &v, &headers).await.is_err() {
-        return Ok(Html("".to_string()).into_response());
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
+
+    if !layout_context.is_app_admin {
+        return redirect("/auth/login", headers);
     }
 
     let page = pagination.page.max(1);
@@ -213,8 +227,16 @@ async fn get_user_edit_form(
     headers: HeaderMap,
     Path(user_pid): Path<String>,
 ) -> Result<Response> {
-    if require_admin(&auth, &ctx, &v, &headers).await.is_err() {
-        return Ok(Html("<p>Unauthorized</p>".to_string()).into_response());
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
+
+    if !layout_context.is_app_admin {
+        return redirect("/auth/login", headers);
     }
 
     match users::Model::find_by_pid(&ctx.db, &user_pid).await {
@@ -250,8 +272,16 @@ async fn get_user_row_view(
     headers: HeaderMap,
     Path(user_pid): Path<String>,
 ) -> Result<Response> {
-    if require_admin(&auth, &ctx, &v, &headers).await.is_err() {
-        return Ok(Html("<p>Unauthorized</p>".to_string()).into_response());
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
+    };
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
+
+    if !layout_context.is_app_admin {
+        return redirect("/auth/login", headers);
     }
 
     match users::Model::find_by_pid(&ctx.db, &user_pid).await {
@@ -289,10 +319,17 @@ async fn update_user_details_admin(
     Path(user_pid): Path<String>,
     Form(params): Form<UpdateDetailsParams>,
 ) -> Result<Response> {
-    let admin_user = match require_admin(&auth, &ctx, &v, &headers).await {
-        Ok(user) => user,
-        Err(response) => return Ok(response),
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
     };
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
+
+    if !layout_context.is_app_admin {
+        return redirect("/auth/login", headers);
+    }
 
     let target_user = match users::Model::find_by_pid(&ctx.db, &user_pid).await {
         Ok(user) => user,
@@ -354,7 +391,7 @@ async fn update_user_details_admin(
             )
         }
         Err(e) => {
-            tracing::error!(error = ?e, user_pid = user_pid, "Failed to update user details by admin {}", admin_user.pid);
+            tracing::error!(error = ?e, user_pid = user_pid, "Failed to update user details by admin {}", user.pid);
             let error_message = e.to_string();
             let update_url = format!("/admin/users/{}", user_pid);
             let cancel_url = update_url.clone();
@@ -381,10 +418,17 @@ async fn trigger_password_reset_admin(
     headers: HeaderMap,
     Path(user_pid): Path<String>,
 ) -> Result<Response> {
-    let admin_user = match require_admin(&auth, &ctx, &v, &headers).await {
-        Ok(user) => user,
-        Err(response) => return Ok(response),
+    let user = if let Some(user) = auth.user {
+        user
+    } else {
+        return redirect("/auth/login", headers);
     };
+
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
+
+    if !layout_context.is_app_admin {
+        return redirect("/auth/login", headers);
+    }
 
     let target_user = match users::Model::find_by_pid(&ctx.db, &user_pid).await {
         Ok(user) => user,
@@ -422,7 +466,7 @@ async fn trigger_password_reset_admin(
         {
             error!(user_email = %target_user.email, error = ?e, "Admin Reset PW: Failed to set forgot password sent timestamp");
         }
-        tracing::info!(admin_user_pid=%admin_user.pid, target_user_pid=%target_user.pid, "Password reset email sent by admin.");
+        tracing::info!(admin_user_pid=%user.pid, target_user_pid=%target_user.pid, "Password reset email sent by admin.");
         format::render().view(
             &v,
             "fragments/success_message.html",

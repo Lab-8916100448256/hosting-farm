@@ -61,6 +61,13 @@ pub struct Validator {
     pub pgp_key: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct LayoutContext {
+    pub is_app_admin: bool,
+    pub invitation_count: i64,
+    pub pending_user_count: u64,
+}
+
 impl Validatable for ActiveModel {
     fn validator(&self) -> Box<dyn Validate> {
         let name = match &self.name {
@@ -489,6 +496,28 @@ impl Model {
         user_model.reset_token = ActiveValue::Set(Some(token));
         user_model.reset_sent_at = ActiveValue::Set(Some(Utc::now().into()));
         user_model.update(db).await.map_err(Into::into)
+    }
+
+    pub async fn get_base_layout_context(
+        &self,
+        db: &DatabaseConnection,
+        ctx: &AppContext,
+    ) -> LayoutContext {
+        let is_admin = self.is_admin(db, ctx).await.unwrap_or(false);
+
+        // Get pending invitations count
+        let invitation_count = team_memberships::Entity::find()
+            .filter(team_memberships::Column::UserId.eq(self.id))
+            .filter(team_memberships::Column::Pending.eq(true))
+            .count(db)
+            .await
+            .unwrap_or(0);
+
+        LayoutContext {
+            is_app_admin: is_admin,
+            invitation_count: invitation_count as i64,
+            pending_user_count: 0,
+        }
     }
 }
 

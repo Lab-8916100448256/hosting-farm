@@ -60,6 +60,7 @@ async fn profile(
         return redirect("/auth/login", headers);
     };
 
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
     // Get PGP key details
     let pgp_fingerprint = user.pgp_fingerprint();
     let pgp_validity = user.pgp_validity();
@@ -107,30 +108,6 @@ async fn profile(
         })
         .collect::<Vec<_>>();
 
-    // Get pending invitations count
-    let invitations_result = team_memberships::Entity::find()
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(true))
-        .count(&ctx.db)
-        .await;
-
-    let invitations = match invitations_result {
-        Ok(count) => count,
-        Err(e) => {
-            tracing::error!(
-                "Failed to load invitation count for user {}: {}",
-                user.id,
-                e
-            );
-            // Call error_page with 3 arguments: engine, message, error
-            return error_page(
-                &v,
-                "Could not load your invitation count. Please try again later.",
-                Some(e.into()),
-            );
-        }
-    };
-
     // Get user's SSH keys
     let ssh_keys_result = ssh_keys::Entity::find()
         .filter(ssh_keys::Column::UserId.eq(user.id))
@@ -163,13 +140,15 @@ async fn profile(
             "user": &user,
             "teams": &teams,
             "active_page": "profile",
-            "invitation_count": &invitations,
             "ssh_keys": &ssh_keys,
             "pgp_fingerprint": &pgp_fingerprint,
             "pgp_validity": &pgp_validity,
             "pgp_verified_success": pgp_verified_success,
             "has_pgp_key": has_pgp_key,
             "is_pgp_verified": is_pgp_verified,
+            "invitation_count": &layout_context.invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }
@@ -189,6 +168,7 @@ async fn invitations(
         return redirect("/auth/login", headers);
     };
 
+    let layout_context = user.get_base_layout_context(&ctx.db, &ctx).await;
     // Get user's pending team invitations
     let invitations_result = team_memberships::Entity::find()
         .find_with_related(teams::Entity)
@@ -239,6 +219,8 @@ async fn invitations(
             "invitations": &invitations,
             "active_page": "invitations",
             "invitation_count": &invitation_count,
+            "pending_user_count": &layout_context.pending_user_count,
+            "is_app_admin": &layout_context.is_app_admin,
         }),
     )
 }
