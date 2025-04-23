@@ -5,10 +5,13 @@ use crate::{
         ssh_keys::{CreateSshKeyParams, Model as SshKeyModel}, // Use the custom SshKeyModel alias
         team_memberships,
         teams::{Model as TeamModel, Role}, // Import TeamModel and Role
-        users::{self as UserModelCustom, Model as UserModel}, // Import custom UserModel
+        // Simplify import: Use full path for user model, import LayoutContext and helpers
+        // Also import the generated ActiveModel alias directly
+        // REMOVED ALIAS: Model as UserModel
+        users::{UserActiveModel, LayoutContext, hash_password, verify_password, Model}, // Removed alias, using direct Model
     },
     views::{
-        error_fragment, error_page, redirect, render_template, // Import render_template
+        error_fragment, error_page, redirect, render_template, // Import render_template helper
         users::{PgpSectionResponse, SshKeysListResponse},
     },
 };
@@ -21,9 +24,10 @@ use axum::{
 use loco_rs::{app::AppContext, prelude::*};
 use mailers::auth::AuthMailer; // Import AuthMailer
 // Import PaginatorTrait for count() method
-use sea_orm::{ActiveValue::{self, Set}, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{ActiveModelTrait, ActiveValue::{self, Set}, ColumnTrait, Condition, EntityTrait, ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect}; // Removed IntoActiveModel trait, kept ActiveModelTrait
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value, Map}; // Import Value and Map for merging contexts
+// Removed unused tera::Context import
 use tracing::{error, info, warn};
 use uuid::Uuid; // Add Uuid import
 
@@ -31,7 +35,6 @@ use uuid::Uuid; // Add Uuid import
 
 #[derive(Deserialize, Validate)]
 pub struct SshKeyPayload {
-    // Renamed name to label to match model changes
     #[validate(length(min = 1, message = "Label cannot be empty"))]
     pub label: String,
     #[validate(length(min = 1, message = "Key cannot be empty"))]
@@ -57,8 +60,7 @@ pub struct UpdateProfileParams {
 
 #[derive(Deserialize, Validate)]
 pub struct UpdateEmailParams {
-    #[validate(email(message = "Invalid email format."))]
-    pub email: String,
+    #[validate(email(message = "Invalid email format."))]    pub email: String,
 }
 
 #[derive(Deserialize, Validate)]
@@ -72,7 +74,7 @@ pub struct UpdatePgpParams {
 #[debug_handler]
 async fn profile_page(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model directly
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     State(ctx): State<AppContext>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse> {
@@ -82,11 +84,16 @@ async fn profile_page(
         return redirect("/auth/login", headers);
     };
 
-    info!(user_pid = %user.pid, "Loading profile page");
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, "Loading profile page");
 
-    // Get user's teams
+    // 1. Get base layout context
+    let layout_context = user.get_layout_context(&ctx, "profile").await?;
+
+    // 2. Fetch page-specific data
+    // Access id via inner
     let memberships = match team_memberships::Entity::find()
-        .filter(team_memberships::Column::UserId.eq(user.id))
+        .filter(team_memberships::Column::UserId.eq(user.inner.id))
         .filter(team_memberships::Column::Pending.eq(false))
         .find_with_related(crate::models::_entities::teams::Entity)
         .all(&ctx.db)
@@ -94,7 +101,8 @@ async fn profile_page(
     {
         Ok(m) => m,
         Err(e) => {
-            error!(error = ?e, "Failed to load team memberships for user {}", user.pid);
+            // Access pid via inner
+            error!(error = ?e, "Failed to load team memberships for user {}", user.inner.pid);
             return error_page(&v, "Could not load your team information.", Some(Error::from(e)));
         }
     };
@@ -112,51 +120,53 @@ async fn profile_page(
         })
         .collect();
 
-    // Get user's SSH keys using the custom SshKeyModel
-    let ssh_keys = match SshKeyModel::find_by_user(&ctx.db, user.id).await {
+    // Access id via inner
+    let ssh_keys = match SshKeyModel::find_by_user(&ctx.db, user.inner.id).await {
         Ok(keys) => keys,
         Err(e) => {
-            error!(error = ?e, "Failed to load SSH keys for user {}", user.pid);
+            // Access pid via inner
+            error!(error = ?e, "Failed to load SSH keys for user {}", user.inner.pid);
             return error_page(&v, "Could not load your SSH keys.", Some(Error::Model(e)));
         }
     };
 
-    // Get user's PGP key status
-    let has_pgp_key = user.pgp_key.is_some();
-    let is_pgp_verified = user.pgp_verified_at.is_some();
+    // Access pgp_key and pgp_verified_at via inner
+    let has_pgp_key = user.inner.pgp_key.is_some();
+    let is_pgp_verified = user.inner.pgp_verified_at.is_some();
 
-    // Get pending invitations count using PaginatorTrait::count
-    let invitations_count = match team_memberships::Entity::find()
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(true))
-        .count(&ctx.db)
-        .await
-    {
-        Ok(count) => count,
+    // 3. Serialize layout context to serde_json::Value
+    let mut context_value = match serde_json::to_value(layout_context) {
+        Ok(Value::Object(map)) => map,
+        Ok(_) => return Err(Error::Message("Failed to serialize layout context to map".to_string())),
         Err(e) => {
-            error!(error = ?e, "Failed to load invitation count for user {}", user.pid);
-            return error_page(&v, "Could not load your invitations.", Some(Error::from(e)));
+            error!(error = ?e, "Failed to serialize layout context");
+            return Err(Error::from(e)); // Use Error::from for serde errors
         }
     };
 
-    render_template(
-        &v,
-        "users/profile.html",
-        json!({
-            "user": &user.inner, // Pass inner entity model to template
-            "teams": teams_with_roles,
-            "ssh_keys": &ssh_keys, // Pass the found SshKeyModel instances
-            "has_pgp_key": has_pgp_key,
-            "is_pgp_verified": is_pgp_verified,
-            "active_page": "profile",
-            "invitation_count": invitations_count,
-        }),
-    )
+    // 4. Create page-specific context and merge
+    let page_context = json!({
+        "teams": teams_with_roles,
+        "ssh_keys": ssh_keys,
+        "has_pgp_key": has_pgp_key,
+        "is_pgp_verified": is_pgp_verified,
+    });
+
+    if let Value::Object(page_map) = page_context {
+        context_value.extend(page_map);
+    } else {
+        // Should not happen with json! macro
+        error!("Page context was not a JSON object");
+        return Err(Error::Message("Internal error creating page context".to_string()));
+    }
+
+    // 5. Render the template with the combined context using render_template helper
+    render_template(&v, "users/profile.html", Value::Object(context_value))
 }
 
 #[debug_handler]
 async fn update_profile(
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -168,11 +178,13 @@ async fn update_profile(
         return redirect("/auth/login", headers);
     };
 
-    info!(user_pid = %user.pid, new_name = %params.name, "Attempting profile update");
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, new_name = %params.name, "Attempting profile update");
 
     // Validate parameters
     if let Err(errors) = params.validate() {
-        warn!(user_pid = %user.pid, validation_errors = ?errors, "Profile update validation failed");
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, validation_errors = ?errors, "Profile update validation failed");
         // Fix validation error processing
         let error_message = errors.field_errors().iter().flat_map(|(_, errors)| errors.iter()).filter_map(|e| e.message.as_ref().map(|m| m.to_string())).collect::<Vec<_>>().join(" ");
         return error_fragment(&v, &error_message, "#profile-error");
@@ -182,41 +194,43 @@ async fn update_profile(
     let trimmed_name = params.name.trim();
 
     // Check if name is changing and if it's unique
-    if user.name != trimmed_name {
+    // Access name and id via inner
+    if user.inner.name != trimmed_name {
         let name_exists = match users::Entity::find()
             .filter(users::Column::Name.eq(trimmed_name))
-            .filter(users::Column::Id.ne(user.id))
+            .filter(users::Column::Id.ne(user.inner.id))
             .one(&ctx.db)
             .await
         {
             Ok(Some(_)) => true,
             Ok(None) => false,
             Err(e) => {
-                error!(error = ?e, "Database error checking username uniqueness for user {}", user.pid);
+                // Access pid via inner
+                error!(error = ?e, "Database error checking username uniqueness for user {}", user.inner.pid);
                 return error_fragment(&v, "Could not verify username availability.", "#profile-error");
             }
         };
 
         if name_exists {
-            warn!(user_pid = %user.pid, requested_name = %trimmed_name, "Profile update failed: username already exists");
+            // Access pid via inner
+            warn!(user_pid = %user.inner.pid, requested_name = %trimmed_name, "Profile update failed: username already exists");
             return error_fragment(&v, "Username already exists.", "#profile-error");
         }
     }
 
-    // Update user model
-    // Convert custom Model to ActiveModel
-    let mut user_am: users::ActiveModel = user.inner.clone().into(); // Explicit conversion 
+    // Update user model - use derived into()
+    let mut user_am: UserActiveModel = user.inner.clone().into(); // Rely on derived Into<ActiveModel> for UserEntityModel
     user_am.name = Set(trimmed_name.to_string());
+    // updated_at will be set by ActiveModelBehavior::before_save
 
     // Get pid *before* consuming user_am in the update call
-    // Safely get the pid as string, handle potential None if pid wasn't set (shouldn't happen here)
-    let user_pid_for_logging = user.pid.to_string();
+    let user_pid_for_logging = user_am.pid.as_ref().map_or("?".to_string(), |p| p.to_string()); // Get pid from ActiveModel before update
 
     match user_am.update(&ctx.db).await {
         Ok(updated_user_entity) => {
             info!(user_pid = %updated_user_entity.pid, "Profile updated successfully");
             // Re-render the profile form section with success message
-            let updated_user_model = UserModel::from(updated_user_entity); // Convert back to custom model if needed
+            let updated_user_model = crate::models::users::Model::from(updated_user_entity); // Use full path for from
             let context = json!({
                 "user": &updated_user_model.inner, // Pass inner entity
                 "success_message": "Profile updated successfully."
@@ -238,7 +252,7 @@ async fn update_profile(
 
 #[debug_handler]
 async fn update_email(
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -251,10 +265,13 @@ async fn update_email(
     };
 
     let new_email = params.email.trim().to_lowercase();
-    info!(user_pid = %user.pid, new_email = %new_email, "Attempting email update");
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, new_email = %new_email, "Attempting email update");
 
-    if user.email == new_email {
-         warn!(user_pid = %user.pid, "Email update attempt with same email");
+    // Access email via inner
+    if user.inner.email == new_email {
+         // Access pid via inner
+         warn!(user_pid = %user.inner.pid, "Email update attempt with same email");
          // Return the email form fragment, maybe with a neutral message?
          let context = json!({ "user": &user.inner }); // Use inner entity
          return match v.render("users/_email_form.html", context) {
@@ -268,7 +285,8 @@ async fn update_email(
 
     // Validate parameters
     if let Err(errors) = params.validate() {
-        warn!(user_pid = %user.pid, validation_errors = ?errors, "Email update validation failed");
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, validation_errors = ?errors, "Email update validation failed");
          // Fix validation error processing
         let error_message = errors.field_errors().iter().flat_map(|(_, errors)| errors.iter()).filter_map(|e| e.message.as_ref().map(|m| m.to_string())).collect::<Vec<_>>().join(" ");
         return error_fragment(&v, &error_message, "#email-error");
@@ -283,13 +301,15 @@ async fn update_email(
         Ok(Some(_)) => true,
         Ok(None) => false,
         Err(e) => {
-            error!(error = ?e, "Database error checking email uniqueness for user {}", user.pid);
+            // Access pid via inner
+            error!(error = ?e, "Database error checking email uniqueness for user {}", user.inner.pid);
             return error_fragment(&v, "Could not verify email availability.", "#email-error");
         }
     };
 
     if email_exists {
-        warn!(user_pid = %user.pid, requested_email = %new_email, "Email update failed: email already exists");
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, requested_email = %new_email, "Email update failed: email already exists");
         return error_fragment(&v, "Email already exists.", "#email-error");
     }
 
@@ -297,25 +317,26 @@ async fn update_email(
     let token = Uuid::new_v4().to_string();
 
     // Update user model: set new email, clear verification status, set new token
-    let mut user_am: users::ActiveModel = user.inner.clone().into(); // Explicit conversion // Use conversion method on custom Model
+    // Use derived into()
+    let mut user_am: UserActiveModel = user.inner.clone().into(); // Rely on derived Into<ActiveModel>
     user_am.email = Set(new_email.clone());
     user_am.email_verified_at = Set(None);
     user_am.email_verification_sent_at = Set(Some(chrono::Utc::now().into()));
     user_am.email_verification_token = Set(Some(token.clone())); // Use the generated token
+    // updated_at will be set by ActiveModelBehavior::before_save
 
-     // Get pid *before* consuming user_am in the update call
-    // Safely get the pid as string
-    let user_pid_for_logging = user.pid.to_string();
+    // Get pid *before* consuming user_am in the update call
+    let user_pid_for_logging = user_am.pid.as_ref().map_or("?".to_string(), |p| p.to_string());
 
     match user_am.update(&ctx.db).await {
         Ok(updated_user_entity) => {
             info!(user_pid = %updated_user_entity.pid, "Email update initiated, verification required");
 
             // Send verification email to the *new* address
-            let updated_user_model = UserModel::from(updated_user_entity);
+            let updated_user_model = crate::models::users::Model::from(updated_user_entity); // Use full path for from
             match AuthMailer::send_verification(&ctx, &updated_user_model, &token).await {
-                Ok(_) => info!(user_pid = %updated_user_model.pid, email = %new_email, "Verification email sent to new address"),
-                Err(e) => error!(error = ?e, user_pid = %updated_user_model.pid, email = %new_email, "Failed to send verification email to new address"),
+                Ok(_) => info!(user_pid = %updated_user_model.inner.pid, email = %new_email, "Verification email sent to new address"),
+                Err(e) => error!(error = ?e, user_pid = %updated_user_model.inner.pid, email = %new_email, "Failed to send verification email to new address"),
             }
 
             // Re-render the profile form section with success message
@@ -340,7 +361,7 @@ async fn update_email(
 
 #[debug_handler]
 async fn change_password(
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -352,30 +373,34 @@ async fn change_password(
         return redirect("/auth/login", headers);
     };
 
-    info!(user_pid = %user.pid, "Attempting password change");
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, "Attempting password change");
 
     // Validate parameters
     if let Err(errors) = params.validate() {
-        warn!(user_pid = %user.pid, validation_errors = ?errors, "Password change validation failed");
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, validation_errors = ?errors, "Password change validation failed");
          // Fix validation error processing
         let error_message = errors.field_errors().iter().flat_map(|(_, errors)| errors.iter()).filter_map(|e| e.message.as_ref().map(|m| m.to_string())).collect::<Vec<_>>().join(" ");
         return error_fragment(&v, &error_message, "#password-error");
     }
 
     // Verify current password
-    // Fix type mismatch: user.password is Option<String>
-    let current_password_hash_opt: Option<String> = user.password.clone(); // Directly clone the Option<String>
+    // Access password via inner
+    let current_password_hash_opt: Option<String> = user.inner.password.clone();
     let current_password_hash: &str = match &current_password_hash_opt {
         Some(hash) => hash.as_str(),
         None => {
-            error!(user_pid = %user.pid, "User has no password set, cannot change password");
+            // Access pid via inner
+            error!(user_pid = %user.inner.pid, "User has no password set, cannot change password");
             return error_fragment(&v, "Cannot change password. No current password set.", "#password-error");
         }
     };
 
-    if let Err(e) = UserModelCustom::verify_password(current_password_hash, &params.current_password) {
-        warn!(user_pid = %user.pid, "Password change failed: incorrect current password");
-        // Use ModelError::Message for comparison
+    // Use the imported verify_password function
+    if let Err(e) = verify_password(current_password_hash, &params.current_password) {
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, "Password change failed: incorrect current password");
         let error_message = match e {
             ModelError::Message(msg) if msg == "invalid email or password" => "Incorrect current password.".to_string(),
             _ => "Failed to verify current password.".to_string(),
@@ -383,19 +408,21 @@ async fn change_password(
         return error_fragment(&v, &error_message, "#password-error");
     }
 
-    // Update password
-    // Convert custom Model to ActiveModel
-    let mut user_am: users::ActiveModel = user.inner.clone().into(); // Explicit conversion 
-    // Fix type mismatch: password field in entity is Option<String>, so Set expects Option<String>
-    user_am.password = Set(Some(params.new_password.clone())); // Hashing happens in before_save
+    // Password will be hashed by ActiveModelBehavior::before_save
 
-     // Get pid *before* consuming user_am in the update call
-    // Safely get the pid as string
-    let user_pid_for_logging = user.pid.to_string();
+    // Use derived into()
+    let mut user_am: UserActiveModel = user.inner.clone().into(); // Rely on derived Into<ActiveModel>
+    user_am.password = Set(Some(params.new_password.clone())); // Set the PLAIN password
+    // updated_at will be set by ActiveModelBehavior::before_save
+
+    // Get pid *before* consuming user_am in the update call
+    let user_pid_for_logging = user_am.pid.as_ref().map_or("?".to_string(), |p| p.to_string());
 
     match user_am.update(&ctx.db).await {
         Ok(updated_user_entity) => {
-            info!(user_pid = %updated_user_model.pid, "Password changed successfully");
+            let updated_user_model = crate::models::users::Model::from(updated_user_entity); // Use full path for from
+            // Access pid via inner
+            info!(user_pid = %updated_user_model.inner.pid, "Password changed successfully");
             // Re-render the password form section with success message
             let context = json!({ "success_message": "Password changed successfully." });
             match v.render("users/_password_form.html", context) {
@@ -416,7 +443,7 @@ async fn change_password(
 #[debug_handler]
 async fn invitations_page(
     ViewEngine(v): ViewEngine<TeraView>,
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     State(ctx): State<AppContext>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse> {
@@ -426,11 +453,16 @@ async fn invitations_page(
         return redirect("/auth/login", headers);
     };
 
-    info!(user_pid = %user.pid, "Loading invitations page");
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, "Loading invitations page");
 
-    // Get pending invitations
+    // 1. Get base layout context
+    let layout_context = user.get_layout_context(&ctx, "invitations").await?;
+
+    // 2. Fetch page-specific data
+    // Access id via inner
     let invitations_with_teams = match team_memberships::Entity::find()
-        .filter(team_memberships::Column::UserId.eq(user.id))
+        .filter(team_memberships::Column::UserId.eq(user.inner.id))
         .filter(team_memberships::Column::Pending.eq(true))
         .order_by_desc(team_memberships::Column::InvitationSentAt)
         .find_with_related(crate::models::_entities::teams::Entity) // Use Entity
@@ -439,7 +471,8 @@ async fn invitations_page(
     {
         Ok(invites) => invites,
         Err(e) => {
-            error!(error = ?e, "Failed to load invitations for user {}", user.pid);
+            // Access pid via inner
+            error!(error = ?e, "Failed to load invitations for user {}", user.inner.pid);
             return error_page(
                 &v,
                 "Could not load your invitations. Please try again later.",
@@ -462,45 +495,42 @@ async fn invitations_page(
         })
         .collect();
 
-    // Get pending invitations count (re-fetch as it might have changed) using PaginatorTrait::count
-    let invitations_count = match team_memberships::Entity::find()
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(true))
-        .count(&ctx.db)
-        .await
-    {
-        Ok(count) => count,
+    // 3. Serialize layout context to serde_json::Value
+    let mut context_value = match serde_json::to_value(layout_context) {
+        Ok(Value::Object(map)) => map,
+        Ok(_) => return Err(Error::Message("Failed to serialize layout context to map".to_string())),
         Err(e) => {
-            error!(error = ?e, "Failed to load invitation count for user {}", user.pid);
-            return error_page(
-                &v,
-                "Could not load your invitation count.",
-                Some(Error::from(e)),
-            );
+            error!(error = ?e, "Failed to serialize layout context");
+            return Err(Error::from(e));
         }
     };
 
-    render_template(
-        &v,
-        "users/invitations.html",
-        json!({
-            "user": &user.inner, // Use inner entity
-            "invitations": invitations_json,
-            "active_page": "invitations",
-            "invitation_count": invitations_count,
-        }),
-    )
+    // 4. Create page-specific context and merge
+    let page_context = json!({
+        "invitations": invitations_json,
+    });
+
+    if let Value::Object(page_map) = page_context {
+        context_value.extend(page_map);
+    } else {
+        error!("Page context was not a JSON object");
+        return Err(Error::Message("Internal error creating page context".to_string()));
+    }
+
+    // 5. Render the template with the combined context using render_template helper
+    render_template(&v, "users/invitations.html", Value::Object(context_value))
 }
 
 #[debug_handler]
 async fn invitation_count_badge(
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     State(ctx): State<AppContext>,
 ) -> Result<impl IntoResponse> {
     if let Some(user) = auth.user {
         // Use PaginatorTrait::count
+        // Access id via inner
         let count = team_memberships::Entity::find()
-            .filter(team_memberships::Column::UserId.eq(user.id))
+            .filter(team_memberships::Column::UserId.eq(user.inner.id))
             .filter(team_memberships::Column::Pending.eq(true))
             .count(&ctx.db)
             .await?;
@@ -523,7 +553,7 @@ async fn invitation_count_badge(
 
 #[debug_handler]
 async fn add_ssh_key(
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap, // Needed for redirect on auth failure
@@ -535,11 +565,13 @@ async fn add_ssh_key(
         return redirect("/auth/login", headers);
     };
 
-    info!(user_pid = %user.pid, key_label = %params.label, "Attempting to add SSH key"); // Use label
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, key_label = %params.label, "Attempting to add SSH key"); // Use label
 
     // Validate parameters
     if let Err(errors) = params.validate() {
-        warn!(user_pid = %user.pid, validation_errors = ?errors, "Add SSH key validation failed");
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, validation_errors = ?errors, "Add SSH key validation failed");
          // Fix validation error processing
         let error_message = errors.field_errors().iter().flat_map(|(_, errors)| errors.iter()).filter_map(|e| e.message.as_ref().map(|m| m.to_string())).collect::<Vec<_>>().join(" ");
         return error_fragment(&v, &error_message, "#ssh-key-error");
@@ -548,7 +580,8 @@ async fn add_ssh_key(
     // Basic validation for SSH key format (starts with ssh-rsa, ssh-ed25519, etc.)
     let trimmed_key = params.key.trim();
     if !trimmed_key.starts_with("ssh-rsa") && !trimmed_key.starts_with("ssh-ed25519") && !trimmed_key.starts_with("ecdsa-sha2-nistp") {
-         warn!(user_pid = %user.pid, "Add SSH key failed: invalid format");
+         // Access pid via inner
+         warn!(user_pid = %user.inner.pid, "Add SSH key failed: invalid format");
          return error_fragment(&v, "Invalid SSH key format.", "#ssh-key-error");
     }
 
@@ -558,16 +591,20 @@ async fn add_ssh_key(
     };
 
     // Use the custom SshKeyModel for create_key
-    match SshKeyModel::create_key(&ctx.db, user.id, &create_params).await {
+    // Access id via inner
+    match SshKeyModel::create_key(&ctx.db, user.inner.id, &create_params).await {
         Ok(_) => {
-            info!(user_pid = %user.pid, key_label = %create_params.label, "SSH key added successfully"); // Use label
+            // Access pid via inner
+            info!(user_pid = %user.inner.pid, key_label = %create_params.label, "SSH key added successfully"); // Use label
             // Fetch updated keys using custom SshKeyModel and render the list fragment
-            let ssh_keys = SshKeyModel::find_by_user(&ctx.db, user.id).await?;
+            // Access id via inner
+            let ssh_keys = SshKeyModel::find_by_user(&ctx.db, user.inner.id).await?;
             let context = json!({ "ssh_keys": ssh_keys });
             format::render().view(&v, "users/_ssh_keys_list.html", context)
         }
         Err(e) => {
-            error!(error = ?e, user_pid = %user.pid, "Failed to add SSH key");
+            // Access pid via inner
+            error!(error = ?e, user_pid = %user.inner.pid, "Failed to add SSH key");
             let error_message = match e {
                  ModelError::Message(msg) => msg, // For uniqueness errors
                  _ => "Failed to add SSH key due to an unexpected error.".to_string(),
@@ -579,7 +616,7 @@ async fn add_ssh_key(
 
 #[debug_handler]
 async fn delete_ssh_key(
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap, // Needed for redirect on auth failure
@@ -591,27 +628,33 @@ async fn delete_ssh_key(
         return redirect("/auth/login", headers);
     };
 
-    info!(user_pid = %user.pid, key_id = %key_id, "Attempting to delete SSH key");
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, key_id = %key_id, "Attempting to delete SSH key");
 
     // Use the custom SshKeyModel for find_by_id
     match SshKeyModel::find_by_id(&ctx.db, key_id).await {
         Ok(key) => {
             // Verify ownership
-            if key.user_id != user.id {
-                warn!(user_pid = %user.pid, key_id = %key_id, "Unauthorized attempt to delete SSH key");
+            // Access id via inner
+            if key.user_id != user.inner.id {
+                // Access pid via inner
+                warn!(user_pid = %user.inner.pid, key_id = %key_id, "Unauthorized attempt to delete SSH key");
                 return error_fragment(&v, "Unauthorized.", "#ssh-key-error");
             }
 
             match key.delete(&ctx.db).await {
                 Ok(_) => {
-                    info!(user_pid = %user.pid, key_id = %key_id, "SSH key deleted successfully");
+                    // Access pid via inner
+                    info!(user_pid = %user.inner.pid, key_id = %key_id, "SSH key deleted successfully");
                     // Fetch updated keys using custom SshKeyModel and render the list fragment
-                    let ssh_keys = SshKeyModel::find_by_user(&ctx.db, user.id).await?;
+                    // Access id via inner
+                    let ssh_keys = SshKeyModel::find_by_user(&ctx.db, user.inner.id).await?;
                     let context = json!({ "ssh_keys": ssh_keys });
                     format::render().view(&v, "users/_ssh_keys_list.html", context)
                 }
                 Err(e) => {
-                    error!(error = ?e, user_pid = %user.pid, key_id = %key_id, "Failed to delete SSH key");
+                    // Access pid via inner
+                    error!(error = ?e, user_pid = %user.inner.pid, key_id = %key_id, "Failed to delete SSH key");
                     error_fragment(
                         &v,
                         "Failed to delete SSH key.",
@@ -621,11 +664,13 @@ async fn delete_ssh_key(
             }
         }
         Err(ModelError::EntityNotFound) => {
-            warn!(user_pid = %user.pid, key_id = %key_id, "Attempt to delete non-existent SSH key");
+            // Access pid via inner
+            warn!(user_pid = %user.inner.pid, key_id = %key_id, "Attempt to delete non-existent SSH key");
             error_fragment(&v, "Key not found.", "#ssh-key-error")
         }
         Err(e) => {
-            error!(error = ?e, user_pid = %user.pid, key_id = %key_id, "Error finding SSH key for deletion");
+            // Access pid via inner
+            error!(error = ?e, user_pid = %user.inner.pid, key_id = %key_id, "Error finding SSH key for deletion");
             error_fragment(&v, "Error finding key.", "#ssh-key-error")
         }
     }
@@ -635,7 +680,7 @@ async fn delete_ssh_key(
 
 #[debug_handler]
 async fn resend_verification_email(
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -646,18 +691,23 @@ async fn resend_verification_email(
         return redirect("/auth/login", headers);
     };
 
-    info!(user_pid = %user.pid, "Resending verification email");
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, "Resending verification email");
 
-    if user.email_verified_at.is_some() {
-        warn!(user_pid = %user.pid, "Verification email resend requested for already verified email");
+    // Access email_verified_at via inner
+    if user.inner.email_verified_at.is_some() {
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, "Verification email resend requested for already verified email");
         // Optionally return a message indicating it's already verified
         return Ok(Html("<div class=\"text-yellow-600 text-sm\"><p>Your email is already verified.</p></div>".to_string()).into_response());
     }
 
     // Check if a token was sent recently (e.g., within the last 5 minutes)
-    if let Some(sent_at) = user.email_verification_sent_at {
+    // Access email_verification_sent_at via inner
+    if let Some(sent_at) = user.inner.email_verification_sent_at {
          if sent_at + chrono::Duration::minutes(5) > chrono::Utc::now() {
-            warn!(user_pid = %user.pid, "Verification email resend requested too soon");
+            // Access pid via inner
+            warn!(user_pid = %user.inner.pid, "Verification email resend requested too soon");
             return Ok(Html("<div class=\"text-yellow-600 text-sm\"><p>Verification email recently sent. Please check your inbox or wait a few minutes before trying again.</p></div>".to_string()).into_response());
          }
     }
@@ -669,25 +719,27 @@ async fn resend_verification_email(
     {
         Ok(token) => {
             // Send the email
-            // Refetch user to get the updated token/sent_at for the mailer
-            match UserModel::find_by_pid(&ctx.db, &user.pid.to_string()).await {
+            // Re-fetch user to get the updated token/sent_at for the mailer
+            // Access pid via inner
+            match crate::models::users::Model::find_by_pid(&ctx.db, &user.inner.pid.to_string()).await { // Use full path for associated function
                 Ok(user_with_token) => {
                     match AuthMailer::send_verification(&ctx, &user_with_token, &token).await {
                         Ok(_) => {
-                            info!(user_pid = %user.pid, "Verification email resent successfully");
+                            // Access pid via inner
+                            info!(user_pid = %user.inner.pid, "Verification email resent successfully");
                             Ok(Html("<div class=\"text-green-600 text-sm\"><p>Verification email resent. Please check your inbox.</p></div>".to_string()).into_response())
                         }
                         Err(e) => {
-                            error!(error = ?e, user_pid = %user.pid, "Failed to send verification email");
+                            // Access pid via inner
+                            error!(error = ?e, user_pid = %user.inner.pid, "Failed to send verification email");
                              // Reset sent_at time if sending failed?
-                             // Call method on user_with_token, then convert to ActiveModel for update
-                             // Convert custom Model to ActiveModel
-                             let mut user_am = user_with_token.clone().into_active_model();
+                             // Use derived into()
+                             let mut user_am = user_with_token.inner.clone().into(); // Rely on derived Into<ActiveModel>
                              user_am.email_verification_sent_at = Set(None);
+                             // updated_at will be set by ActiveModelBehavior::before_save
 
-                              // Get pid *before* consuming user_am in the update call
-                              // Safely get the pid as string
-                             let user_pid_for_logging = user_with_token.pid.to_string(); // Use user_with_token here
+                             // Get pid *before* consuming user_am in the update call
+                             let user_pid_for_logging = user_am.pid.as_ref().map_or("?".to_string(), |p| p.to_string());
 
                              if let Err(update_err) = user_am.update(&ctx.db).await {
                                  error!(error = ?update_err, user_pid = %user_pid_for_logging, "Failed to reset email_verification_sent_at after send failure");
@@ -697,13 +749,15 @@ async fn resend_verification_email(
                     }
                 }
                 Err(e) => {
-                    error!(error = ?e, user_pid = %user.pid, "Failed to refetch user after generating verification token");
+                    // Access pid via inner
+                    error!(error = ?e, user_pid = %user.inner.pid, "Failed to refetch user after generating verification token");
                      Ok(Html("<div class=\"text-red-600 text-sm\"><p>Failed to resend email due to an internal error.</p></div>".to_string()).into_response())
                 }
             }
         }
         Err(e) => {
-            error!(error = ?e, user_pid = %user.pid, "Failed to generate email verification token");
+            // Access pid via inner
+            error!(error = ?e, user_pid = %user.inner.pid, "Failed to generate email verification token");
             Ok(Html("<div class=\"text-red-600 text-sm\"><p>Failed to resend email due to an internal error.</p></div>".to_string()).into_response())
         }
     }
@@ -713,7 +767,7 @@ async fn resend_verification_email(
 
 #[debug_handler]
 async fn update_pgp_key(
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -725,7 +779,8 @@ async fn update_pgp_key(
         return redirect("/auth/login", headers);
     };
 
-    info!(user_pid = %user.pid, "Attempting to update PGP key");
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, "Attempting to update PGP key");
 
     // Validate parameters (basic check for now)
     // You might want more robust PGP key validation (e.g., using a crate)
@@ -733,21 +788,22 @@ async fn update_pgp_key(
 
     if trimmed_key.is_empty() {
         // Clearing the PGP key
-        info!(user_pid = %user.pid, "Clearing PGP key");
-        // Convert custom Model to ActiveModel
-        let mut user_am: users::ActiveModel = user.inner.clone().into(); // Explicit conversion 
+        // Access pid via inner
+        info!(user_pid = %user.inner.pid, "Clearing PGP key");
+        // Use derived into()
+        let mut user_am: UserActiveModel = user.inner.clone().into(); // Rely on derived Into<ActiveModel>
         user_am.pgp_key = Set(None);
         user_am.pgp_verified_at = Set(None); // Clear verification status too
         user_am.pgp_verification_token = Set(None);
+        // updated_at will be set by ActiveModelBehavior::before_save
 
          // Get pid *before* consuming user_am in the update call
-         // Safely get the pid as string
-        let user_pid_for_logging = user.pid.to_string();
+         let user_pid_for_logging = user_am.pid.as_ref().map_or("?".to_string(), |p| p.to_string());
 
         return match user_am.update(&ctx.db).await {
             Ok(updated_user_entity) => {
                 info!(user_pid = %updated_user_entity.pid, "PGP key cleared successfully");
-                let updated_user = UserModel::from(updated_user_entity);
+                let updated_user = crate::models::users::Model::from(updated_user_entity); // Use full path for from
                 let context = json!({
                     "user": &updated_user.inner,
                     "has_pgp_key": false,
@@ -765,24 +821,25 @@ async fn update_pgp_key(
 
     // Setting or updating the PGP key
     if !trimmed_key.starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----") {
-        warn!(user_pid = %user.pid, "Update PGP key failed: invalid format");
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, "Update PGP key failed: invalid format");
         return error_fragment(&v, "Invalid PGP public key format.", "#pgp-error");
     }
 
-    // Convert custom Model to ActiveModel
-    let mut user_am: users::ActiveModel = user.inner.clone().into(); // Explicit conversion 
+    // Use derived into()
+    let mut user_am: UserActiveModel = user.inner.clone().into(); // Rely on derived Into<ActiveModel>
     user_am.pgp_key = Set(Some(trimmed_key.to_string()));
     user_am.pgp_verified_at = Set(None); // Reset verification on key change
     user_am.pgp_verification_token = Set(None);
+    // updated_at will be set by ActiveModelBehavior::before_save
 
      // Get pid *before* consuming user_am in the update call
-     // Safely get the pid as string
-    let user_pid_for_logging = user.pid.to_string();
+     let user_pid_for_logging = user_am.pid.as_ref().map_or("?".to_string(), |p| p.to_string());
 
     match user_am.update(&ctx.db).await {
         Ok(updated_user_entity) => {
             info!(user_pid = %updated_user_entity.pid, "PGP key updated successfully, verification needed");
-            let updated_user = UserModel::from(updated_user_entity);
+            let updated_user = crate::models::users::Model::from(updated_user_entity); // Use full path for from
              let context = json!({
                 "user": &updated_user.inner,
                 "has_pgp_key": true,
@@ -800,7 +857,7 @@ async fn update_pgp_key(
 
 #[debug_handler]
 async fn send_pgp_verification(
-    auth: JWTWithUserOpt<UserModel>, // Use custom Model
+    auth: JWTWithUserOpt<crate::models::users::Model>, // Use full path
     ViewEngine(v): ViewEngine<TeraView>,
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -811,14 +868,19 @@ async fn send_pgp_verification(
         return redirect("/auth/login", headers);
     };
 
-    info!(user_pid = %user.pid, "Requesting PGP verification email");
+    // Access pid via inner
+    info!(user_pid = %user.inner.pid, "Requesting PGP verification email");
 
-    if user.pgp_key.is_none() {
-        warn!(user_pid = %user.pid, "PGP verification requested but no key set");
+    // Access pgp_key via inner
+    if user.inner.pgp_key.is_none() {
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, "PGP verification requested but no key set");
         return error_fragment(&v, "No PGP key set.", "#pgp-error");
     }
-    if user.pgp_verified_at.is_some() {
-        warn!(user_pid = %user.pid, "PGP verification requested for already verified key");
+    // Access pgp_verified_at via inner
+    if user.inner.pgp_verified_at.is_some() {
+        // Access pid via inner
+        warn!(user_pid = %user.inner.pid, "PGP verification requested for already verified key");
         return error_fragment(&v, "PGP key already verified.", "#pgp-error");
     }
 
@@ -828,11 +890,13 @@ async fn send_pgp_verification(
     match user.generate_pgp_verification_token(&ctx.db).await {
         Ok(token) => {
              // Refetch user to ensure we have the latest state (with the token)
-            match UserModel::find_by_pid(&ctx.db, &user.pid.to_string()).await {
+             // Access pid via inner
+             match crate::models::users::Model::find_by_pid(&ctx.db, &user.inner.pid.to_string()).await { // Use full path for associated function
                 Ok(user_with_token) => {
                     match AuthMailer::send_pgp_verification(&ctx, &user_with_token, &token).await {
                         Ok(_) => {
-                            info!(user_pid = %user.pid, "PGP verification email sent successfully");
+                            // Access pid via inner
+                            info!(user_pid = %user.inner.pid, "PGP verification email sent successfully");
                              let context = json!({
                                 "user": &user_with_token.inner,
                                 "has_pgp_key": true,
@@ -842,16 +906,16 @@ async fn send_pgp_verification(
                             format::render().view(&v, "users/_pgp_section.html", context)
                         }
                         Err(e) => {
-                            error!(error = ?e, user_pid = %user.pid, "Failed to send PGP verification email");
+                            // Access pid via inner
+                            error!(error = ?e, user_pid = %user.inner.pid, "Failed to send PGP verification email");
                              // Reset token if send failed?
-                              // Call method on user_with_token, then convert to ActiveModel for update
-                              // Convert custom Model to ActiveModel
-                             let mut user_am = user_with_token.clone().into_active_model();
+                              // Use derived into()
+                              let mut user_am = user_with_token.inner.clone().into(); // Rely on derived Into<ActiveModel>
                              user_am.pgp_verification_token = Set(None);
+                             // updated_at will be set by ActiveModelBehavior::before_save
 
-                              // Get pid *before* consuming user_am in the update call
-                              // Safely get the pid as string
-                             let user_pid_for_logging = user_with_token.pid.to_string(); // Use user_with_token here
+                             // Get pid *before* consuming user_am in the update call
+                             let user_pid_for_logging = user_am.pid.as_ref().map_or("?".to_string(), |p| p.to_string());
 
                              if let Err(update_err) = user_am.update(&ctx.db).await {
                                   error!(error = ?update_err, user_pid = %user_pid_for_logging, "Failed to reset pgp_verification_token after send failure");
@@ -865,13 +929,15 @@ async fn send_pgp_verification(
                     }
                 }
                  Err(e) => {
-                     error!(error = ?e, user_pid = %user.pid, "Failed to refetch user after generating PGP token");
+                     // Access pid via inner
+                     error!(error = ?e, user_pid = %user.inner.pid, "Failed to refetch user after generating PGP token");
                       error_fragment(&v, "Failed to send email due to an internal error.", "#pgp-error")
                  }
             }
         }
         Err(e) => {
-            error!(error = ?e, user_pid = %user.pid, "Failed to generate PGP verification token");
+            // Access pid via inner
+            error!(error = ?e, user_pid = %user.inner.pid, "Failed to generate PGP verification token");
             error_fragment(
                 &v,
                 "Failed to initiate PGP verification. Please try again later.",
@@ -899,9 +965,10 @@ async fn verify_pgp_page(
         .one(&ctx.db)
         .await
     {
-        Ok(Some(user_entity)) => UserModel::from(user_entity),
+        Ok(Some(user_entity)) => crate::models::users::Model::from(user_entity), // Use full path for from
         Ok(None) => {
             warn!(token = %query.token, "Invalid or expired PGP verification token");
+            // Use render_template for consistency and correct return type
             return render_template(
                 &v,
                 "users/pgp_verify.html", // Create this template
@@ -914,9 +981,12 @@ async fn verify_pgp_page(
         }
     };
 
+    // Call verify_pgp as a method on the UserModel instance
     match user.verify_pgp(&ctx.db, &query.token).await {
         Ok(_) => {
-            info!(user_pid = %user.pid, "PGP key verified successfully");
+            // Access pid via inner
+            info!(user_pid = %user.inner.pid, "PGP key verified successfully");
+            // Use render_template for consistency and correct return type
             render_template(
                 &v,
                  "users/pgp_verify.html",
@@ -924,12 +994,14 @@ async fn verify_pgp_page(
             )
         }
         Err(e) => {
-            error!(error = ?e, user_pid = %user.pid, "PGP verification failed");
+            // Access pid via inner
+            error!(error = ?e, user_pid = %user.inner.pid, "PGP verification failed");
             // Use ModelError::Message for comparison
             let message = match e {
                  ModelError::Message(msg) if msg == "invalid token" => "Invalid or expired PGP verification token.".to_string(),
                 _ => "PGP key verification failed due to an unexpected error.".to_string(),
             };
+            // Use render_template for consistency and correct return type
             render_template(
                 &v,
                  "users/pgp_verify.html",

@@ -31,9 +31,9 @@ use serde::Deserialize;
 use serde_json::json;
 use loco_rs::config::ConfigExt; // For config .get_string()
 use strum::IntoEnumIterator; // Import the trait needed for Role::iter()
-use strum::IntoEnumIterator; // Import the trait needed for Role::iter()
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use tera::Context; // Import tera::Context for merging
 
 // Route parameter extraction structs
 #[derive(Deserialize)]
@@ -124,6 +124,10 @@ async fn teams_list_page(
 
     info!(user_pid = %user.pid, "Loading teams list page");
 
+    // Get base layout context
+    let layout_context = user.get_layout_context(&ctx.db, "teams").await?;
+    let mut context = Context::from_serialize(layout_context)?;
+
     // Fetch teams the user is a member of (excluding pending)
     let memberships = match team_memberships::Entity::find()
         .filter(team_memberships::Column::UserId.eq(user.id))
@@ -153,30 +157,13 @@ async fn teams_list_page(
         })
         .collect();
 
-    // Get pending invitations count
-    let invitations_count = match team_memberships::Entity::find()
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(true))
-        .count(&ctx.db)
-        .await
-    {
-        Ok(count) => count,
-        Err(e) => {
-            error!(error = ?e, "Failed to load invitation count for user {}", user.pid);
-            // Don't fail the whole page load, default to 0
-            0
-        }
-    };
+    // Merge page-specific data
+    context.insert("teams", &teams_json);
 
     render_template(
         &v,
         "teams/list.html",
-        json!({
-            "user": &user.inner,
-            "teams": teams_json,
-            "active_page": "teams",
-            "invitation_count": invitations_count,
-        }),
+        context, // Pass the merged context
     )
 }
 
@@ -194,28 +181,14 @@ async fn new_team_page(
         return redirect("/auth/login", headers);
     };
 
-    // Get pending invitations count
-    let invitations_count = match team_memberships::Entity::find()
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(true))
-        .count(&ctx.db)
-        .await
-    {
-        Ok(count) => count,
-        Err(e) => {
-            error!(error = ?e, "Failed to load invitation count for user {}", user.pid);
-            0 // Default to 0 on error
-        }
-    };
+    // Get base layout context
+    let layout_context = user.get_layout_context(&ctx.db, "teams").await?;
+    let context = Context::from_serialize(layout_context)?;
 
     render_template(
         &v,
         "teams/new.html",
-        json!({
-            "user": &user.inner,
-            "active_page": "teams",
-            "invitation_count": invitations_count,
-        }),
+        context, // Pass the context (contains user, active_page, invitation_count)
     )
 }
 
@@ -284,6 +257,10 @@ async fn team_details(
 
     info!(user_pid = %user.pid, team_pid = %team_pid, "Loading team details page");
 
+    // Get base layout context
+    let layout_context = user.get_layout_context(&ctx.db, "teams").await?;
+    let mut context = Context::from_serialize(layout_context)?;
+
     // Fetch team and ensure user is a member (any role)
     let team = match ensure_team_role(
         &ctx,
@@ -349,20 +326,6 @@ async fn team_details(
         }
     };
 
-    // Get pending invitations count for the logged-in user (badge)
-    let invitations_count = match team_memberships::Entity::find()
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(true))
-        .count(&ctx.db)
-        .await
-    {
-        Ok(count) => count,
-        Err(e) => {
-            error!(error = ?e, "Failed to load invitation count for user {}", user.pid);
-            0 // Default to 0 on error
-        }
-    };
-
     // Get all possible roles for the dropdown
     let roles: Vec<String> = <Role as IntoEnumIterator>::iter().map(|r| r.to_string()).collect(); // Use iter() from IntoEnumIterator trait
 
@@ -370,20 +333,18 @@ async fn team_details(
     let admin_team_name = get_admin_team_name(&ctx).await;
     let is_system_admin_team = team.name == admin_team_name;
 
+    // Merge page-specific data
+    context.insert("team", &team.inner);
+    context.insert("is_admin", &is_admin);
+    context.insert("is_system_admin_team", &is_system_admin_team); // Pass flag to template
+    context.insert("members", &members);
+    context.insert("pending_members", &pending_members);
+    context.insert("roles", &roles);
+
     render_template(
         &v,
         "teams/show.html",
-        json!({
-            "user": &user.inner,
-            "team": &team.inner,
-            "is_admin": is_admin,
-            "is_system_admin_team": is_system_admin_team, // Pass flag to template
-            "members": members,
-            "pending_members": pending_members,
-            "roles": roles,
-            "active_page": "teams",
-            "invitation_count": invitations_count,
-        }),
+        context, // Pass the merged context
     )
 }
 
@@ -403,6 +364,10 @@ async fn edit_team_page(
     };
 
     info!(user_pid = %user.pid, team_pid = %team_pid, "Loading team edit page");
+
+    // Get base layout context
+    let layout_context = user.get_layout_context(&ctx.db, "teams").await?;
+    let mut context = Context::from_serialize(layout_context)?;
 
     // Ensure user is Admin or Owner to edit
     let team = match ensure_team_role(&ctx, &user, &team_pid, vec![Role::Admin, Role::Owner]).await {
@@ -427,30 +392,14 @@ async fn edit_team_page(
     let admin_team_name = get_admin_team_name(&ctx).await;
     let is_system_admin_team = team.name == admin_team_name;
 
-    // Get pending invitations count
-    let invitations_count = match team_memberships::Entity::find()
-        .filter(team_memberships::Column::UserId.eq(user.id))
-        .filter(team_memberships::Column::Pending.eq(true))
-        .count(&ctx.db)
-        .await
-    {
-        Ok(count) => count,
-        Err(e) => {
-            error!(error = ?e, "Failed to load invitation count for user {}", user.pid);
-            0 // Default to 0 on error
-        }
-    };
+    // Merge page-specific data
+    context.insert("team", &team.inner);
+    context.insert("is_system_admin_team", &is_system_admin_team); // Pass flag to template
 
     render_template(
         &v,
         "teams/edit.html",
-        json!({
-            "user": &user.inner,
-            "team": &team.inner,
-            "is_system_admin_team": is_system_admin_team, // Pass flag to template
-            "active_page": "teams",
-            "invitation_count": invitations_count,
-        }),
+        context, // Pass the merged context
     )
 }
 
@@ -497,7 +446,7 @@ async fn update_team_handler(
     }
 
     // Trim inputs
-    let mut trimmed_params = UpdateTeamParams {
+    let trimmed_params = UpdateTeamParams {
         name: params.name.trim().to_string(),
         description: params.description.map(|d| d.trim().to_string()),
     };

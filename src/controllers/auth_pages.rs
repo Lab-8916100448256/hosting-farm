@@ -345,13 +345,14 @@ async fn handle_reset_password(
                     error_page(
                         &v,
                         "An unexpected error occurred.",
-                        Some(Error::Tera(tera_err)),
+                        Some(Error::View(tera_err)), // Map Tera error to loco Error::View
                     )
                 }
             }
         }
     }
 }
+
 
 #[derive(Deserialize)]
 pub struct VerifyTokenQuery {

@@ -7,7 +7,9 @@ use loco_rs::{
     environment::Environment,
     task::Tasks,
     worker::{Processor, Workers},
+    config::Config, // Import Config
     Result,
+
 };
 use migration::{Migrator, MigratorTrait}; // Import MigratorTrait
 use sea_orm::DatabaseConnection;
@@ -39,8 +41,11 @@ impl Hooks for App {
         )
     }
 
-    async fn boot(mode: StartMode, environment: &Environment) -> Result<BootResult> {
-        // Add Migrator as the second generic argument
+    // Correct the boot signature to include the config parameter to match the trait
+    async fn boot(mode: StartMode, environment: &Environment, _config: &Config) -> Result<BootResult> {
+        // create_app internally loads the config based on the environment,
+        // so we don't need to explicitly pass the config parameter here.
+        // The _config parameter is present only to match the trait signature.
         create_app::<Self, Migrator>(mode, environment).await
     }
 

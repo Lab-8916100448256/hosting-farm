@@ -1,23 +1,25 @@
+use loco_rs::model::ModelError;
 use crate::{
     mailers::auth::AuthMailer,
     models::{
         _entities::users,
         // Import the custom Model struct, ActiveModel, and params from models::users
-        users::{Model as UserModel, ActiveModel as UserActiveModel, LoginParams, RegisterParams, ForgotPasswordParams, ResetPasswordParams, MagicLinkParams},
+        users::{Model as UserModel, ActiveModel as UserActiveModel, LoginParams, RegisterParams, ForgotPasswordParams, ResetPasswordParams},
     },
     views::auth::{CurrentResponse, LoginResponse},
 };
 use axum::{
     debug_handler,
-    extract::{Json, Path, State}, // Added Json import
-    routing::{get, post}, // Ensure get and post are imported
-    response::{Response}, // Import Response
-    Router, // Import Router
+    extract::{Json, Path, State},
+    routing::{get, post},
+    response::{Response, IntoResponse}, // Import IntoResponse
+    Router,
 };
 use loco_rs::prelude::*;
 use regex::Regex;
 // serde removed as Json extractor handles it
 use std::sync::OnceLock;
+use serde::Deserialize;
 
 pub static EMAIL_DOMAIN_RE: OnceLock<Regex> = OnceLock::new();
 
@@ -62,7 +64,7 @@ async fn register(
     };
 
     // Refetch user to ensure we have the latest state with the token for the mailer
-    let user_with_token = match UserModel::find_by_id(&ctx.db, user.id).await {
+    let user_with_token = match UserModel::find_by_pid(&ctx.db, &user.pid.to_string()).await {
          Ok(u) => u,
          Err(e) => {
               error!(error = ?e, user_pid = %user.pid, "Failed to refetch user after generating verification token");
@@ -70,7 +72,7 @@ async fn register(
          }
     };
 
-    AuthMailer::send_welcome(&ctx, &user_with_token, &token).await?; // Pass token to mailer
+    AuthMailer::send_welcome(&ctx, &user_with_token).await?; // Pass token to mailer
 
     format::json(()) // Return empty JSON on success
 }
@@ -118,7 +120,7 @@ async fn forgot(
     };
 
     // Refetch user to get updated state with token
-    let user_with_token = match UserModel::find_by_id(&ctx.db, user.id).await {
+    let user_with_token = match UserModel::find_by_pid(&ctx.db, &user.pid.to_string()).await {
          Ok(u) => u,
          Err(e) => {
              error!(error = ?e, user_pid = %user.pid, "Failed to refetch user after generating reset token");
@@ -126,31 +128,36 @@ async fn forgot(
          }
     };
 
-    AuthMailer::send_reset_password(&ctx, &user_with_token, &token).await?; // Pass token to mailer
+    AuthMailer::forgot_password(&ctx, &user_with_token).await?; // Pass token to mailer
 
     format::json(())
 }
 
 /// reset user password by the given parameters
 #[debug_handler]
-async fn reset(State(ctx): State<AppContext>, Json(params): Json<ResetPasswordParams>) -> Result<Response> { // Use ResetPasswordParams
+async fn reset(State(ctx): State<AppContext>, Json(params): Json<ResetPasswordParams>) -> Result<Response> {
     // Call the static model method for password reset
     match UserModel::reset_password(&ctx.db, &params).await {
         Ok(_) => {
-            info!(token_prefix = &params.token[..5], "Password reset successful");
+            // Check if token length allows slicing before logging prefix
+            let token_prefix = if params.reset_token.len() >= 5 { &params.reset_token[..5] } else { params.reset_token.as_str() };
+            info!(token_prefix = token_prefix, "Password reset successful");
             format::json(())
         }
         Err(ModelError::Message(msg)) if msg == "invalid reset token" || msg == "token expired" => {
-            warn!(token_prefix = &params.token[..5], message = msg, "Password reset failed (token invalid/expired)");
+            let token_prefix = if params.reset_token.len() >= 5 { &params.reset_token[..5] } else { params.reset_token.as_str() };
+            warn!(token_prefix = token_prefix, message = msg, "Password reset failed (token invalid/expired)");
             // Don't reveal specific reason to client for security
             format::json(()) // Return success-like response
         }
         Err(e @ ModelError::Validation(_)) => {
-             warn!(error = ?e, token_prefix = &params.token[..5], "Password reset failed (validation)");
+            let token_prefix = if params.reset_token.len() >= 5 { &params.reset_token[..5] } else { params.reset_token.as_str() };
+            warn!(error = ?e, token_prefix = token_prefix, "Password reset failed (validation)");
              Err(Error::Model(e)) // Return validation error
         }
         Err(e) => {
-            error!(error = ?e, token_prefix = &params.token[..5], "Password reset failed (internal error)");
+            let token_prefix = if params.reset_token.len() >= 5 { &params.reset_token[..5] } else { params.reset_token.as_str() };
+            error!(error = ?e, token_prefix = token_prefix, "Password reset failed (internal error)");
             Err(Error::Model(e)) // Return internal error
         }
     }
@@ -173,23 +180,30 @@ async fn login(State(ctx): State<AppContext>, Json(params): Json<LoginParams>) -
     let jwt_secret = ctx.config.get_jwt_config()?;
 
     let token = user
-        .generate_token(&jwt_secret.secret, jwt_secret.expiration.unsigned_abs()) // Use generate_token from Authenticable
+        .generate_token(&jwt_secret.secret, Some(chrono::Duration::seconds(jwt_secret.expiration as i64))).await // Use generate_token from Authenticable
         .map_err(|_| Error::InternalServerError)?;// Convert JWTError to InternalServerError
 
     format::json(LoginResponse::new(&user, &token)) // Use LoginResponse view
 }
 
 #[debug_handler]
-async fn current(auth: auth::JWTWithUser<UserModel>, State(ctx): State<AppContext>) -> Result<Response> { // Use JWTWithUser
+async fn current(auth: auth::JWTWithUser<UserModel>, State(_ctx): State<AppContext>) -> Result<Response> { // Use JWTWithUser, mark ctx as unused
     // auth.user is already the UserModel instance loaded by the middleware
     format::json(CurrentResponse::new(&auth.user)) // Use CurrentResponse view
 }
 
 /// Magic link authentication provides a secure and passwordless way to log in to the application.
+// Define MagicLinkParams locally if not imported
+#[derive(Debug, Deserialize, Validate)]
+struct MagicLinkParams {
+    #[validate(email(message = "Invalid email format."))]
+    pub email: String,
+}
+
 #[debug_handler]
 async fn magic_link(
     State(ctx): State<AppContext>,
-    Json(params): Json<MagicLinkParams>, // Use MagicLinkParams
+    Json(params): Json<MagicLinkParams>,
 ) -> Result<Response> {
     let email_regex = get_allow_email_domain_re();
     if !email_regex.is_match(&params.email) {
@@ -221,7 +235,7 @@ async fn magic_link(
     };
 
      // Refetch user to get updated state with token
-    let user_with_token = match UserModel::find_by_id(&ctx.db, user.id).await {
+    let user_with_token = match UserModel::find_by_pid(&ctx.db, &user.pid.to_string()).await {
          Ok(u) => u,
          Err(e) => {
              error!(error = ?e, user_pid = %user.pid, "Failed to refetch user after generating magic link token");
@@ -229,7 +243,7 @@ async fn magic_link(
          }
     };
 
-    AuthMailer::send_magic_link(&ctx, &user_with_token, &token).await?;
+    AuthMailer::send_magic_link(&ctx, &user_with_token).await?;
 
     format::json(())
 }
@@ -260,7 +274,7 @@ async fn magic_link_verify(
     let jwt_secret = ctx.config.get_jwt_config()?;
 
     let jwt_token = updated_user
-        .generate_token(&jwt_secret.secret, jwt_secret.expiration.unsigned_abs())
+        .generate_token(&jwt_secret.secret, Some(chrono::Duration::seconds(jwt_secret.expiration as i64))).await
         .map_err(|_| Error::InternalServerError)?;
 
     format::json(LoginResponse::new(&updated_user, &jwt_token))
