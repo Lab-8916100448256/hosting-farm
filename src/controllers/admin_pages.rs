@@ -9,7 +9,7 @@ use axum::{
     extract::{Form, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{get, post},
 };
 use loco_rs::{app::AppContext, prelude::*};
 use sea_orm::{EntityTrait, PaginatorTrait, QueryOrder};

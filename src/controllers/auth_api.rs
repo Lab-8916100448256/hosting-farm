@@ -104,12 +104,14 @@ async fn forgot(
         return format::json(());
     };
 
-    let user = user
+    let user_with_token = user.initiate_password_reset(&ctx.db).await?;
+
+    let user_initiated = user_with_token
         .into_active_model()
         .set_forgot_password_sent(&ctx.db)
         .await?;
 
-    AuthMailer::forgot_password(&ctx, &user).await?;
+    AuthMailer::forgot_password(&ctx, &user_initiated).await?;
 
     format::json(())
 }
