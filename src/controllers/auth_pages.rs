@@ -2,12 +2,14 @@ use crate::{
     mailers::auth::AuthMailer,
     middleware::auth_no_error::JWTWithUserOpt,
     models::{
-        teams, // Added for admin team creation
-        users,
-        users::{ForgotPasswordParams, LoginParams, RegisterParams, ResetPasswordParams},
+        _entities::users as user_entity, // Use alias for entity if needed elsewhere, currently only in handle_register admin team logic
+        teams,                           // Keep teams import if needed for admin team creation
+        users::{
+            ActiveModel as UserActiveModel, ForgotPasswordParams, LayoutData, LoginParams,
+            Model as UserModel, RegisterParams, ResetPasswordParams,
+        },
     },
-    views::render_template,
-    views::*,
+    views::{error_fragment, error_page, redirect, render_template}, // Ensure all view helpers are imported
 };
 use tracing::{debug, error, info}; // Import tracing macros
 
@@ -17,8 +19,9 @@ use axum::{
     extract::{Form, Path, Query, State},
 };
 use loco_rs::prelude::*;
-use sea_orm::{EntityTrait, PaginatorTrait}; // Added EntityTrait for ::count(), PaginatorTrait for ::count()
+use sea_orm::{EntityTrait, IntoActiveModel, PaginatorTrait}; // Import IntoActiveModel
 use std::collections::HashMap;
+use tera::Context; // Import Context
 
 /// Helper function to get the admin team name from config
 fn get_admin_team_name(ctx: &AppContext) -> String {
@@ -40,19 +43,19 @@ fn get_admin_team_name(ctx: &AppContext) -> String {
 /// Renders the registration page
 #[debug_handler]
 async fn register(
-    auth: JWTWithUserOpt<users::Model>,
+    auth: JWTWithUserOpt<UserModel>,
     ViewEngine(v): ViewEngine<TeraView>,
-    State(_ctx): State<AppContext>,
+    State(ctx): State<AppContext>,
     headers: HeaderMap,
 ) -> Result<Response> {
-    match auth.user {
-        Some(_user) => {
-            // User is already authenticated, redirect to home using standard redirect
-            tracing::info!("User is already authenticated, redirecting to home");
-            redirect("/home", headers)
-        }
-        None => render_template(&v, "auth/register.html", data!({})),
+    if auth.user.is_some() {
+        tracing::info!("User is already authenticated, redirecting to home");
+        return redirect("/home", headers);
     }
+    // Create layout data (user will be None)
+    let layout_data = UserModel::create_layout_data(None, &ctx).await?;
+    // Fix: Ensure Context::new() is passed for empty page-specific context
+    render_template(&v, "auth/register.html", None, layout_data, Context::new())
 }
 
 /// Handles the registration form submission
@@ -63,7 +66,12 @@ async fn handle_register(
     headers: HeaderMap,
     Form(form): Form<RegisterParams>,
 ) -> Result<Response> {
-    // Check if passwords match
+    // Construct default layout data needed *only* if error_page is called
+    let default_layout_data = LayoutData {
+        user: None,
+        is_admin: false,
+    };
+
     if form.password != form.password_confirmation {
         return error_fragment(
             &v,
@@ -72,157 +80,101 @@ async fn handle_register(
         );
     }
 
-    // Convert form data to RegisterParams, trimming the name
     let params = RegisterParams {
         name: form.name.trim().to_string(),
-        email: form.email, // Email validation should handle trimming if necessary
+        email: form.email,
         password: form.password,
         password_confirmation: form.password_confirmation,
     };
 
-    // Create user account
-    let res = users::Model::create_with_password(&ctx.db, &params).await;
-
-    match res {
+    match UserModel::create_with_password(&ctx.db, &params).await {
         Ok(user) => {
-            // START: Auto-create admin team for the first user
-            match users::Entity::find().count(&ctx.db).await {
-                Ok(user_count) => {
-                    if user_count == 1 {
-                        info!(
-                            "First user registered ({}), attempting to create default admin team.",
-                            user.email
-                        );
-                        // Read admin team name from configuration, fallback to "Administrators"
-                        let admin_team_name = get_admin_team_name(&ctx);
-
-                        let team_params = teams::CreateTeamParams {
-                            name: admin_team_name.clone(), // Clone name from config
-                            description: Some(
-                                "Default administrators team created automatically.".to_string(),
-                            ),
-                        };
-
-                        // Attempt to create the team, logging the outcome
-                        match crate::models::_entities::teams::Model::create_team(&ctx.db, user.id, &team_params).await {
-                            Ok(team) => info!(
-                                "Successfully created default administrators team '{}' (ID: {}) for first user {}",
-                                admin_team_name, team.id, user.email
-                            ),
-                            Err(e) => {
-                                // Log the error but do not fail the registration
-                                error!(
-                                    "Failed to create default administrators team '{}' for first user {}: {:?}",
-                                    admin_team_name, user.email, e
-                                );
-                                // Registration continues even if team creation fails.
-                            }
+            // user is UserModel
+            // --- Admin Team Creation Logic ---
+            match user_entity::Entity::find().count(&ctx.db).await {
+                // Use user_entity alias here
+                Ok(user_count) if user_count == 1 => {
+                    info!(
+                        "First user registered ({}), creating default admin team.",
+                        user.email
+                    );
+                    let admin_team_name = get_admin_team_name(&ctx); // Assuming this helper is still here
+                    let team_params = teams::CreateTeamParams {
+                        name: admin_team_name.clone(),
+                        description: Some("Default administrators team.".to_string()),
+                    };
+                    // Use create_team defined on the teams Model (adjust path if needed)
+                    match teams::Model::create_team(&ctx.db, user.id, &team_params).await {
+                        Ok(team) => {
+                            info!("Created admin team '{}' (ID: {})", admin_team_name, team.id)
                         }
-                    } else {
-                        // Not the first user, do nothing related to admin team creation
-                        debug!("Not the first user (count: {}), skipping admin team creation for user {}", user_count, user.email);
+                        Err(e) => {
+                            error!("Failed to create admin team '{}': {:?}", admin_team_name, e)
+                        }
                     }
                 }
-                Err(e) => {
-                    // Failed to get user count, log error but proceed with registration
-                    error!("Failed to query user count during registration for user {}: {:?}. Skipping admin team creation check.", user.email, e);
-                    // Registration continues even if the count check fails.
-                }
+                Ok(count) => debug!(
+                    "Not first user (count: {}), skipping admin team creation.",
+                    count
+                ),
+                Err(e) => error!(
+                    "Failed to query user count: {:?}. Skipping admin team check.",
+                    e
+                ),
             }
-            // END: Auto-create admin team logic
+            // --- End Admin Team Creation ---
 
-            // Generate email verification token
-            match user
-                .clone()
-                .into_active_model()
-                .generate_email_verification_token(&ctx.db)
-                .await
-            {
-                Ok(user_with_token) => {
-                    // Send verification email first
-                    match AuthMailer::send_welcome(&ctx, &user_with_token).await {
+            // Fix: Convert Model to ActiveModel before calling ActiveModel methods
+            let mut active_user: UserActiveModel = user.clone().into_active_model();
+            match active_user.generate_email_verification_token(&ctx.db).await {
+                Ok(user_with_token_model) => {
+                    // returns Model
+                    match AuthMailer::send_welcome(&ctx, &user_with_token_model).await {
                         Ok(_) => {
-                            // Email sent successfully, now update verification status
-                            match user_with_token
-                                .clone()
-                                .into_active_model()
-                                .set_email_verification_sent(&ctx.db)
-                                .await
-                            {
-                                Ok(_) => {
-                                    // All good, redirect to login page with success message
-                                    redirect("/auth/login?registered=true", headers)
-                                }
+                            // Fix: Convert Model to ActiveModel
+                            let mut active_user_sent: UserActiveModel =
+                                user_with_token_model.clone().into_active_model();
+                            match active_user_sent.set_email_verification_sent(&ctx.db).await {
+                                Ok(_) => redirect("/auth/login?registered=true", headers),
                                 Err(err) => {
-                                    tracing::error!(
-                                        message =
-                                            "Failed to set email verification status after sending email",
-                                        user_email = &user_with_token.email, // use user_with_token here
-                                        error = err.to_string(),
-                                    );
-                                    // Although the email was sent, the DB update failed.
-                                    // This is an internal error state, show error page.
-                                    error_page(&v, "Account registered, but failed to finalize setup. Please contact support.", Some(loco_rs::Error::Model(err)))
+                                    tracing::error!(error=%err, email=%user_with_token_model.email, "Failed to set email verification status");
+                                    // Fix: Pass default_layout_data to error_page
+                                    error_page(
+                                        &v,
+                                        "Account registered, but failed to finalize setup.",
+                                        Some(loco_rs::Error::Model(err)),
+                                        default_layout_data,
+                                    )
                                 }
                             }
                         }
                         Err(err) => {
-                            tracing::error!(
-                                message = "Failed to send welcome email",
-                                user_email = &user_with_token.email, // use user_with_token here
-                                error = err.to_string(),
-                            );
-                            // Don't proceed to update verification status if email failed.
+                            tracing::error!(error=%err, email=%user_with_token_model.email, "Failed to send welcome email");
+                            // Fix: Pass default_layout_data to error_page
                             error_page(
                                 &v,
                                 "Could not send welcome email.",
                                 Some(loco_rs::Error::wrap(err)),
+                                default_layout_data,
                             )
                         }
                     }
                 }
                 Err(err) => {
-                    tracing::error!(
-                        message = "Failed to generate email verification token",
-                        user_email = &user.email, // user is still available here from initial Ok(user)
-                        error = err.to_string(),
-                    );
-                    // Error generating token after user creation.
-                    // This is an internal error state, show error page.
+                    tracing::error!(error=%err, email=%user.email, "Failed to generate email verification token");
+                    // Fix: Pass default_layout_data to error_page
                     error_page(
                         &v,
-                        "Account registered, but failed to finalize setup. Please contact support.",
+                        "Account registered, but failed to finalize setup.",
                         Some(loco_rs::Error::Model(err)),
+                        default_layout_data,
                     )
                 }
             }
         }
         Err(err) => {
-            // Log the specific error details
-            tracing::info!(
-                error = err.to_string(), // Log the actual error string
-                user_email = &params.email,
-                user_name = &params.name, // Also log the username attempt
-                "Could not register user",
-            );
-
-            // Handle specific ModelError variants
-            match err {
-                // Use the message directly from the ModelError for uniqueness errors
-                ModelError::Message(msg) => error_fragment(&v, &msg, "#error-container"),
-                // Handle validation errors
-                ModelError::Validation(validation_err) => error_fragment(
-                    &v,
-                    &format!("Validation error: {}", validation_err),
-                    "#error-container",
-                ),
-                // Handle other potential errors generically
-                _ => error_fragment(
-                    &v,
-                    "Could not register account due to an unexpected error.",
-                    "#error-container",
-                ),
-            }
+            error!(error = ?err, "Registration failed");
+            error_fragment(&v, &err.to_string(), "#error-container") // Send specific error back
         }
     }
 }
@@ -230,41 +182,37 @@ async fn handle_register(
 /// Renders the login page
 #[debug_handler]
 async fn login(
-    auth: JWTWithUserOpt<users::Model>,
+    auth: JWTWithUserOpt<UserModel>,
     ViewEngine(v): ViewEngine<TeraView>,
-    State(_ctx): State<AppContext>,
+    State(ctx): State<AppContext>,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Response> {
-    match auth.user {
-        Some(_user) => {
-            // User is already authenticated, redirect to home using standard redirect
-            tracing::info!("User is already authenticated, redirecting to home");
-            redirect("/home", headers)
-        }
-        None => {
-            let registered = params.get("registered") == Some(&"true".to_string());
-            let mut email = "";
-            // Parse cookies from headers
-            if let Some(cookie_header) = headers.get("cookie").and_then(|h| h.to_str().ok()) {
-                // Check if user has a "remember me" cookie
-                for cookie in cookie_header.split(';').map(|s| s.trim()) {
-                    if let Some(remembered_email) = cookie.strip_prefix("remembered_email=") {
-                        email = remembered_email;
-                        break;
-                    }
-                }
-            }
-
-            format::render().view(
-                &v,
-                "auth/login.html",
-                data!({
-                "registered": registered, 
-                "email": email}),
-            )
-        }
+    if let Some(user) = auth.user {
+        let next_url = params.get("next").map_or("/home", |n| n.as_str());
+        tracing::info!(user_email = %user.email, next_url = next_url, "User already authenticated, redirecting.");
+        return redirect(next_url, headers);
     }
+    let layout_data = UserModel::create_layout_data(None, &ctx).await?;
+    let mut page_context = Context::new();
+    // Correct: Populate page_context from params
+    if params.contains_key("registered") {
+        page_context.insert("registered", &true);
+    }
+    if params.contains_key("verified") {
+        page_context.insert("verified", &true);
+    }
+    if params.contains_key("reset") {
+        page_context.insert("reset", &true);
+    }
+    if let Some(next) = params.get("next") {
+        page_context.insert("next", next);
+    }
+    if let Some(error) = params.get("error") {
+        page_context.insert("error", error);
+    }
+    // Correct: Pass the populated page_context
+    render_template(&v, "auth/login.html", None, layout_data, page_context)
 }
 
 /// Handles the login form submission
@@ -283,7 +231,7 @@ async fn handle_login(
     };
 
     // Try to login
-    let user_result = users::Model::find_by_email(&ctx.db, &params.email).await;
+    let user_result = UserModel::find_by_email(&ctx.db, &params.email).await;
 
     match user_result {
         Ok(user) => {
@@ -389,19 +337,31 @@ async fn handle_login(
 /// Renders the forgot password page
 #[debug_handler]
 async fn forgot_password(
+    auth: JWTWithUserOpt<UserModel>,
     ViewEngine(v): ViewEngine<TeraView>,
-    State(_ctx): State<AppContext>,
+    State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    render_template(&v, "auth/forgot_password.html", data!({}))
+    let layout_data = UserModel::create_layout_data(auth.user, &ctx).await?;
+    // Correct: Use Context::new()
+    render_template(&v, "auth/forgot.html", None, layout_data, Context::new())
 }
 
-/// Renders the reset email sent confirmation page
+/// Renders the page shown after requesting a password reset email
 #[debug_handler]
 async fn render_reset_email_sent_page(
+    auth: JWTWithUserOpt<UserModel>,
     ViewEngine(v): ViewEngine<TeraView>,
-    State(_ctx): State<AppContext>, // May not need ctx if just rendering static page
+    State(ctx): State<AppContext>,
 ) -> Result<Response> {
-    render_template(&v, "auth/reset_email_sent.html", data!({}))
+    let layout_data = UserModel::create_layout_data(auth.user, &ctx).await?;
+    // Correct: Use Context::new()
+    render_template(
+        &v,
+        "auth/reset_sent.html",
+        None,
+        layout_data,
+        Context::new(),
+    )
 }
 
 /// Handles the forgot password form submission
@@ -411,7 +371,7 @@ async fn handle_forgot_password(
     headers: HeaderMap,
     Form(form): Form<ForgotPasswordParams>,
 ) -> Result<Response> {
-    match users::Model::find_by_email(&ctx.db, &form.email).await {
+    match UserModel::find_by_email(&ctx.db, &form.email).await {
         Ok(user) => {
             let user_with_token = match user.initiate_password_reset(&ctx.db).await {
                 Ok(u) => u,
@@ -446,133 +406,81 @@ async fn handle_forgot_password(
     redirect("/auth/reset-email-sent", headers)
 }
 
-/// Renders the reset password page
+/// Renders the password reset form page if the token is valid
 #[debug_handler]
 async fn reset_password(
+    auth: JWTWithUserOpt<UserModel>, // Add auth for layout data
     ViewEngine(v): ViewEngine<TeraView>,
-    State(ctx): State<AppContext>,
+    State(ctx): State<AppContext>, // Add ctx for layout data and DB access
     Path(token): Path<String>,
 ) -> Result<Response> {
-    // Attempt to find the user by the reset token
-    match users::Model::find_by_reset_token(&ctx.db, &token).await {
-        Ok(user) => {
-            // Check if the token is still valid (e.g., within an expiration timeframe)
-            // Assuming the find_by_reset_token implicitly checks validity or that validity check happens on POST.
-            // For now, just render the form if the token leads to a user.
-            if user.reset_token.is_some() && user.reset_sent_at.is_some() {
-                // Optional: Add explicit time validation if needed
-                // let expiry_duration = Duration::hours(1); // Example: 1 hour validity
-                // if user.reset_sent_at.unwrap() + expiry_duration < chrono::Utc::now().naive_utc() { ... handle expired ... }
+    // Fetch layout data first (user likely None)
+    let layout_data = UserModel::create_layout_data(auth.user, &ctx).await?;
 
-                format::render().view(
-                    &v,
-                    "auth/reset-password.html",
-                    data!({ "token": token }), // Pass only token when valid
-                )
-            } else {
-                // Token exists but seems invalid (e.g., already used)
-                format::render().view(
-                    &v,
-                    "auth/reset-password.html",
-                    data!({ "error": "Invalid or expired reset link." }), // Pass only error when invalid
-                )
-            }
+    match UserModel::find_by_reset_token(&ctx.db, &token).await {
+        Ok(_user) => {
+            // Found user, token is valid (expiration check might be added in find_by_reset_token)
+            // Render the reset form
+            let mut page_context = Context::new();
+            page_context.insert("token", &token);
+            // Use render_template helper
+            render_template(&v, "auth/reset.html", None, layout_data, page_context)
         }
-        Err(_) => {
-            // Token not found or other DB error
-            format::render().view(
-                &v,
-                "auth/reset-password.html",
-                data!({ "error": "Invalid or expired reset link." }), // Pass only error when invalid
-            )
+        Err(e) => {
+            error!(error = ?e, token = %token, "Password reset token invalid or expired");
+            // Token invalid or DB error, render error page
+            // Fix: Pass layout_data to error_page call
+            error_page(&v, "Invalid or expired reset link.", Some(e), layout_data)
         }
     }
 }
 
-/// Handles the email verification link
+/// Verifies the user's email address using the token from the URL
 #[debug_handler]
 async fn verify_email(
+    auth: JWTWithUserOpt<UserModel>, // Add auth for layout data
     ViewEngine(v): ViewEngine<TeraView>,
-    State(ctx): State<AppContext>,
+    State(ctx): State<AppContext>, // Add ctx for layout data and DB access
     Path(token): Path<String>,
 ) -> Result<Response> {
-    let user_result = users::Model::find_by_verification_token(&ctx.db, &token).await;
+    // Fetch layout data first (user might be logged in already or not)
+    let layout_data = UserModel::create_layout_data(auth.user, &ctx).await?;
 
-    match user_result {
+    match UserModel::find_by_verification_token(&ctx.db, &token).await {
         Ok(user) => {
-            if user.email_verified_at.is_some() {
-                tracing::info!(pid = user.pid.to_string(), "user already verified");
-                return render_template(
-                    &v,
-                    "auth/verify.html",
-                    data!({
-                        "success": true,
-                        "message": "Your email has already been verified.",
-                    }),
-                );
-            }
-
-            let user_active_model = user.clone().into_active_model();
-            match user_active_model.verified(&ctx.db).await {
+            // Found user by token
+            // Convert to ActiveModel to call 'verified' method
+            let mut active_user: UserActiveModel = user.clone().into_active_model(); // Clone user before converting
+            match active_user.verified(&ctx.db).await {
+                // Call verified on ActiveModel
                 Ok(verified_user_model) => {
-                    // Now try to fetch and update the PGP key using the new model method
-                    let fetch_result = verified_user_model
-                        .clone()
-                        .into_active_model()
-                        .fetch_and_update_pgp_key(&ctx.db)
-                        .await;
-
-                    let message = match fetch_result {
-                        Ok(final_user_model) => {
-                            if final_user_model.pgp_key.is_some() {
-                                "Your email is now verified. We found and saved a PGP key for your account.Go to the your profile page to review it".to_string()
-                            } else {
-                                "Your email is now verified. We could not find a PGP key for your email. Ensure your PGP key is published on public PGP servers and try again to fetch it from your profile page".to_string()
-                            }
-                        }
-                        Err(e) => {
-                            // Log the error, but proceed with verification success message
-                            tracing::error!(user_email = %verified_user_model.email, error = ?e, "Failed during PGP key fetch/update after verification.");
-                            "Your email is now verified, but there was an issue checking for your PGP key on public PGP key servers. You can re-try to fetch it from you profile page.".to_string()
-                        }
-                    };
-
-                    render_template(
-                        &v,
-                        "auth/verify.html",
-                        data!({ "success": true, "message": message }),
-                    )
+                    // verified returns Model on success
+                    info!("User {} verified successfully.", verified_user_model.email);
+                    // Render verification success page
+                    // Use render_template helper
+                    render_template(&v, "auth/verified.html", None, layout_data, Context::new())
                 }
-                Err(err) => {
-                    tracing::error!(
-                        message = "Failed to mark email as verified",
-                        user_email = &user.email,
-                        error = err.to_string(),
-                    );
-                    render_template(
+                Err(e) => {
+                    error!(error = ?e, token = %token, "Failed to update user verification status");
+                    // Fix: Pass layout_data to error_page call
+                    error_page(
                         &v,
-                        "auth/verify.html",
-                        data!({
-                            "success": false,
-                            "message": "Email verification failed. Please try again or contact support.",
-                        }),
+                        "Could not verify your email due to an internal error.",
+                        Some(Error::Model(e)),
+                        layout_data,
                     )
                 }
             }
         }
-        Err(err) => {
-            tracing::error!(
-                message = "Invalid or expired email verification token",
-                token = token,
-                error = err.to_string(),
-            );
-            render_template(
+        Err(e) => {
+            // User not found by token
+            error!(error = ?e, token = %token, "Email verification token invalid");
+            // Fix: Pass layout_data to error_page call
+            error_page(
                 &v,
-                "auth/verify.html",
-                data!({
-                    "success": false,
-                    "message": "Invalid or expired email verification link.",
-                }),
+                "Invalid or expired verification link.",
+                Some(e),
+                layout_data,
             )
         }
     }
@@ -595,67 +503,54 @@ async fn handle_logout() -> Result<Response> {
     Ok(response)
 }
 
-/// Handles the reset password form submission
+/// Handles the password reset form submission
 #[debug_handler]
 async fn handle_reset_password(
+    auth: JWTWithUserOpt<UserModel>, // Add auth for layout data
     ViewEngine(v): ViewEngine<TeraView>,
-    State(ctx): State<AppContext>,
-    headers: HeaderMap,
+    State(ctx): State<AppContext>, // Add ctx for layout data and DB access
+    headers: HeaderMap,            // Keep headers for redirect
     Form(form): Form<ResetPasswordParams>,
 ) -> Result<Response> {
-    // Check if passwords match
+    // Fetch layout data first (user likely None, needed for potential error render)
+    let layout_data = UserModel::create_layout_data(auth.user, &ctx).await?;
+
     if form.password != form.password_confirmation {
-        return error_fragment(
-            &v,
-            "New password and confirmation do not match.",
-            "#error-container",
-        );
+        return error_fragment(&v, "Passwords do not match.", "#error-container");
+        // Target error display area in reset.html
     }
 
-    // Find user by reset token
-    match users::Model::find_by_reset_token(&ctx.db, &form.token).await {
+    match UserModel::find_by_reset_token(&ctx.db, &form.token).await {
         Ok(user) => {
-            // Check if token is actually associated with this user and potentially check expiry
-            if user.reset_token.as_deref() == Some(&form.token) && user.reset_sent_at.is_some() {
-                // Use the reset_password method on ActiveModel
-                match user
-                    .into_active_model()
-                    .reset_password(&ctx.db, &form.password)
-                    .await
-                {
-                    Ok(_) => {
-                        // Redirect to login page with success message
-                        redirect("/auth/login?reset=success", headers)
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to update password for token {}: {}",
-                            &form.token,
-                            e
-                        );
-                        error_fragment(
-                            &v,
-                            "Failed to reset password. Please try again.",
-                            "#error-container",
-                        )
-                    }
+            // Convert Model to ActiveModel to call reset_password
+            let mut active_user: UserActiveModel = user.into_active_model();
+            match active_user.reset_password(&ctx.db, &form.password).await {
+                Ok(_) => {
+                    info!("Password reset successfully for token: {}", form.token);
+                    redirect("/auth/login?reset=true", headers) // Redirect to login page
                 }
-            } else {
-                // Token mismatch or already cleared - treat as invalid
-                error_fragment(
-                    &v,
-                    "Invalid or expired password reset link.",
-                    "#error-container",
-                )
+                Err(e) => {
+                    error!(error = ?e, token = %form.token, "Failed to update password in database");
+                    // Render the reset form again with a generic error
+                    let mut page_context = Context::new();
+                    page_context.insert("token", &form.token);
+                    page_context.insert(
+                        "error_message",
+                        "Failed to reset password due to an internal error.",
+                    );
+                    // Fix: Use render_template and pass layout_data
+                    render_template(&v, "auth/reset.html", None, layout_data, page_context)
+                }
             }
         }
-        Err(_) => {
-            // User not found for the token
-            error_fragment(
-                &v,
-                "Invalid or expired password reset link.",
-                "#error-container",
-            )
+        Err(e) => {
+            error!(error = ?e, token = %form.token, "Password reset token invalid during form submission");
+            // Render the reset form again with token error
+            let mut page_context = Context::new();
+            page_context.insert("token", &form.token);
+            page_context.insert("error_message", "Invalid or expired reset token.");
+            // Fix: Use render_template and pass layout_data
+            render_template(&v, "auth/reset.html", None, layout_data, page_context)
         }
     }
 }

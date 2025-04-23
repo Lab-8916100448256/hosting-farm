@@ -12,15 +12,36 @@ use loco_rs::prelude::*;
 //use loco_rs::{controller::format, Result};
 use serde::Serialize;
 
+use loco_rs::{controller::views::TeraView, prelude::*};
+use tera::Context;
+
+use crate::models::users::LayoutData;
+
 // Path to view templates
 // const VIEWS_DIR: &str = "assets/views";
 
-/// Renders a template with the given context
-pub fn render_template<V, S>(v: &V, template_name: &str, context: S) -> Result<Response>
+/// Renders a template with the given context, automatically including layout data.
+///
+/// This function takes the TeraView engine, the template name, an optional active page identifier,
+/// the layout data (containing user and admin status), and page-specific context.
+/// It merges these into a single context before rendering the view.
+pub fn render_template<V>(
+    v: &V,
+    template_name: &str,
+    active_page: Option<&str>,
+    layout_data: LayoutData,
+    mut context: Context,
+) -> Result<Response>
 where
     V: ViewRenderer,
-    S: Serialize,
 {
+    context.insert("user", &layout_data.user);
+    context.insert("is_admin", &layout_data.is_admin);
+
+    if let Some(ap) = active_page {
+        context.insert("active_page", ap);
+    }
+
     format::render().view(v, template_name, context)
 }
 
@@ -53,21 +74,26 @@ pub fn error_fragment(v: &TeraView, message: &str, target_selector: &str) -> Res
     }
 }
 
-// Build a full page with an error message
-pub fn error_page(v: &TeraView, message: &str, e: Option<Error>) -> Result<Response> {
-    let error_details = if let Some(e) = &e {
-        format!("Error details : {}", e)
+// Build a full page with an error message, using the base layout
+pub fn error_page(
+    v: &TeraView,
+    message: &str,
+    e: Option<Error>,
+    layout_data: LayoutData,
+) -> Result<Response> {
+    let error_details = if let Some(ref err) = e {
+        format!("Error details : {}", err)
     } else {
-        "".to_string()
+        String::new()
     };
-    format::render().view(
-        v,
-        "error_page.html",
-        data!({
-            "error_message": message,
-            "error_details": error_details,
-        }),
-    )
+
+    let mut context = Context::new();
+    context.insert("error_message", message);
+    context.insert("error_details", &error_details);
+    context.insert("user", &layout_data.user);
+    context.insert("is_admin", &layout_data.is_admin);
+
+    format::render().view(v, "error_page.html", context)
 }
 
 pub fn redirect(url: &str, headers: HeaderMap) -> Result<Response> {

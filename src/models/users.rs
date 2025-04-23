@@ -16,6 +16,12 @@ use super::_entities::{team_memberships, teams};
 pub const MAGIC_LINK_LENGTH: i8 = 32;
 pub const MAGIC_LINK_EXPIRATION_MIN: i8 = 5;
 
+#[derive(Clone, Debug, Serialize)]
+pub struct LayoutData {
+    pub user: Option<users::Model>,
+    pub is_admin: bool,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LoginParams {
     pub email: String,
@@ -384,26 +390,55 @@ impl Model {
     /// Returns a `ModelError` if database queries fail.
     pub async fn is_admin(&self, db: &DatabaseConnection, ctx: &AppContext) -> ModelResult<bool> {
         let admin_team_name = Self::get_admin_team_name(ctx);
-
-        // Find the admin team by name
-        let admin_team = teams::Entity::find()
-            .filter(teams::Column::Name.eq(admin_team_name))
+        match teams::Entity::find()
+            .filter(teams::Column::Name.eq(&admin_team_name))
             .one(db)
-            .await?;
+            .await?
+        {
+            Some(admin_team) => {
+                match team_memberships::Entity::find()
+                    .filter(team_memberships::Column::TeamId.eq(admin_team.id))
+                    .filter(team_memberships::Column::UserId.eq(self.id))
+                    .one(db)
+                    .await?
+                {
+                    Some(_) => Ok(true),
+                    None => Ok(false),
+                }
+            }
+            None => {
+                tracing::error!(
+                    "Admin team '{}' not found. Cannot determine admin status for user {}",
+                    admin_team_name,
+                    self.pid
+                );
+                Ok(false)
+            }
+        }
+    }
 
-        if let Some(team) = admin_team {
-            // Check if the user is a member of this team (non-pending)
-            let is_member = team_memberships::Entity::find()
-                .filter(team_memberships::Column::TeamId.eq(team.id))
-                .filter(team_memberships::Column::UserId.eq(self.id))
-                .filter(team_memberships::Column::Pending.eq(false))
-                .count(db) // Use count for efficiency
-                .await?
-                > 0;
-            Ok(is_member)
-        } else {
-            // Admin team not found, so user cannot be an admin
-            Ok(false)
+    /// Creates a `LayoutData` struct containing common data needed for page layouts.
+    /// It determines if the provided user (if any) is an admin.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `ModelError` if the admin check fails due to a database error.
+    pub async fn create_layout_data(
+        user_opt: Option<users::Model>,
+        ctx: &AppContext,
+    ) -> Result<LayoutData, ModelError> {
+        match user_opt {
+            Some(user) => {
+                let is_admin = user.is_admin(&ctx.db, ctx).await?;
+                Ok(LayoutData {
+                    user: Some(user),
+                    is_admin,
+                })
+            }
+            None => Ok(LayoutData {
+                user: None,
+                is_admin: false,
+            }),
         }
     }
 
