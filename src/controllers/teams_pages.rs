@@ -1303,21 +1303,21 @@ async fn invite_member_handler(
         );
     }
 
-    // Find the target user by email
-    let target_user = match users::Model::find_by_email(&ctx.db, &params.email).await {
+    // Find the target user by name
+    let target_user = match users::Model::find_by_name(&ctx.db, &params.user_name).await {
         Ok(user) => user,
         Err(ModelError::EntityNotFound) => {
             return error_fragment(
                 &v,
-                &format!("No user found with e-mail {}", &params.email),
+                &format!("No user found with name {}", &params.user_name),
                 "#error-container",
             );
         }
         Err(e) => {
-            tracing::error!("Failed to find user by email: {}", e);
+            tracing::error!("Failed to find user by name: {}", e);
             return error_fragment(
                 &v,
-                &format!("Error searching for user with e-mail {}", &params.email),
+                &format!("Error searching for user with name {}", &params.user_name),
                 "#error-container",
             );
         }
@@ -1352,10 +1352,10 @@ async fn invite_member_handler(
         let error_message = if membership.pending {
             format!(
                 "User {} already has a pending invitation to this team",
-                params.email
+                params.user_name
             )
         } else {
-            format!("User {} is already a member of this team", params.email)
+            format!("User {} is already a member of this team", params.user_name)
         };
         return error_fragment(&v, &error_message, "#error-container");
     }
@@ -1365,7 +1365,7 @@ async fn invite_member_handler(
 
     // Create invitation entity
     /*let invitation =*/
-    match team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await {
+    match team_memberships::Model::create_invitation(&ctx.db, team.id, &params.user_name).await {
         Ok(invit) => invit,
         Err(e) => {
             // Something terribly wrong happened, abort with an error message
@@ -1375,7 +1375,7 @@ async fn invite_member_handler(
             tracing::error!(
                 error = e.to_string(),
                 team_id = team.id,
-                target_user = &params.email,
+                target_user = &params.user_name,
                 message
             );
 

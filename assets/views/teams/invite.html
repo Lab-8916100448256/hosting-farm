@@ -18,15 +18,15 @@
                 <div class="px-4 py-5 bg-white sm:p-6">
                     <div class="grid grid-cols-6 gap-6">
                         <div class="col-span-6 sm:col-span-4">
-                            <label for="email" class="block text-sm font-medium text-gray-700">Email address</label>
-                            <input type="email" name="email" id="email"
+                            <label for="user_name" class="block text-sm font-medium text-gray-700">User name</label>
+                            <input type="text" name="user_name" id="user_name"
                                    class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md"
                                    hx-get="/teams/{{ team.pid }}/search-users"
                                    hx-trigger="keyup changed delay:200ms, load"
                                    hx-target="#user-search-results"
                                    hx-swap="innerHTML"
                                    hx-indicator="#spinner"
-                                   hx-vals='js:{"q": document.getElementById("email").value}'
+                                   hx-vals='js:{"q": document.getElementById("user_name").value}'
                                    autocomplete="off"
                                    >
                             <div id="spinner" class="htmx-indicator">Searching...</div>
@@ -58,10 +58,10 @@
      The previous Hyperscript attempts had issues reliably preventing default input behavior. -->
 <script>
 document.addEventListener('DOMContentLoaded', (event) => {
-    const emailInput = document.getElementById('email');
+    const nameInput = document.getElementById('user_name');
     const resultsContainer = document.getElementById('user-search-results');
 
-    emailInput.addEventListener('keydown', function(e) {
+    nameInput.addEventListener('keydown', function(e) {
         const list = resultsContainer.querySelector('#search-results-list');
         if (!list) return;
         const items = list.querySelectorAll('.search-result-item');

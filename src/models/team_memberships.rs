@@ -10,7 +10,7 @@ use super::_entities::users;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InviteMemberParams {
-    pub email: String,
+    pub user_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,7 +42,10 @@ impl Model {
     /// # Errors
     ///
     /// When could not find membership or DB query error
-    pub async fn find_by_invitation_token(db: &DatabaseConnection, token: &str) -> ModelResult<Self> {
+    pub async fn find_by_invitation_token(
+        db: &DatabaseConnection,
+        token: &str,
+    ) -> ModelResult<Self> {
         let membership = Entity::find()
             .filter(
                 model::query::condition()
@@ -59,7 +62,11 @@ impl Model {
     /// # Errors
     ///
     /// When could not find membership or DB query error
-    pub async fn find_by_team_and_user(db: &DatabaseConnection, team_id: i32, user_id: i32) -> ModelResult<Self> {
+    pub async fn find_by_team_and_user(
+        db: &DatabaseConnection,
+        team_id: i32,
+        user_id: i32,
+    ) -> ModelResult<Self> {
         let membership = Entity::find()
             .filter(
                 model::query::condition()
@@ -81,13 +88,13 @@ impl Model {
     pub async fn create_invitation(
         db: &DatabaseConnection,
         team_id: i32,
-        email: &str,
+        user_name: &str,
     ) -> ModelResult<Self> {
-        // Find user by email
+        // Find user by name
         let user = users::Entity::find()
             .filter(
                 model::query::condition()
-                    .eq(users::Column::Email, email)
+                    .eq(users::Column::Name, user_name)
                     .build(),
             )
             .one(db)
@@ -134,8 +141,11 @@ impl Model {
         let mut membership: ActiveModel = self.clone().into();
         membership.pending = ActiveValue::set(false);
         membership.invitation_token = ActiveValue::set(None);
-        
-        membership.update(db).await.map_err(|e| ModelError::Any(e.into()))
+
+        membership
+            .update(db)
+            .await
+            .map_err(|e| ModelError::Any(e.into()))
     }
 
     /// Declines an invitation to join a team by deleting the membership
@@ -164,8 +174,11 @@ impl Model {
 
         let mut membership: ActiveModel = self.clone().into();
         membership.role = ActiveValue::set(new_role.to_string());
-        
-        membership.update(db).await.map_err(|e| ModelError::Any(e.into()))
+
+        membership
+            .update(db)
+            .await
+            .map_err(|e| ModelError::Any(e.into()))
     }
 
     /// Gets all pending invitations for a user
@@ -173,7 +186,10 @@ impl Model {
     /// # Errors
     ///
     /// When DB query error
-    pub async fn get_user_invitations(db: &DatabaseConnection, user_id: i32) -> ModelResult<Vec<(Self, teams::Model)>> {
+    pub async fn get_user_invitations(
+        db: &DatabaseConnection,
+        user_id: i32,
+    ) -> ModelResult<Vec<(Self, teams::Model)>> {
         let invitations = Entity::find()
             .filter(
                 model::query::condition()
@@ -211,4 +227,4 @@ impl Model {
             .map_err(|e| ModelError::Any(e.into()))?;
         Ok(())
     }
-} 
+}

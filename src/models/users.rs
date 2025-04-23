@@ -146,6 +146,19 @@ impl Model {
         user.ok_or_else(|| ModelError::EntityNotFound)
     }
 
+    /// finds a user by the provided name
+    ///
+    /// # Errors
+    ///
+    /// When could not find user by the given token or DB query error
+    pub async fn find_by_name(db: &DatabaseConnection, user_name: &str) -> ModelResult<Self> {
+        let user = users::Entity::find()
+            .filter(users::Column::Name.eq(user_name))
+            .one(db)
+            .await?;
+        user.ok_or_else(|| ModelError::EntityNotFound)
+    }
+
     /// finds a user by the provided verification token
     ///
     /// # Errors

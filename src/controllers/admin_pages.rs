@@ -7,7 +7,7 @@ use crate::{
 use axum::{
     debug_handler,
     extract::{Form, Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
@@ -31,58 +31,6 @@ fn default_page() -> u64 {
 
 fn default_page_size() -> u64 {
     12
-}
-
-/// Helper to check for admin privileges
-async fn require_admin(
-    auth: &JWTWithUserOpt<users::Model>,
-    ctx: &AppContext,
-    v: &TeraView,
-    headers: &HeaderMap,
-) -> Result<users::Model, Response> {
-    let user = match &auth.user {
-        Some(user) => user,
-        None => {
-            tracing::debug!("Admin check failed: User not authenticated.");
-            return Err(
-                redirect("/auth/login?next=/admin/users", headers.clone()).unwrap_or_else(|e| {
-                    tracing::error!(error = ?e, "Failed to create redirect response");
-                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
-                }),
-            );
-        }
-    };
-
-    match user.is_admin(&ctx.db, ctx).await {
-        Ok(true) => Ok(user.clone()),
-        Ok(false) => {
-            tracing::warn!(
-                user_pid = user.pid.to_string(),
-                "Admin check failed: User not admin."
-            );
-            Err(error_page(
-                v,
-                "You are not authorized to access this page.",
-                Some(Error::Unauthorized("Admin privileges required".to_string())),
-            )
-            .unwrap_or_else(|e| {
-                tracing::error!(error = ?e, "Failed to create error page response");
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            }))
-        }
-        Err(e) => {
-            tracing::error!(error = ?e, user_pid = user.pid.to_string(), "Admin check failed: DB error.");
-            Err(error_page(
-                v,
-                "Could not verify your permissions. Please try again later.",
-                Some(Error::Model(e)),
-            )
-            .unwrap_or_else(|e| {
-                tracing::error!(error = ?e, "Failed to create error page response");
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            }))
-        }
-    }
 }
 
 /// Handler for the main user management page.

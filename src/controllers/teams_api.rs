@@ -184,11 +184,11 @@ async fn invite_member(
         return unauthorized("Only team administrators can invite members");
     }
 
-    // Find the target user by email
-    let target_user = match users::Model::find_by_email(&ctx.db, &params.email).await {
+    // Find the target user by name
+    let target_user = match users::Model::find_by_name(&ctx.db, &params.user_name).await {
         Ok(user) => user,
         Err(_) => {
-            return bad_request(format!("No user found with e-mail {}", &params.email));
+            return bad_request(format!("No user found with name {}", &params.user_name));
         }
     };
 
@@ -204,10 +204,10 @@ async fn invite_member(
         let error_message = if membership.pending {
             format!(
                 "User {} already has a pending invitation to this team",
-                params.email
+                params.user_name
             )
         } else {
-            format!("User {} is already a member of this team", params.email)
+            format!("User {} is already a member of this team", params.user_name)
         };
 
         return bad_request(error_message);
@@ -217,7 +217,7 @@ async fn invite_member(
 
     // Create invitation entity
     /*let invitation =*/
-    match team_memberships::Model::create_invitation(&ctx.db, team.id, &params.email).await {
+    match team_memberships::Model::create_invitation(&ctx.db, team.id, &params.user_name).await {
         Ok(invit) => invit,
         Err(e) => {
             // Something terribly wrong happened, abort with an error message
@@ -227,7 +227,7 @@ async fn invite_member(
             tracing::error!(
                 error = e.to_string(),
                 team_id = team.id,
-                target_user = &params.email,
+                target_user = &params.user_name,
                 message
             );
 
