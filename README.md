@@ -90,3 +90,31 @@ This section describes how to install the developement dependencies of the proje
        };
    };
    ```
+
+
+### End-to-end tests
+
+#### To execute the end-to-end tests
+Run the tests with : 
+```
+npx playwright test
+```
+Before executing thet tests, Playwright will automatically start the application with the e2e profile which listen on the port 5151 and is using its own DB to avoid conflicts with development instance and will kill it at the end.
+
+To start playwright tests in interactive UI mode.
+```
+npx playwright test --ui
+```
+
+#### Auto generate test code with Codegen 
+First, in one terminal, start the application with the e2e profile:
+```
+cargo loco start -e e2e
+```
+Then, in a second terminal, start playwright in codegen mode
+```
+npx playwright codegen http://localhost:5151
+```
+
+For more information on writing tests, check Playwright documentation : https://playwright.dev/docs/intro
+
