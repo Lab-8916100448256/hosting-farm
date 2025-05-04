@@ -25,4 +25,4 @@ pub struct MemberResponse {
     pub name: String,
     pub email: String,
     pub role: String,
-} 
+}

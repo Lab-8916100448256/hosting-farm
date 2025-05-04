@@ -1,5 +1,5 @@
+pub use super::_entities::ssh_keys::{ActiveModel, Entity, Model};
 use sea_orm::entity::prelude::*;
-pub use super::_entities::ssh_keys::{ActiveModel, Model, Entity};
 pub type SshKeys = Entity;
 
 #[async_trait::async_trait]

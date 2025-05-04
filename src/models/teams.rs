@@ -1,11 +1,14 @@
 use loco_rs::prelude::*;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait, ConnectionTrait, DbErr, DatabaseConnection}; // Removed QuerySelect
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr,
+    EntityTrait, QueryFilter, TransactionTrait,
+}; // Removed QuerySelect
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::_entities::teams::{self, ActiveModel, Model};
 use super::_entities::team_memberships;
+use super::_entities::teams::{self, ActiveModel, Model};
 use super::_entities::users::{self, Model as UserModel};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,7 +25,7 @@ pub struct UpdateTeamParams {
 
 #[derive(Debug, Validate, Deserialize)]
 pub struct Validator {
-    #[validate(length(min = 2, message = "Name must be at least 2 characters long."))] 
+    #[validate(length(min = 2, message = "Name must be at least 2 characters long."))]
     pub name: String,
 }
 
@@ -62,7 +65,7 @@ impl Model {
             Some(team) => {
                 tracing::debug!("Found team with pid: {}, id: {}", team.pid, team.id);
                 Ok(team)
-            },
+            }
             None => {
                 tracing::error!("Team not found with pid: {}", pid);
                 Err(ModelError::EntityNotFound)
@@ -90,7 +93,10 @@ impl Model {
             .is_some()
         {
             // Return ModelError::Message for uniqueness constraints
-            return Err(ModelError::Message(format!("Team name '{}' already exists.", params.name)));
+            return Err(ModelError::Message(format!(
+                "Team name '{}' already exists.",
+                params.name
+            )));
         }
 
         tracing::info!("Creating team with name: {}", params.name);
@@ -134,12 +140,17 @@ impl Model {
     /// # Errors
     ///
     /// When could not save the team into the DB, or if the new name is not unique
-    pub async fn update(&self, db: &DatabaseConnection, params: &UpdateTeamParams) -> ModelResult<Self> {
+    pub async fn update(
+        &self,
+        db: &DatabaseConnection,
+        params: &UpdateTeamParams,
+    ) -> ModelResult<Self> {
         let mut team_model: teams::ActiveModel = self.clone().into();
 
         // Check if name is being changed and if the new name already exists
         // Note: params.name is the *new* proposed name from the form
-         if params.name != self.name { // Only check if the name is actually different
+        if params.name != self.name {
+            // Only check if the name is actually different
             if teams::Entity::find()
                 .filter(teams::Column::Name.eq(&params.name)) // Check against the new name
                 .filter(teams::Column::Id.ne(self.id)) // Exclude the current team
@@ -148,26 +159,33 @@ impl Model {
                 .is_some()
             {
                 // Return ModelError::Message for uniqueness constraints
-                 return Err(ModelError::Message(format!("Team name '{}' already exists.", params.name)));
+                return Err(ModelError::Message(format!(
+                    "Team name '{}' already exists.",
+                    params.name
+                )));
             }
             team_model.name = ActiveValue::set(params.name.clone());
-         }
-
+        }
 
         team_model.description = ActiveValue::set(params.description.clone());
 
         // Validate before updating
         team_model.validate()?; // Manually call validate before update
-        team_model.update(db).await.map_err(|e| ModelError::Any(e.into())) // Use standard update
+        team_model
+            .update(db)
+            .await
+            .map_err(|e| ModelError::Any(e.into())) // Use standard update
     }
-
 
     /// Gets all team members with their roles
     ///
     /// # Errors
     ///
     /// When DB query error
-    pub async fn get_members(&self, db: &DatabaseConnection) -> ModelResult<Vec<(UserModel, String)>> {
+    pub async fn get_members(
+        &self,
+        db: &DatabaseConnection,
+    ) -> ModelResult<Vec<(UserModel, String)>> {
         let memberships = team_memberships::Entity::find()
             .filter(
                 model::query::condition()
@@ -181,21 +199,29 @@ impl Model {
 
         let result = memberships
             .into_iter()
-            .filter_map(|(membership, user_opt)| { // Use filter_map to handle potential None user
-                user_opt.into_iter().next().map(|user| (user, membership.role))
+            .filter_map(|(membership, user_opt)| {
+                // Use filter_map to handle potential None user
+                user_opt
+                    .into_iter()
+                    .next()
+                    .map(|user| (user, membership.role))
             })
             .collect();
 
         Ok(result)
     }
 
-
     /// Checks if a user has a specific role or higher in the team
     ///
     /// # Errors
     ///
     /// When DB query error
-    pub async fn has_role(&self, db: &DatabaseConnection, user_id: i32, role: &str) -> ModelResult<bool> {
+    pub async fn has_role(
+        &self,
+        db: &DatabaseConnection,
+        user_id: i32,
+        role: &str,
+    ) -> ModelResult<bool> {
         let role_level = match role {
             "Owner" => 4,
             "Administrator" => 3,
@@ -235,7 +261,7 @@ impl Model {
     ///
     /// When could not delete the team from the DB
     pub async fn delete(&self, db: &DatabaseConnection) -> ModelResult<()> {
-         let txn = db.begin().await?;
+        let txn = db.begin().await?;
         // Delete memberships first due to foreign key constraint
         team_memberships::Entity::delete_many()
             .filter(team_memberships::Column::TeamId.eq(self.id))
@@ -243,9 +269,7 @@ impl Model {
             .await?;
 
         // Then delete the team
-        teams::Entity::delete_by_id(self.id)
-            .exec(&txn)
-            .await?;
+        teams::Entity::delete_by_id(self.id).exec(&txn).await?;
 
         txn.commit().await?;
         Ok(())

@@ -207,7 +207,10 @@ async fn can_set_forgot_password_sent() {
     );
     assert!(user.reset_token.is_none(), "Expected no reset token");
 
-    let user_with_token = user.initiate_password_reset(&boot.app_context.db).await.expect("Failed to initiate password reset");
+    let user_with_token = user
+        .initiate_password_reset(&boot.app_context.db)
+        .await
+        .expect("Failed to initiate password reset");
 
     let result = user_with_token
         .into_active_model()
