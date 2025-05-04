@@ -55,11 +55,14 @@ pub fn error_fragment(v: &TeraView, message: &str, target_selector: &str) -> Res
 
 // Build a full page with an error message
 pub fn error_page(v: &TeraView, message: &str, e: Option<Error>) -> Result<Response> {
-    let error_details = if let Some(e) = &e {
-        format!("Error details : {}", e)
-    } else {
-        "".to_string()
-    };
+    // let error_details = if let Some(e) = &e {
+    //     format!("Error details : {}", e)
+    // } else {
+    //     "".to_string()
+    // };
+    let error_details = e
+        .as_ref()
+        .map_or_else(|| "".to_string(), |e| format!("Error details : {}", e));
     format::render().view(
         v,
         "error_page.html",
