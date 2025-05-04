@@ -424,15 +424,13 @@ async fn handle_forgot_password(
             // Correct mailer function name: forgot_password
             if let Err(e) = AuthMailer::forgot_password(&ctx, &user_with_token).await {
                 error!(user_email = %form.email, error = ?e, "Failed to send forgot password email");
-            } else {
-                if let Err(e) = user_with_token
-                    .clone()
-                    .into_active_model()
-                    .set_forgot_password_sent(&ctx.db)
-                    .await
-                {
-                    error!(user_email = %form.email, error = ?e, "Failed to set forgot password sent timestamp");
-                }
+            } else if let Err(e) = user_with_token
+                .clone()
+                .into_active_model()
+                .set_forgot_password_sent(&ctx.db)
+                .await
+            {
+                error!(user_email = %form.email, error = ?e, "Failed to set forgot password sent timestamp");
             }
         }
         Err(ModelError::EntityNotFound) => {

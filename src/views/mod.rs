@@ -71,7 +71,7 @@ pub fn error_page(v: &TeraView, message: &str, e: Option<Error>) -> Result<Respo
 }
 
 pub fn redirect(url: &str, headers: HeaderMap) -> Result<Response> {
-    if headers.get("HX-Request").map_or(false, |v| v == "true") {
+    if headers.get("HX-Request").is_some_and(|v| v == "true") {
         // HTMX request: Use HX-Redirect header
         tracing::info!("Redirecting to: {} using HTMX", url);
         htmx_redirect(url)

@@ -55,7 +55,7 @@ async fn manage_users_page(
     }
 
     let page = pagination.page.max(1);
-    let page_size = pagination.page_size.max(1).min(100);
+    let page_size = pagination.page_size.clamp(1, 100);
 
     let paginator = users::Entity::find()
         .order_by_asc(users::Column::Name)
@@ -113,7 +113,7 @@ async fn get_user_list_fragment(
     }
 
     let page = pagination.page.max(1);
-    let page_size = pagination.page_size.max(1).min(100);
+    let page_size = pagination.page_size.clamp(1, 100);
 
     let paginator = users::Entity::find()
         .order_by_asc(users::Column::Name)
@@ -309,13 +309,11 @@ async fn update_user_details_admin(
                         let user_with_token_clone = user_with_token.clone();
                         if let Err(e) = AuthMailer::send_welcome(&ctx, &user_with_token).await {
                             tracing::error!(user_pid = user_with_token.pid.to_string(), error = ?e, "Admin Update: Failed to send verification email");
-                        } else {
-                            if let Err(e) = users::ActiveModel::from(user_with_token_clone)
-                                .set_email_verification_sent(&ctx.db)
-                                .await
-                            {
-                                tracing::error!(user_pid = updated_user.pid.to_string(), error = ?e, "Admin Update: Failed to set email verification sent timestamp");
-                            }
+                        } else if let Err(e) = users::ActiveModel::from(user_with_token_clone)
+                            .set_email_verification_sent(&ctx.db)
+                            .await
+                        {
+                            tracing::error!(user_pid = updated_user.pid.to_string(), error = ?e, "Admin Update: Failed to set email verification sent timestamp");
                         }
                         final_user_state = user_with_token;
                     }
@@ -400,11 +398,11 @@ async fn trigger_password_reset_admin(
 
     if let Err(e) = AuthMailer::forgot_password(&ctx, &user_with_token).await {
         error!(user_email = %target_user.email, error = ?e, "Admin Reset PW: Failed to send forgot password email");
-        return error_fragment(
+        error_fragment(
             &v,
             "Failed to send password reset email.",
             "#admin-user-messages",
-        );
+        )
     } else {
         if let Err(e) = user_with_token
             .clone()

@@ -281,7 +281,7 @@ impl Model {
 
         // Check for name uniqueness
         if users::Entity::find()
-            .filter(users::Column::Name.eq(&*params.name.trim())) // Trim username for the check
+            .filter(users::Column::Name.eq(params.name.trim())) // Trim username for the check
             .one(&txn)
             .await?
             .is_some()
@@ -359,7 +359,7 @@ impl Model {
                         Ok(cert_verifier) => cert_verifier
                             .primary_key()
                             .key_expiration_time()
-                            .map(|st| DateTime::<Utc>::from(st))
+                            .map(DateTime::<Utc>::from)
                             .map(|dt| dt.format("%Y-%m-%d").to_string()),
                         Err(e) => {
                             tracing::warn!("Failed policy check for PGP key validity: {}", e);
