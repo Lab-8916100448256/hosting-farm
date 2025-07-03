@@ -44,6 +44,60 @@ test.describe("basic register flow", () => {
     await page.getByRole("button", { name: "Sign in" }).click();
   });
 
+  test("confirm email", async () => {
+    await page.goto("http://localhost:1080/#/");
+    await expect(page.locator("body")).toContainText(
+      "Welcome to Hosting Farm Mr Test To: mr.test@example.com"
+    );
+    await page
+      .getByRole("link", { name: "Welcome to Hosting Farm Mr" })
+      .nth(0)
+      .click();
+
+    // For some reasons, this is not working. It seems the email confirmation page opens inside the iframe of the mail app.
+    /*
+    const page1Promise = page.waitForEvent("popup");
+    await page
+      .locator("iframe")
+      .first()
+      .contentFrame()
+      .getByRole("link", { name: "Verify Your Account" })
+      .click({ button: "middle" });
+    const page1 = await page1Promise;
+    await expect(page1.locator("h3")).toContainText(
+      "Email Verified Successfully"
+    );
+    await page1.getByRole("link", { name: "Go to Profile" }).click();
+    */
+
+    // So we navigate to it like this
+    await page.goto(
+      await page
+        .locator("iframe")
+        .first()
+        .contentFrame()
+        .getByRole("link", { name: "Verify Your Account" })
+        .getAttribute("href")
+    );
+    await expect(page.locator("h3")).toContainText(
+      "Email Verified Successfully"
+    );
+    await page.getByRole("link", { name: "Go to Profile" }).click();
+  });
+});
+
+test.describe("Teams management", () => {
+  test("log in", async () => {
+    await page.goto("http://localhost:5151/auth/login");
+    await page
+      .getByRole("textbox", { name: "Email address" })
+      .fill("mr.test@example.com");
+    await page
+      .getByRole("textbox", { name: "Password", exact: true })
+      .fill("Test!");
+    await page.getByRole("button", { name: "Sign in" }).click();
+  });
+
   test("edit admin team", async () => {
     await page.getByRole("link", { name: "View your teams" }).click();
     await expect(page.getByRole("main")).toContainText(
@@ -136,9 +190,11 @@ test.describe("basic register flow", () => {
     await page.getByRole("button", { name: "Create" }).click();
     await page.getByRole("link", { name: "Invite Member" }).click();
     await page.getByRole("textbox", { name: "User name" }).click();
-    await page.getByRole("textbox", { name: "User name" }).fill("Mr Test");
-    // await expect(page.getByRole("listitem")).toContainText("Mr Test");
-    // await page.getByText("Mr Test").click();
+    await page
+      .getByRole("textbox", { name: "User name" })
+      .pressSequentially("mr", { delay: 100 });
+    await expect(page.getByRole("listitem")).toContainText("Mr Test");
+    await page.getByText("Mr Test").click();
     await page.getByRole("button", { name: "Send Invitation" }).click();
     await expect(page.getByRole("list")).toContainText(
       "Invited Mr Mr Test mr.test@example.com Cancel Invitation"
