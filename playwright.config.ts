@@ -32,6 +32,8 @@ export default defineConfig({
     trace: "on-first-retry",
   },
 
+  // TODO: check https://playwright.dev/docs/auth for a way to run setup tests first while still be able to parallelize subsequent tests
+
   /* Configure projects for major browsers */
   projects: [
     {
@@ -77,7 +79,7 @@ export default defineConfig({
       stdout: "pipe",
       timeout: 600 * 1000,
       url: "http://localhost:5151",
-      reuseExistingServer: false,
+      reuseExistingServer: true,
     },
     {
       command: "docker run -p 1080:1080 -p 1025:1025 maildev/maildev",
