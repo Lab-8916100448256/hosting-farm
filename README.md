@@ -6,6 +6,13 @@ A web application to manage a farm of self-hosting servers
 Hosting Farm is developed in Rust with the Loco-rs framework
 
 
+### Radicle
+
+To clone this repository on Radicle, simply run:
+```
+rad clone rad:z4U7rokqyLuMj1dPSQsakczPTwsPB
+```
+
 ### Debian / Ubuntu
 This section describes how to install the developement dependencies of the project on a Debian GNU/Linux computer and how to build and test the application. These instructions should also work for debian based Linux distribution like Ubuntu.
 
