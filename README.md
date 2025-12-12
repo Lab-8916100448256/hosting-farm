@@ -104,7 +104,7 @@ Run the tests with :
 npx playwright test
 ```
 Before executing thet tests, Playwright will automatically start the application with the e2e profile which listen on the port 5151 and is using a test DB to avoid conflicts with your development instance.
-The application will be killed at the end.
+The application will be killed at the end of the tests.
 
 To start playwright tests in interactive UI mode.
 ```
