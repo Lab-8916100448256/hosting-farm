@@ -1,7 +1,10 @@
 shell: |
   #export RUSTDOCFLAGS='-D warnings'
+  env
 
   rustup default stable
+  nix-shell
+
   cargo --version
   rustc --version
 
