@@ -13,7 +13,8 @@ rad clone rad:z4U7rokqyLuMj1dPSQsakczPTwsPB
 ```
 
 ### Debian / Ubuntu
-This section describes how to install the developement dependencies of the project on a Debian GNU/Linux computer and how to build and test the application. These instructions should also work for debian based Linux distribution like Ubuntu.
+This section describes how to install the developement dependencies of the project on a Debian GNU/Linux computer and how to build and test the application.  
+These instructions should also work for debian based Linux distribution like Ubuntu.
 
 1. **Installing git and other project requirements** 
    ```
