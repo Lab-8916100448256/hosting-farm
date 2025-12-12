@@ -7,7 +7,6 @@ Hosting Farm is developed in Rust with the Loco-rs framework
 
 
 ### Radicle
-
 To clone this repository on Radicle, simply run:
 ```
 rad clone rad:z4U7rokqyLuMj1dPSQsakczPTwsPB
@@ -30,7 +29,6 @@ This section describes how to install the developement dependencies of the proje
    rustup component add rust-analyzer rust-src
    ```
 
-
 3. Installing loco-rs and other CLI tools
    ```
    sudo apt update && sudo apt install pkg-config -y
@@ -51,7 +49,6 @@ This section describes how to install the developement dependencies of the proje
    cargo test
    ```
    It will also build the application if it has not been already built or if the source code has changed since the last build.
-
 
 6. **Starting a development instance of the application**
    To run a development instance of the application, run the following command :
@@ -100,7 +97,6 @@ This section describes how to install the developement dependencies of the proje
 
 
 ### End-to-end tests
-
 #### To execute the end-to-end tests
 Run the tests with : 
 ```
@@ -124,4 +120,3 @@ npx playwright codegen http://localhost:5151
 ```
 
 For more information on writing tests, check Playwright documentation : https://playwright.dev/docs/intro
-
