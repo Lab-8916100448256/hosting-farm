@@ -1,5 +1,5 @@
 # Hosting Farm
-A web application to manage a farm of self-hosting servers
+POC for a web application to manage a farm of self-hosting servers
 
 
 ## Developement environement
