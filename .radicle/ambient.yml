@@ -1,0 +1,12 @@
+pre_plan:
+  - action: cargo_fetch
+plan:
+  - action: cargo_fmt
+  - action: cargo_clippy
+  - action: shell
+    shell: |
+      # git reset --hard
+      # git clean -fdx
+      # git switch main
+      git status --ignored
+      # git clean -fdx
