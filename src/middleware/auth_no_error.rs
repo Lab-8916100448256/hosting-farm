@@ -146,6 +146,7 @@ where
 ///
 /// # Errors
 /// Return an error when JWT token not configured
+#[allow(clippy::result_large_err)]
 fn get_jwt_from_config(ctx: &AppContext) -> LocoResult<&JWTConfig> {
     ctx.config
         .auth
@@ -156,6 +157,7 @@ fn get_jwt_from_config(ctx: &AppContext) -> LocoResult<&JWTConfig> {
         .ok_or_else(|| Error::string("JWT token not configured"))
 }
 /// extract token from the configured jwt location settings
+#[allow(clippy::result_large_err)]
 fn extract_token(jwt_config: &JWTConfig, parts: &Parts) -> LocoResult<String> {
     #[allow(clippy::match_wildcard_for_single_variants)]
     match jwt_config
@@ -174,6 +176,7 @@ fn extract_token(jwt_config: &JWTConfig, parts: &Parts) -> LocoResult<String> {
 /// # Errors
 ///
 /// When token is not valid or out found
+#[allow(clippy::result_large_err)]
 pub fn extract_token_from_header(headers: &HeaderMap) -> LocoResult<String> {
     Ok(headers
         .get(AUTH_HEADER)
@@ -189,6 +192,7 @@ pub fn extract_token_from_header(headers: &HeaderMap) -> LocoResult<String> {
 ///
 /// # Errors
 /// when token value from cookie is not found
+#[allow(clippy::result_large_err)]
 pub fn extract_token_from_cookie(name: &str, parts: &Parts) -> LocoResult<String> {
     // LogoResult
     let jar: cookie::CookieJar = cookie::CookieJar::from_headers(&parts.headers);
@@ -204,6 +208,7 @@ pub fn extract_token_from_cookie(name: &str, parts: &Parts) -> LocoResult<String
 ///
 /// # Errors
 /// when token value from cookie is not found
+#[allow(clippy::result_large_err)]
 pub fn extract_token_from_query(name: &str, parts: &Parts) -> LocoResult<String> {
     // LogoResult
     let parameters: Query<HashMap<String, String>> =

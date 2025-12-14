@@ -16,6 +16,7 @@ use serde::Serialize;
 // const VIEWS_DIR: &str = "assets/views";
 
 /// Renders a template with the given context
+#[allow(clippy::result_large_err)]
 pub fn render_template<V, S>(v: &V, template_name: &str, context: S) -> Result<Response>
 where
     V: ViewRenderer,
@@ -25,6 +26,7 @@ where
 }
 
 // Build an error message fragment with HTMX headers to inject it into error container of a page
+#[allow(clippy::result_large_err)]
 pub fn error_fragment(v: &TeraView, message: &str, target_selector: &str) -> Result<Response> {
     let res = format::render().view(
         v,
@@ -54,6 +56,7 @@ pub fn error_fragment(v: &TeraView, message: &str, target_selector: &str) -> Res
 }
 
 // Build a full page with an error message
+#[allow(clippy::result_large_err)]
 pub fn error_page(v: &TeraView, message: &str, e: Option<Error>) -> Result<Response> {
     // let error_details = if let Some(e) = &e {
     //     format!("Error details : {}", e)
@@ -73,6 +76,7 @@ pub fn error_page(v: &TeraView, message: &str, e: Option<Error>) -> Result<Respo
     )
 }
 
+#[allow(clippy::result_large_err)]
 pub fn redirect(url: &str, headers: HeaderMap) -> Result<Response> {
     if headers.get("HX-Request").is_some_and(|v| v == "true") {
         // HTMX request: Use HX-Redirect header
@@ -85,6 +89,7 @@ pub fn redirect(url: &str, headers: HeaderMap) -> Result<Response> {
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn htmx_redirect(url: &str) -> Result<Response> {
     let response = match Response::builder()
         .header("HX-Redirect", url)

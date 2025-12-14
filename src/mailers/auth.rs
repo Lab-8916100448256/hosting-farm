@@ -49,13 +49,13 @@ impl AuthMailer {
         };
 
         // Set the from email to match the SMTP username if available
-        if let Some(mailer_config) = &ctx.config.mailer {
-            if let Some(smtp_config) = &mailer_config.smtp {
-                if let Some(auth) = &smtp_config.auth {
+        if let Some(mailer_config) = &ctx.config.mailer &&
+            let Some(smtp_config) = &mailer_config.smtp &&
+            let Some(auth) = &smtp_config.auth {
                     args.from = Some(auth.user.clone());
-                }
-            }
         }
+            
+        
 
         Self::mail_template(ctx, &welcome, args).await?;
 
@@ -113,12 +113,10 @@ impl AuthMailer {
             ..Default::default()
         };
 
-        if let Some(mailer_config) = &ctx.config.mailer {
-            if let Some(smtp_config) = &mailer_config.smtp {
-                if let Some(auth) = &smtp_config.auth {
+        if let Some(mailer_config) = &ctx.config.mailer &&
+            let Some(smtp_config) = &mailer_config.smtp &&
+            let Some(auth) = &smtp_config.auth {
                     args.from = Some(auth.user.clone());
-                }
-            }
         }
 
         Self::mail_template(ctx, &forgot, args).await?;
@@ -202,12 +200,10 @@ Your Hosting Farm Server",
         };
 
         // Set the from email to match the SMTP username if available
-        if let Some(mailer_config) = &ctx.config.mailer {
-            if let Some(smtp_config) = &mailer_config.smtp {
-                if let Some(auth) = &smtp_config.auth {
+        if let Some(mailer_config) = &ctx.config.mailer &&
+            let Some(smtp_config) = &mailer_config.smtp &&
+            let Some(auth) = &smtp_config.auth {
                     args.from = Some(auth.user.clone());
-                }
-            }
         }
 
         Self::mail_template(ctx, &magic_link, args).await?;
@@ -293,6 +289,7 @@ Your Hosting Farm Server",
 
     /// Encrypts a plaintext message using PGP for a given recipient certificate.
     /// Returns the armored PGP message as a String.
+    #[allow(clippy::result_large_err)]
     fn _encrypt_message_pgp(recipient_cert: &Cert, plaintext_body: &str) -> Result<String> {
         let policy = &StandardPolicy::new();
         let mut sink = Vec::new();
@@ -399,6 +396,7 @@ Your Hosting Farm Server",
     }
 
     /// Gets the 'From' mailbox address from the AppContext configuration.
+    #[allow(clippy::result_large_err)]
     fn _get_from_mailbox(ctx: &AppContext) -> Result<Mailbox> {
         ctx.config
             .mailer
