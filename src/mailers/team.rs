@@ -47,10 +47,11 @@ impl TeamMailer {
         };
 
         // Set the from email to match the SMTP username if available
-        if let Some(mailer_config) = &ctx.config.mailer &&
-            let Some(smtp_config) = &mailer_config.smtp &&
-            let Some(auth) = &smtp_config.auth {
-                    args.from = Some(auth.user.clone());
+        if let Some(mailer_config) = &ctx.config.mailer
+            && let Some(smtp_config) = &mailer_config.smtp
+            && let Some(auth) = &smtp_config.auth
+        {
+            args.from = Some(auth.user.clone());
         }
 
         match Self::mail_template(ctx, &INVITATION, args).await {

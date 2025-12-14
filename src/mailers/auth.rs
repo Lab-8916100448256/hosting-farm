@@ -49,13 +49,12 @@ impl AuthMailer {
         };
 
         // Set the from email to match the SMTP username if available
-        if let Some(mailer_config) = &ctx.config.mailer &&
-            let Some(smtp_config) = &mailer_config.smtp &&
-            let Some(auth) = &smtp_config.auth {
-                    args.from = Some(auth.user.clone());
+        if let Some(mailer_config) = &ctx.config.mailer
+            && let Some(smtp_config) = &mailer_config.smtp
+            && let Some(auth) = &smtp_config.auth
+        {
+            args.from = Some(auth.user.clone());
         }
-            
-        
 
         Self::mail_template(ctx, &welcome, args).await?;
 
@@ -113,10 +112,11 @@ impl AuthMailer {
             ..Default::default()
         };
 
-        if let Some(mailer_config) = &ctx.config.mailer &&
-            let Some(smtp_config) = &mailer_config.smtp &&
-            let Some(auth) = &smtp_config.auth {
-                    args.from = Some(auth.user.clone());
+        if let Some(mailer_config) = &ctx.config.mailer
+            && let Some(smtp_config) = &mailer_config.smtp
+            && let Some(auth) = &smtp_config.auth
+        {
+            args.from = Some(auth.user.clone());
         }
 
         Self::mail_template(ctx, &forgot, args).await?;
@@ -200,10 +200,11 @@ Your Hosting Farm Server",
         };
 
         // Set the from email to match the SMTP username if available
-        if let Some(mailer_config) = &ctx.config.mailer &&
-            let Some(smtp_config) = &mailer_config.smtp &&
-            let Some(auth) = &smtp_config.auth {
-                    args.from = Some(auth.user.clone());
+        if let Some(mailer_config) = &ctx.config.mailer
+            && let Some(smtp_config) = &mailer_config.smtp
+            && let Some(auth) = &smtp_config.auth
+        {
+            args.from = Some(auth.user.clone());
         }
 
         Self::mail_template(ctx, &magic_link, args).await?;
