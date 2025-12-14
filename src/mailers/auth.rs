@@ -2,12 +2,12 @@
 #![allow(non_upper_case_globals)]
 
 use crate::models::users;
-use lettre::message::{header::ContentType, Mailbox, Message as LettreMessage};
-use lettre::transport::smtp::authentication::Credentials;
-use lettre::transport::smtp::client::{Tls, TlsParameters};
-use lettre::transport::smtp::AsyncSmtpTransport;
 use lettre::AsyncTransport; // Import transport trait
 use lettre::Tokio1Executor;
+use lettre::message::{Mailbox, Message as LettreMessage, header::ContentType};
+use lettre::transport::smtp::AsyncSmtpTransport;
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::client::{Tls, TlsParameters};
 use loco_rs::prelude::*;
 use sequoia_openpgp::{
     cert::{Cert, CertParser},

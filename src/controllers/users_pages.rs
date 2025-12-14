@@ -1,5 +1,5 @@
 use crate::{
-    controllers::ssh_key_api::{is_valid_ssh_public_key, SshKeyPayload},
+    controllers::ssh_key_api::{SshKeyPayload, is_valid_ssh_public_key},
     mailers::auth::AuthMailer,
     middleware::auth_no_error::JWTWithUserOpt,
     models::{
@@ -12,7 +12,7 @@ use crate::{
     views::{error_fragment, error_page, redirect, render_template},
 };
 use axum::http::HeaderMap;
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::Response;
 use axum::{
     debug_handler,
@@ -279,7 +279,7 @@ async fn update_profile(
 
     if user.email != trimmed_email {
         email_changed = true; // Mark email as changed
-                              // Check if the *new* email exists.
+        // Check if the *new* email exists.
         match users::Model::find_by_email(&ctx.db, &trimmed_email).await {
             Ok(_) => {
                 return error_fragment(&v, "Email already in use", "#notification-container");

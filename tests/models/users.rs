@@ -1,4 +1,4 @@
-use chrono::{offset::Local, Duration};
+use chrono::{Duration, offset::Local};
 use hosting_farm::{
     app::App,
     models::users::{self, Model, RegisterParams},

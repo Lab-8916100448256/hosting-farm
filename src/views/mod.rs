@@ -3,7 +3,7 @@ pub mod teams;
 pub mod users;
 
 use axum::{
-    http::{header::HeaderValue, HeaderMap},
+    http::{HeaderMap, header::HeaderValue},
     response::{IntoResponse, Redirect, Response},
 };
 

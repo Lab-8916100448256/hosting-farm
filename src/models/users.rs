@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::{offset::Local, DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Utc, offset::Local};
 use loco_rs::{auth::jwt, hash, prelude::*};
 use reqwest;
 use sea_orm::{

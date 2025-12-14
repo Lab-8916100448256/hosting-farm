@@ -3,9 +3,9 @@ use axum::{Extension, Router as AxumRouter};
 use chrono::Local;
 use fluent_templates::{ArcLoader, FluentLoader};
 use loco_rs::{
-    app::{AppContext, Initializer},
-    controller::views::{engines, ViewEngine},
     Error, Result,
+    app::{AppContext, Initializer},
+    controller::views::{ViewEngine, engines},
 };
 use std::collections::HashMap;
 use tera::Value;

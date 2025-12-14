@@ -11,7 +11,7 @@ use crate::{
 };
 use tracing::{debug, error, info}; // Import tracing macros
 
-use axum::http::{header::HeaderValue, HeaderMap};
+use axum::http::{HeaderMap, header::HeaderValue};
 use axum::{
     debug_handler,
     extract::{Form, Path, Query, State},
@@ -104,7 +104,13 @@ async fn handle_register(
                         };
 
                         // Attempt to create the team, logging the outcome
-                        match crate::models::_entities::teams::Model::create_team(&ctx.db, user.id, &team_params).await {
+                        match crate::models::_entities::teams::Model::create_team(
+                            &ctx.db,
+                            user.id,
+                            &team_params,
+                        )
+                        .await
+                        {
                             Ok(team) => info!(
                                 "Successfully created default administrators team '{}' (ID: {}) for first user {}",
                                 admin_team_name, team.id, user.email
@@ -120,12 +126,18 @@ async fn handle_register(
                         }
                     } else {
                         // Not the first user, do nothing related to admin team creation
-                        debug!("Not the first user (count: {}), skipping admin team creation for user {}", user_count, user.email);
+                        debug!(
+                            "Not the first user (count: {}), skipping admin team creation for user {}",
+                            user_count, user.email
+                        );
                     }
                 }
                 Err(e) => {
                     // Failed to get user count, log error but proceed with registration
-                    error!("Failed to query user count during registration for user {}: {:?}. Skipping admin team creation check.", user.email, e);
+                    error!(
+                        "Failed to query user count during registration for user {}: {:?}. Skipping admin team creation check.",
+                        user.email, e
+                    );
                     // Registration continues even if the count check fails.
                 }
             }
@@ -155,14 +167,17 @@ async fn handle_register(
                                 }
                                 Err(err) => {
                                     tracing::error!(
-                                        message =
-                                            "Failed to set email verification status after sending email",
+                                        message = "Failed to set email verification status after sending email",
                                         user_email = &user_with_token.email, // use user_with_token here
                                         error = err.to_string(),
                                     );
                                     // Although the email was sent, the DB update failed.
                                     // This is an internal error state, show error page.
-                                    error_page(&v, "Account registered, but failed to finalize setup. Please contact support.", Some(loco_rs::Error::Model(err)))
+                                    error_page(
+                                        &v,
+                                        "Account registered, but failed to finalize setup. Please contact support.",
+                                        Some(loco_rs::Error::Model(err)),
+                                    )
                                 }
                             }
                         }

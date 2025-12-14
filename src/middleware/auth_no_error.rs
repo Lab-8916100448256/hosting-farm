@@ -4,14 +4,14 @@ use std::collections::HashMap;
 
 use axum::{
     extract::{FromRef, FromRequestParts, Query},
-    http::{request::Parts, HeaderMap},
+    http::{HeaderMap, request::Parts},
 };
 use axum_extra::extract::cookie;
 use serde::{Deserialize, Serialize};
 
 use loco_rs::{
-    app::AppContext, auth, config::JWT as JWTConfig, errors::Error, model::Authenticable,
-    Result as LocoResult,
+    Result as LocoResult, app::AppContext, auth, config::JWT as JWTConfig, errors::Error,
+    model::Authenticable,
 };
 
 // ---------------------------------------

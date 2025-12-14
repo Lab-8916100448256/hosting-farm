@@ -11,8 +11,8 @@ use crate::{
 use axum::{
     debug_handler,
     extract::{Form, Path, Query, State},
-    http::header::HeaderMap,
     http::StatusCode,
+    http::header::HeaderMap,
     response::{Html, IntoResponse},
 };
 use loco_rs::{app::AppContext, prelude::*};
@@ -959,7 +959,7 @@ async fn update_member_role(
         Ok(value) => match value {
             Some(membership) => membership,
             None => {
-                return error_fragment(&v, "User is not a member of this team", "#error-container")
+                return error_fragment(&v, "User is not a member of this team", "#error-container");
             }
         },
         Err(err) => {

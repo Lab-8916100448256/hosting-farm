@@ -382,7 +382,9 @@ async fn leave_team(
             .await?;
 
         if owner_count <= 1 {
-            return bad_request("As the last owner, you cannot leave the team. Either delete the team or transfer ownership first.");
+            return bad_request(
+                "As the last owner, you cannot leave the team. Either delete the team or transfer ownership first.",
+            );
         }
     }
 
