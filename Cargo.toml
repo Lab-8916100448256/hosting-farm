@@ -3,7 +3,7 @@
 [package]
 name = "hosting-farm"
 version = "0.1.12"
-edition = "2021"
+edition = "2025"
 publish = false
 default-run = "hosting_farm-cli"
 
