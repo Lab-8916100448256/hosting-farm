@@ -74,7 +74,7 @@ export default defineConfig({
    webServer: {
      command: 'cargo loco start -e e2e',
      stdout: 'pipe',
-     timeout: 300 * 1000,
+     timeout: 1200 * 1000,
      url: 'http://localhost:5151',
      reuseExistingServer: false,
    },
