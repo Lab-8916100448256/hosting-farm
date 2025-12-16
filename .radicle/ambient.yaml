@@ -5,6 +5,9 @@ plan:
   - action: cargo_clippy
   - action: shell
     shell: |
+      playwright test
+  - action: shell
+    shell: |
       # git reset --hard
       # git clean -fdx
       # git switch main
