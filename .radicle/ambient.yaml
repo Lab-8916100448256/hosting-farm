@@ -13,3 +13,6 @@ plan:
       # git switch main
       git status --ignored
       # git clean -fdx
+  - action: shell
+    shell: |
+      exit 1
