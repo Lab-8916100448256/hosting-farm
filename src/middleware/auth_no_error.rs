@@ -74,7 +74,8 @@ where
                             }
                             Err(err) => {
                                 tracing::error!(
-                                    message = "Failed to find user claim in auth token",
+                                    message = "Failed to validate auth token",
+                                    token = &token,
                                     error = err.to_string(),
                                 );
                                 Ok(Self {
@@ -96,8 +97,11 @@ where
                     }
                 }
             }
-            Err(_) => {
-                // ToDo: log error ?
+            Err(err) => {
+                tracing::error!(
+                    message = "Failed to get auth configuration",
+                    error = err.to_string(),
+                );
                 Ok(Self {
                     claims: None,
                     user: None,
@@ -126,28 +130,36 @@ where
         let ctx: AppContext = AppContext::from_ref(state); // change to ctx
 
         match get_jwt_from_config(&ctx) {
-            Ok(jwt_config) => {
-                match extract_token(jwt_config, parts) {
-                    Ok(token) => {
-                        let jwt_secret = ctx.config.get_jwt_config()?;
-                        match auth::jwt::JWT::new(&jwt_secret.secret).validate(&token) {
-                            Ok(claims) => Ok(Self {
-                                claims: Some(claims.claims),
-                            }),
-                            Err(_err) => {
-                                // ToDo: log error ?
-                                Ok(Self { claims: None })
-                            }
+            Ok(jwt_config) => match extract_token(jwt_config, parts) {
+                Ok(token) => {
+                    let jwt_secret = ctx.config.get_jwt_config()?;
+                    match auth::jwt::JWT::new(&jwt_secret.secret).validate(&token) {
+                        Ok(claims) => Ok(Self {
+                            claims: Some(claims.claims),
+                        }),
+                        Err(err) => {
+                            tracing::error!(
+                                message = "Failed to validate auth token",
+                                token = &token,
+                                error = err.to_string(),
+                            );
+                            Ok(Self { claims: None })
                         }
                     }
-                    Err(_) => {
-                        // ToDo: log error ?
-                        Ok(Self { claims: None })
-                    }
                 }
-            }
-            Err(_) => {
-                // ToDo: log error ?
+                Err(err) => {
+                    tracing::error!(
+                        message = "Failed to extract auth token",
+                        error = err.to_string(),
+                    );
+                    Ok(Self { claims: None })
+                }
+            },
+            Err(err) => {
+                tracing::error!(
+                    message = "Failed to get auth configuration",
+                    error = err.to_string(),
+                );
                 Ok(Self { claims: None })
             }
         }
@@ -216,10 +228,10 @@ pub fn extract_token_from_cookie(name: &str, parts: &Parts) -> LocoResult<String
         .ok_or_else(|| Error::Unauthorized("error strip value".to_string()))?
         .to_string())
 }
-/// Extract a token value from query
+/// Extract a token value from query uri
 ///
 /// # Errors
-/// when token value from cookie is not found
+/// when token value from uri parameters is not found
 #[allow(clippy::result_large_err)]
 pub fn extract_token_from_query(name: &str, parts: &Parts) -> LocoResult<String> {
     // LogoResult
