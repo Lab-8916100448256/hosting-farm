@@ -14,6 +14,8 @@ use loco_rs::{
     model::Authenticable,
 };
 
+use tracing::{debug, error, info}; // Import tracing macros
+
 // ---------------------------------------
 //
 // JWT Auth extractor
@@ -57,8 +59,12 @@ where
                                         claims: Some(claims.claims),
                                         user: Some(user),
                                     }),
-                                    Err(_) => {
-                                        // ToDo: log error ?
+                                    Err(err) => {
+                                        tracing::error!(
+                                            message = "Failed to find user by claim",
+                                            //user_claims = claims.claims.claims,
+                                            error = err.to_string(),
+                                        );
                                         Ok(Self {
                                             claims: Some(claims.claims),
                                             user: None,
@@ -66,8 +72,11 @@ where
                                     }
                                 }
                             }
-                            Err(_err) => {
-                                // ToDo: log error ?
+                            Err(err) => {
+                                tracing::error!(
+                                    message = "Failed to find user claim in auth token",
+                                    error = err.to_string(),
+                                );
                                 Ok(Self {
                                     claims: None,
                                     user: None,
@@ -75,8 +84,11 @@ where
                             }
                         }
                     }
-                    Err(_) => {
-                        // ToDo: log error ?
+                    Err(err) => {
+                        tracing::error!(
+                            message = "Failed to extract auth token",
+                            error = err.to_string(),
+                        );
                         Ok(Self {
                             claims: None,
                             user: None,
