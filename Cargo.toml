@@ -48,6 +48,8 @@ reqwest = "0.12.15"
 sequoia-openpgp = { version = "2", default-features = false, features = ["crypto-openssl"] }
 sha1 = "0.10"
 zbase32 = "0.1.2"
+rand = "0.9.2"
+rand_distr = "0.5.1"
 
 
 [[bin]]

@@ -20,6 +20,9 @@ use loco_rs::prelude::*;
 use sea_orm::{EntityTrait, PaginatorTrait}; // Added EntityTrait for ::count(), PaginatorTrait for ::count()
 use std::collections::HashMap;
 
+use rand::Rng;
+use rand_distr::Alphanumeric;
+
 /// Helper function to get the admin team name from config
 fn get_admin_team_name(ctx: &AppContext) -> String {
     ctx.config
@@ -34,6 +37,22 @@ fn get_admin_team_name(ctx: &AppContext) -> String {
                 "'app.admin_team_name' not found or not a string in config, using default 'Administrators'"
             );
             "Administrators".to_string()
+        })
+}
+
+/// Helper function to get the oidc auth enable setting from config
+fn is_oidc_auth(ctx: &AppContext) -> bool {
+    ctx.config
+        .settings
+        .as_ref() // Get Option<&Value>
+        .and_then(|settings| settings.get("app")) // Get Option<&Value> for "app" key
+        .and_then(|app_settings| app_settings.get("oidc_auth")) // Get Option<&Value> for "oidc_auth"
+        .and_then(|value| value.as_bool()) // Get Option<bool>
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                "'app.oidc_auth' not found or not a boolean in config, using default 'false'"
+            );
+            false
         })
 }
 
@@ -247,17 +266,285 @@ async fn handle_register(
 async fn login(
     auth: JWTWithUserOpt<users::Model>,
     ViewEngine(v): ViewEngine<TeraView>,
-    State(_ctx): State<AppContext>,
+    State(ctx): State<AppContext>,
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Response> {
+    if let Some(oidc_header) = headers
+        .get("X-Oidc-Roles")
+        .and_then(|h| h.to_str().ok())
+    {
+        tracing::info!("X-Oidc-Roles = {}", oidc_header);
+    } else {
+        tracing::info!("X-Oidc-Roles header found");
+    }
+
     match auth.user {
         Some(_user) => {
             // User is already authenticated, redirect to home using standard redirect
-            tracing::info!("User is already authenticated, redirecting to home");
+            tracing::debug!("User is already authenticated, redirecting to home");
             redirect("/home", headers)
         }
         None => {
+            // ToDo : Use X-Oidc-* auth headers only if enabled by settings.app.oidc_auth 
+            // ToDo : Add a user name field to user entity that would be the unique identifier instead of email, to support e-mail modification on OIDC side
+            // ToDo : Add a auth type field to user entity (or to session?) to disable local modification of identity related profile information when authenticated by OIDC, and link to IPM profile page for that (or use settings.app.oidc_auth, but in that case it would be all iodc or all local users?)
+            if let Some(oidc_email) = headers.get("X-Oidc-Email").and_then(|h| h.to_str().ok()) {
+                tracing::debug!("X-Oidc-Email = {}", oidc_email);
+                let user_result = users::Model::find_by_email(&ctx.db, &oidc_email).await;
+
+                match user_result {
+                    Ok(user) => {
+                        // Get JWT secret, handling potential error
+                        let jwt_secret = match ctx.config.get_jwt_config() {
+                            Ok(config) => config,
+                            Err(err) => {
+                                tracing::error!(
+                                    message = "Failed to get JWT configuration,",
+                                    error = err.to_string(),
+                                );
+                                // Use error_fragment for user-facing error
+                                return error_fragment(
+                                    &v,
+                                    "Log in failed: Server configuration error.",
+                                    "#error-container",
+                                );
+                            }
+                        };
+
+                        let token =
+                            match user.generate_jwt(&jwt_secret.secret, &jwt_secret.expiration) {
+                                Ok(token) => token,
+                                Err(err) => {
+                                    tracing::error!(
+                                        message = "Failed to generate JWT token,",
+                                        user_email = &oidc_email,
+                                        error = err.to_string(),
+                                    );
+                                    return error_fragment(
+                                        &v,
+                                        "Log in failed: Failed to generate JWT token",
+                                        "#error-container",
+                                    );
+                                }
+                            };
+
+                        // Redirect to home with cookies
+                        let mut response = redirect("/home", headers.clone())?;
+
+                        // Add Set-Cookie header for the auth token
+                        response.headers_mut().append(
+                            axum::http::header::SET_COOKIE,
+                            HeaderValue::from_str(&format!("auth_token={}; Path=/", token))?,
+                        );
+
+                        tracing::debug!(
+                            message = "User login from OIDC auth successful,",
+                            user_email = &oidc_email,
+                        );
+                        return Ok(response);
+                    }
+                    Err(_) => {
+                        tracing::debug!(
+                            message = "Unknown user login attempt,",
+                            user_email = &oidc_email,
+                        );
+
+                        if let Some(oidc_name) =
+                            headers.get("X-Oidc-Displayname").and_then(|h| h.to_str().ok())
+                        {
+                            tracing::debug!("X-Oidc-Displayname = {}", oidc_name);
+
+                            let random_password: String = (0..32)
+                                .map(|_| rand::rng().sample(Alphanumeric) as char)
+                                .collect();
+
+                            // Convert form data to RegisterParams, trimming the name
+                            let user_params = RegisterParams {
+                                name: oidc_name.trim().to_string(),
+                                email: oidc_email.trim().to_string(),
+                                password: random_password.clone(),
+                                password_confirmation: random_password.clone(),
+                            };
+
+                            // Create user account
+                            let res =
+                                users::Model::create_with_password(&ctx.db, &user_params).await;
+
+                            match res {
+                                Ok(user) => {
+                                    // START: Auto-create admin team for the first user
+                                    match users::Entity::find().count(&ctx.db).await {
+                                        Ok(user_count) => {
+                                            if user_count == 1 {
+                                                info!(
+                                                    "First user registered ({}), attempting to create default admin team.",
+                                                    user.email
+                                                );
+                                                // Read admin team name from configuration, fallback to "Administrators"
+                                                let admin_team_name = get_admin_team_name(&ctx);
+
+                                                let team_params = teams::CreateTeamParams {
+                                                    name: admin_team_name.clone(), // Clone name from config
+                                                    description: Some(
+                                                        "Default administrators team created automatically.".to_string(),
+                                                    ),
+                                                };
+                                                // Attempt to create the team, logging the outcome
+                                                match crate::models::_entities::teams::Model::create_team(
+                                                    &ctx.db,
+                                                    user.id,
+                                                    &team_params).await {
+                            Ok(team) => info!(
+                                "Successfully created default administrators team '{}' (ID: {}) for first user {}",
+                                admin_team_name, team.id, user.email
+                            ),
+                            Err(e) => {
+                                // Log the error but do not fail the registration
+                                error!(
+                                    "Failed to create default administrators team '{}' for first user {}: {:?}",
+                                    admin_team_name, user.email, e
+                                );
+                                // Registration continues even if team creation fails.
+                            }
+                        }
+                                            } else {
+                                                // Not the first user, do nothing related to admin team creation
+                                                debug!(
+                                                    "Not the first user (count: {}), skipping admin team creation for user {}",
+                                                    user_count, user.email
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            // Failed to get user count, log error but proceed with registration
+                                            error!(
+                                                "Failed to query user count during registration for user {}: {:?}. Skipping admin team creation check.",
+                                                user.email, e
+                                            );
+                                            // Registration continues even if the count check fails.
+                                        }
+                                    }
+                                    // END: Auto-create admin team logic
+
+                                    // Generate email verification token
+                                    match user
+                                        .clone()
+                                        .into_active_model()
+                                        .generate_email_verification_token(&ctx.db)
+                                        .await
+                                    {
+                                        Ok(user_with_token) => {
+                                            // Send verification email first
+                                            match AuthMailer::send_welcome(&ctx, &user_with_token)
+                                                .await
+                                            {
+                                                Ok(_) => {
+                                                    // Email sent successfully, now update verification status
+                                                    match user_with_token
+                                                        .clone()
+                                                        .into_active_model()
+                                                        .set_email_verification_sent(&ctx.db)
+                                                        .await
+                                                    {
+                                                        Ok(_) => {
+                                                            // All good, redirect to login page with success message
+                                                            return redirect(
+                                                                "/auth/login?registered=true",
+                                                                headers,
+                                                            );
+                                                        }
+                                                        Err(err) => {
+                                                            tracing::error!(
+                                                                message = "Failed to set email verification status after sending email",
+                                                                user_email = &user_with_token.email, // use user_with_token here
+                                                                error = err.to_string(),
+                                                            );
+                                                            // Although the email was sent, the DB update failed.
+                                                            // This is an internal error state, show error page.
+                                                            return error_page(
+                                                                &v,
+                                                                "Account registered, but failed to finalize setup. Please contact support.",
+                                                                Some(loco_rs::Error::Model(err)),
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                                Err(err) => {
+                                                    tracing::error!(
+                                                        message = "Failed to send welcome email",
+                                                        user_email = &user_with_token.email, // use user_with_token here
+                                                        error = err.to_string(),
+                                                    );
+                                                    // Don't proceed to update verification status if email failed.
+                                                    return error_page(
+                                                        &v,
+                                                        "Could not send welcome email.",
+                                                        Some(loco_rs::Error::wrap(err)),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Err(err) => {
+                                            tracing::error!(
+                                                message =
+                                                    "Failed to generate email verification token",
+                                                user_email = &user.email, // user is still available here from initial Ok(user)
+                                                error = err.to_string(),
+                                            );
+                                            // Error generating token after user creation.
+                                            // This is an internal error state, show error page.
+                                            return error_page(
+                                                &v,
+                                                "Account registered, but failed to finalize setup. Please contact support.",
+                                                Some(loco_rs::Error::Model(err)),
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    // Log the specific error details
+                                    tracing::info!(
+                                        error = err.to_string(), // Log the actual error string
+                                        user_email = &user_params.email,
+                                        user_name = &user_params.name, // Also log the username attempt
+                                        "Could not register user",
+                                    );
+
+                                    // Handle specific ModelError variants
+                                    match err {
+                                        // Use the message directly from the ModelError for uniqueness errors
+                                        ModelError::Message(msg) => {
+                                            return error_fragment(&v, &msg, "#error-container");
+                                        }
+                                        // Handle validation errors
+                                        ModelError::Validation(validation_err) => {
+                                            return error_fragment(
+                                                &v,
+                                                &format!("Validation error: {}", validation_err),
+                                                "#error-container",
+                                            );
+                                        }
+                                        // Handle other potential errors generically
+                                        _ => {
+                                            return error_fragment(
+                                                &v,
+                                                "Could not register account due to an unexpected error.",
+                                                "#error-container",
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            tracing::info!("no X-Oidc-Displayname header found");
+                        }
+                    }
+                }
+            } else {
+                tracing::info!("no X-Oidc-Email header found");
+            }
+
             let registered = params.get("registered") == Some(&"true".to_string());
             let mut email = "";
             // Parse cookies from headers
@@ -593,13 +880,17 @@ async fn verify_email(
 
 /// Handles user logout by clearing the auth token cookie
 #[debug_handler]
-async fn handle_logout() -> Result<Response> {
+async fn handle_logout(State(ctx): State<AppContext>) -> Result<Response> {
     // TODO: Implement server-side JWT invalidation (e.g., token blacklist)
     // This implementation only clears the client-side cookie. The JWT itself
     // remains valid until it expires. For a fully secure logout, the token
     // should be invalidated on the server-side as well.
+    let redirect_url = match is_oidc_auth(&ctx) {
+        true => "/oidc/logout",
+        false => "/auth/login",
+    };
     let response = Response::builder()
-        .header("HX-Redirect", "/auth/login")
+        .header("HX-Redirect", redirect_url)
         .header(
             "Set-Cookie",
             "auth_token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",

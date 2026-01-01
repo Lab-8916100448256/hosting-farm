@@ -23,6 +23,7 @@ pub fn is_valid_ssh_public_key(key: &str) -> bool {
         | "ecdsa-sha2-nistp256"
         | "ecdsa-sha2-nistp384"
         | "ecdsa-sha2-nistp521"
+        | "sk-ecdsa-sha2-nistp256@openssh.com"
         | "ssh-ed25519" => {}
         _ => return false,
     }
