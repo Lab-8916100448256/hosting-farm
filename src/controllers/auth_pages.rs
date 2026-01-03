@@ -270,10 +270,7 @@ async fn login(
     Query(params): Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Response> {
-    if let Some(oidc_header) = headers
-        .get("X-Oidc-Roles")
-        .and_then(|h| h.to_str().ok())
-    {
+    if let Some(oidc_header) = headers.get("X-Oidc-Roles").and_then(|h| h.to_str().ok()) {
         tracing::info!("X-Oidc-Roles = {}", oidc_header);
     } else {
         tracing::info!("X-Oidc-Roles header found");
@@ -286,7 +283,7 @@ async fn login(
             redirect("/home", headers)
         }
         None => {
-            // ToDo : Use X-Oidc-* auth headers only if enabled by settings.app.oidc_auth 
+            // ToDo : Use X-Oidc-* auth headers only if enabled by settings.app.oidc_auth
             // ToDo : Add a user name field to user entity that would be the unique identifier instead of email, to support e-mail modification on OIDC side
             // ToDo : Add a auth type field to user entity (or to session?) to disable local modification of identity related profile information when authenticated by OIDC, and link to IPM profile page for that (or use settings.app.oidc_auth, but in that case it would be all iodc or all local users?)
             if let Some(oidc_email) = headers.get("X-Oidc-Email").and_then(|h| h.to_str().ok()) {
@@ -350,8 +347,9 @@ async fn login(
                             user_email = &oidc_email,
                         );
 
-                        if let Some(oidc_name) =
-                            headers.get("X-Oidc-Displayname").and_then(|h| h.to_str().ok())
+                        if let Some(oidc_name) = headers
+                            .get("X-Oidc-Displayname")
+                            .and_then(|h| h.to_str().ok())
                         {
                             tracing::debug!("X-Oidc-Displayname = {}", oidc_name);
 

@@ -2,7 +2,7 @@ use axum::debug_handler;
 use loco_rs::prelude::*;
 
 use crate::{middleware::auth_no_error::JWTWithUserOpt, models::users};
-use axum::http::{HeaderMap};
+use axum::http::HeaderMap;
 
 #[debug_handler]
 async fn home(
@@ -11,10 +11,7 @@ async fn home(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
 ) -> Result<Response> {
-    if let Some(oidc_header) = headers
-        .get("X-Oidc-Roles")
-        .and_then(|h| h.to_str().ok())
-    {
+    if let Some(oidc_header) = headers.get("X-Oidc-Roles").and_then(|h| h.to_str().ok()) {
         tracing::info!("X-Oidc-roRolesles = {}", oidc_header);
     } else {
         tracing::info!("no X-Oidc-Roles header found");
