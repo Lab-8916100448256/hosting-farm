@@ -288,7 +288,7 @@ async fn login(
             // ToDo : Add a auth type field to user entity (or to session?) to disable local modification of identity related profile information when authenticated by OIDC, and link to IPM profile page for that (or use settings.app.oidc_auth, but in that case it would be all iodc or all local users?)
             if let Some(oidc_email) = headers.get("X-Oidc-Email").and_then(|h| h.to_str().ok()) {
                 tracing::debug!("X-Oidc-Email = {}", oidc_email);
-                let user_result = users::Model::find_by_email(&ctx.db, &oidc_email).await;
+                let user_result = users::Model::find_by_email(&ctx.db, oidc_email).await;
 
                 match user_result {
                     Ok(user) => {
