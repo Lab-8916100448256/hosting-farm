@@ -532,6 +532,57 @@ impl Model {
             pending_user_count: 0,
         }
     }
+
+    /// Checks if the current user is the first user in the system and if so,
+    /// attempts to create the default administrators team.
+    pub async fn create_admin_team_if_needed(
+        &self,
+        db: &DatabaseConnection,
+        ctx: &AppContext,
+    ) -> ModelResult<()> {
+        let user_count = Entity::find().count(db).await?;
+
+        if user_count == 1 {
+            tracing::info!(
+                "First user registered ({}), attempting to create default admin team.",
+                self.email
+            );
+            let admin_team_name = Self::get_admin_team_name(ctx);
+
+            let team_params = super::teams::CreateTeamParams {
+                name: admin_team_name.clone(),
+                description: Some("Default administrators team created automatically.".to_string()),
+            };
+
+            match super::teams::Model::create_team(db, self.id, &team_params).await {
+                Ok(team) => {
+                    tracing::info!(
+                        "Successfully created default administrators team '{}' (ID: {}) for first user {}",
+                        admin_team_name,
+                        team.id,
+                        self.email
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create default administrators team '{}' for first user {}: {:?}",
+                        admin_team_name,
+                        self.email,
+                        e
+                    );
+                    return Err(e);
+                }
+            }
+        } else {
+            tracing::debug!(
+                "Not the first user (count: {}), skipping admin team creation for user {}",
+                user_count,
+                self.email
+            );
+        }
+
+        Ok(())
+    }
 }
 
 impl ActiveModel {

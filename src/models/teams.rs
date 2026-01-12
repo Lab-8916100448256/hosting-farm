@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::_entities::team_memberships;
-use super::_entities::teams::{self, ActiveModel, Model};
-use super::_entities::users::{self, Model as UserModel};
+pub use super::_entities::team_memberships;
+pub use super::_entities::teams::{self, ActiveModel, Model};
+pub use super::_entities::users::{self, Model as UserModel};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTeamParams {
