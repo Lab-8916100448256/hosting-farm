@@ -217,9 +217,8 @@ async fn login(
         }
         None => {
             if is_oidc_auth(&ctx) {
-                // ToDo : Use X-Oidc-* auth headers only if enabled by settings.app.oidc_auth
                 // ToDo : Add a user name field to user entity that would be the unique identifier instead of email, to support e-mail modification on OIDC side
-                // ToDo : Add a auth type field to user entity (or to session?) to disable local modification of identity related profile information when authenticated by OIDC, and link to IPM profile page for that (or use settings.app.oidc_auth, but in that case it would be all iodc or all local users?)
+                // ToDo : Add a auth type field to user entity or to session? (to disable local modification of identity related profile information when authenticated by OIDC, and link to IPM profile page for that (or use settings.app.oidc_auth, but in that case it would be all iodc or all local users?)
                 if let Some(oidc_email) = headers.get("X-Oidc-Email").and_then(|h| h.to_str().ok())
                 {
                     tracing::debug!("X-Oidc-Email = {}", oidc_email);
