@@ -444,9 +444,7 @@ impl Model {
         params: &UpdateDetailsParams,
     ) -> ModelResult<Self> {
         // Handle validation error mapping correctly
-        params
-            .validate()
-            .map_err(|e| ModelError::Message(e.to_string()))?;
+        validator::Validate::validate(params).map_err(|e| ModelError::Message(e.to_string()))?;
 
         let mut active_user: ActiveModel = self.clone().into();
         let mut email_changed = false;

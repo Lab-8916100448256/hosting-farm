@@ -20,7 +20,7 @@ use crate::{
     views::teams::{MemberResponse, TeamResponse},
 };
 
-use loco_rs::controller::middleware::auth::JWT;
+use loco_rs::controller::extractor::auth::JWT;
 
 #[debug_handler]
 async fn create_team(

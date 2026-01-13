@@ -1,5 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
-use loco_rs::controller::middleware::auth;
+use loco_rs::controller::extractor::auth;
 use loco_rs::prelude::*;
 use serde::{Deserialize, Serialize};
 
