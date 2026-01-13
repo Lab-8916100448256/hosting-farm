@@ -216,34 +216,37 @@ async fn login(
             redirect("/home", headers)
         }
         None => {
-            // ToDo : Use X-Oidc-* auth headers only if enabled by settings.app.oidc_auth
-            // ToDo : Add a user name field to user entity that would be the unique identifier instead of email, to support e-mail modification on OIDC side
-            // ToDo : Add a auth type field to user entity (or to session?) to disable local modification of identity related profile information when authenticated by OIDC, and link to IPM profile page for that (or use settings.app.oidc_auth, but in that case it would be all iodc or all local users?)
-            if let Some(oidc_email) = headers.get("X-Oidc-Email").and_then(|h| h.to_str().ok()) {
-                tracing::debug!("X-Oidc-Email = {}", oidc_email);
-                let user_result = users::Model::find_by_email(&ctx.db, oidc_email).await;
+            if is_oidc_auth(&ctx) {
+                // ToDo : Use X-Oidc-* auth headers only if enabled by settings.app.oidc_auth
+                // ToDo : Add a user name field to user entity that would be the unique identifier instead of email, to support e-mail modification on OIDC side
+                // ToDo : Add a auth type field to user entity (or to session?) to disable local modification of identity related profile information when authenticated by OIDC, and link to IPM profile page for that (or use settings.app.oidc_auth, but in that case it would be all iodc or all local users?)
+                if let Some(oidc_email) = headers.get("X-Oidc-Email").and_then(|h| h.to_str().ok())
+                {
+                    tracing::debug!("X-Oidc-Email = {}", oidc_email);
+                    let user_result = users::Model::find_by_email(&ctx.db, oidc_email).await;
 
-                match user_result {
-                    Ok(user) => {
-                        // Get JWT secret, handling potential error
-                        let jwt_secret = match ctx.config.get_jwt_config() {
-                            Ok(config) => config,
-                            Err(err) => {
-                                tracing::error!(
-                                    message = "Failed to get JWT configuration,",
-                                    error = err.to_string(),
-                                );
-                                // Use error_fragment for user-facing error
-                                return error_fragment(
-                                    &v,
-                                    "Log in failed: Server configuration error.",
-                                    "#error-container",
-                                );
-                            }
-                        };
+                    match user_result {
+                        Ok(user) => {
+                            // Get JWT secret, handling potential error
+                            let jwt_secret = match ctx.config.get_jwt_config() {
+                                Ok(config) => config,
+                                Err(err) => {
+                                    tracing::error!(
+                                        message = "Failed to get JWT configuration,",
+                                        error = err.to_string(),
+                                    );
+                                    // Use error_fragment for user-facing error
+                                    return error_fragment(
+                                        &v,
+                                        "Log in failed: Server configuration error.",
+                                        "#error-container",
+                                    );
+                                }
+                            };
 
-                        let token =
-                            match user.generate_jwt(&jwt_secret.secret, &jwt_secret.expiration) {
+                            let token = match user
+                                .generate_jwt(&jwt_secret.secret, &jwt_secret.expiration)
+                            {
                                 Ok(token) => token,
                                 Err(err) => {
                                     tracing::error!(
@@ -259,183 +262,197 @@ async fn login(
                                 }
                             };
 
-                        // Redirect to home with cookies
-                        let mut response = redirect("/home", headers.clone())?;
+                            // Redirect to home with cookies
+                            let mut response = redirect("/home", headers.clone())?;
 
-                        // Add Set-Cookie header for the auth token
-                        response.headers_mut().append(
-                            axum::http::header::SET_COOKIE,
-                            HeaderValue::from_str(&format!("auth_token={}; Path=/", token))?,
-                        );
+                            // Add Set-Cookie header for the auth token
+                            response.headers_mut().append(
+                                axum::http::header::SET_COOKIE,
+                                HeaderValue::from_str(&format!("auth_token={}; Path=/", token))?,
+                            );
 
-                        tracing::debug!(
-                            message = "User login from OIDC auth successful,",
-                            user_email = &oidc_email,
-                        );
-                        return Ok(response);
-                    }
-                    Err(_) => {
-                        tracing::debug!(
-                            message = "Unknown user login attempt,",
-                            user_email = &oidc_email,
-                        );
+                            tracing::debug!(
+                                message = "User login from OIDC auth successful,",
+                                user_email = &oidc_email,
+                            );
+                            return Ok(response);
+                        }
+                        Err(_) => {
+                            tracing::debug!(
+                                message = "Unknown user login attempt,",
+                                user_email = &oidc_email,
+                            );
 
-                        if let Some(oidc_name) = headers
-                            .get("X-Oidc-Displayname")
-                            .and_then(|h| h.to_str().ok())
-                        {
-                            tracing::debug!("X-Oidc-Displayname = {}", oidc_name);
+                            if let Some(oidc_name) = headers
+                                .get("X-Oidc-Displayname")
+                                .and_then(|h| h.to_str().ok())
+                            {
+                                tracing::debug!("X-Oidc-Displayname = {}", oidc_name);
 
-                            let random_password: String = (0..32)
-                                .map(|_| rand::rng().sample(Alphanumeric) as char)
-                                .collect();
+                                let random_password: String = (0..32)
+                                    .map(|_| rand::rng().sample(Alphanumeric) as char)
+                                    .collect();
 
-                            // Convert form data to RegisterParams, trimming the name
-                            let user_params = RegisterParams {
-                                name: oidc_name.trim().to_string(),
-                                email: oidc_email.trim().to_string(),
-                                password: random_password.clone(),
-                                password_confirmation: random_password.clone(),
-                            };
+                                // Convert form data to RegisterParams, trimming the name
+                                let user_params = RegisterParams {
+                                    name: oidc_name.trim().to_string(),
+                                    email: oidc_email.trim().to_string(),
+                                    password: random_password.clone(),
+                                    password_confirmation: random_password.clone(),
+                                };
 
-                            // Create user account
-                            let res =
-                                users::Model::create_with_password(&ctx.db, &user_params).await;
+                                // Create user account
+                                let res =
+                                    users::Model::create_with_password(&ctx.db, &user_params).await;
 
-                            match res {
-                                Ok(user) => {
-                                    // Auto-create admin team for the first user if needed
-                                    if let Err(e) =
-                                        user.create_admin_team_if_needed(&ctx.db, &ctx).await
-                                    {
-                                        tracing::error!(
-                                            error = ?e,
-                                            user_email = user.email,
-                                            "Failed to create administrators team during OIDC registration"
-                                        );
-                                        return error_page(
-                                            &v,
-                                            "Failed to create administrators team.",
-                                            Some(e.into()),
-                                        );
-                                    }
-
-                                    // Generate email verification token
-                                    match user
-                                        .clone()
-                                        .into_active_model()
-                                        .generate_email_verification_token(&ctx.db)
-                                        .await
-                                    {
-                                        Ok(user_with_token) => {
-                                            // Send verification email first
-                                            match AuthMailer::send_welcome(&ctx, &user_with_token)
-                                                .await
-                                            {
-                                                Ok(_) => {
-                                                    // Email sent successfully, now update verification status
-                                                    match user_with_token
-                                                        .clone()
-                                                        .into_active_model()
-                                                        .set_email_verification_sent(&ctx.db)
-                                                        .await
-                                                    {
-                                                        Ok(_) => {
-                                                            // All good, redirect to login page with success message
-                                                            return redirect(
-                                                                "/auth/login?registered=true",
-                                                                headers,
-                                                            );
-                                                        }
-                                                        Err(err) => {
-                                                            tracing::error!(
-                                                                message = "Failed to set email verification status after sending email",
-                                                                user_email = &user_with_token.email, // use user_with_token here
-                                                                error = err.to_string(),
-                                                            );
-                                                            // Although the email was sent, the DB update failed.
-                                                            // This is an internal error state, show error page.
-                                                            return error_page(
-                                                                &v,
-                                                                "Account registered, but failed to finalize setup. Please contact support.",
-                                                                Some(loco_rs::Error::Model(err)),
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                                Err(err) => {
-                                                    tracing::error!(
-                                                        message = "Failed to send welcome email",
-                                                        user_email = &user_with_token.email, // use user_with_token here
-                                                        error = err.to_string(),
-                                                    );
-                                                    // Don't proceed to update verification status if email failed.
-                                                    return error_page(
-                                                        &v,
-                                                        "Could not send welcome email.",
-                                                        Some(loco_rs::Error::wrap(err)),
-                                                    );
-                                                }
-                                            }
-                                        }
-                                        Err(err) => {
+                                match res {
+                                    Ok(user) => {
+                                        // Auto-create admin team for the first user if needed
+                                        if let Err(e) =
+                                            user.create_admin_team_if_needed(&ctx.db, &ctx).await
+                                        {
                                             tracing::error!(
-                                                message =
-                                                    "Failed to generate email verification token",
-                                                user_email = &user.email, // user is still available here from initial Ok(user)
-                                                error = err.to_string(),
+                                                error = ?e,
+                                                user_email = user.email,
+                                                "Failed to create administrators team during OIDC registration"
                                             );
-                                            // Error generating token after user creation.
-                                            // This is an internal error state, show error page.
                                             return error_page(
                                                 &v,
-                                                "Account registered, but failed to finalize setup. Please contact support.",
-                                                Some(loco_rs::Error::Model(err)),
+                                                "Failed to create administrators team.",
+                                                Some(e.into()),
                                             );
                                         }
-                                    }
-                                }
-                                Err(err) => {
-                                    // Log the specific error details
-                                    tracing::info!(
-                                        error = err.to_string(), // Log the actual error string
-                                        user_email = &user_params.email,
-                                        user_name = &user_params.name, // Also log the username attempt
-                                        "Could not register user",
-                                    );
 
-                                    // Handle specific ModelError variants
-                                    match err {
-                                        // Use the message directly from the ModelError for uniqueness errors
-                                        ModelError::Message(msg) => {
-                                            return error_fragment(&v, &msg, "#error-container");
+                                        // Generate email verification token
+                                        match user
+                                            .clone()
+                                            .into_active_model()
+                                            .generate_email_verification_token(&ctx.db)
+                                            .await
+                                        {
+                                            Ok(user_with_token) => {
+                                                // Send verification email first
+                                                match AuthMailer::send_welcome(
+                                                    &ctx,
+                                                    &user_with_token,
+                                                )
+                                                .await
+                                                {
+                                                    Ok(_) => {
+                                                        // Email sent successfully, now update verification status
+                                                        match user_with_token
+                                                            .clone()
+                                                            .into_active_model()
+                                                            .set_email_verification_sent(&ctx.db)
+                                                            .await
+                                                        {
+                                                            Ok(_) => {
+                                                                // All good, redirect to login page with success message
+                                                                return redirect(
+                                                                    "/auth/login?registered=true",
+                                                                    headers,
+                                                                );
+                                                            }
+                                                            Err(err) => {
+                                                                tracing::error!(
+                                                                    message = "Failed to set email verification status after sending email",
+                                                                    user_email =
+                                                                        &user_with_token.email, // use user_with_token here
+                                                                    error = err.to_string(),
+                                                                );
+                                                                // Although the email was sent, the DB update failed.
+                                                                // This is an internal error state, show error page.
+                                                                return error_page(
+                                                                    &v,
+                                                                    "Account registered, but failed to finalize setup. Please contact support.",
+                                                                    Some(loco_rs::Error::Model(
+                                                                        err,
+                                                                    )),
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(err) => {
+                                                        tracing::error!(
+                                                            message =
+                                                                "Failed to send welcome email",
+                                                            user_email = &user_with_token.email, // use user_with_token here
+                                                            error = err.to_string(),
+                                                        );
+                                                        // Don't proceed to update verification status if email failed.
+                                                        return error_page(
+                                                            &v,
+                                                            "Could not send welcome email.",
+                                                            Some(loco_rs::Error::wrap(err)),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            Err(err) => {
+                                                tracing::error!(
+                                                    message = "Failed to generate email verification token",
+                                                    user_email = &user.email, // user is still available here from initial Ok(user)
+                                                    error = err.to_string(),
+                                                );
+                                                // Error generating token after user creation.
+                                                // This is an internal error state, show error page.
+                                                return error_page(
+                                                    &v,
+                                                    "Account registered, but failed to finalize setup. Please contact support.",
+                                                    Some(loco_rs::Error::Model(err)),
+                                                );
+                                            }
                                         }
-                                        // Handle validation errors
-                                        ModelError::Validation(validation_err) => {
-                                            return error_fragment(
-                                                &v,
-                                                &format!("Validation error: {}", validation_err),
-                                                "#error-container",
-                                            );
-                                        }
-                                        // Handle other potential errors generically
-                                        _ => {
-                                            return error_fragment(
-                                                &v,
-                                                "Could not register account due to an unexpected error.",
-                                                "#error-container",
-                                            );
+                                    }
+                                    Err(err) => {
+                                        // Log the specific error details
+                                        tracing::info!(
+                                            error = err.to_string(), // Log the actual error string
+                                            user_email = &user_params.email,
+                                            user_name = &user_params.name, // Also log the username attempt
+                                            "Could not register user",
+                                        );
+
+                                        // Handle specific ModelError variants
+                                        match err {
+                                            // Use the message directly from the ModelError for uniqueness errors
+                                            ModelError::Message(msg) => {
+                                                return error_fragment(
+                                                    &v,
+                                                    &msg,
+                                                    "#error-container",
+                                                );
+                                            }
+                                            // Handle validation errors
+                                            ModelError::Validation(validation_err) => {
+                                                return error_fragment(
+                                                    &v,
+                                                    &format!(
+                                                        "Validation error: {}",
+                                                        validation_err
+                                                    ),
+                                                    "#error-container",
+                                                );
+                                            }
+                                            // Handle other potential errors generically
+                                            _ => {
+                                                return error_fragment(
+                                                    &v,
+                                                    "Could not register account due to an unexpected error.",
+                                                    "#error-container",
+                                                );
+                                            }
                                         }
                                     }
                                 }
+                            } else {
+                                tracing::info!("no X-Oidc-Displayname header found");
                             }
-                        } else {
-                            tracing::info!("no X-Oidc-Displayname header found");
                         }
                     }
+                } else {
+                    tracing::info!("no X-Oidc-Email header found");
                 }
-            } else {
-                tracing::info!("no X-Oidc-Email header found");
             }
 
             let registered = params.get("registered") == Some(&"true".to_string());
