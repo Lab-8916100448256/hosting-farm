@@ -1,13 +1,16 @@
 {
-  "name": "hosting-farm-cursor",
-  "version": "1.0.0",
+  "name": "hosting-farm",
+  "version": "0.1.15",
   "description": "A web application to manage a farm of self-hosting servers",
   "main": "index.js",
   "directories": {
     "doc": "doc",
     "test": "tests"
   },
-  "scripts": {},
+  "scripts": {
+    "assets:build": "tailwindcss -i ./assets/css/input.css -o ./assets/static/main.css",
+    "assets:watch": "tailwindcss -i ./assets/css/input.css -o ./assets/static/main.css --watch"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Lab-8916100448256/hosting-farm.git"
@@ -22,6 +25,9 @@
   "homepage": "https://github.com/Lab-8916100448256/hosting-farm#readme",
   "devDependencies": {
     "@playwright/test": "^1.52.0",
-    "@types/node": "^22.14.1"
+    "@types/node": "^22.14.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14"
   }
 }

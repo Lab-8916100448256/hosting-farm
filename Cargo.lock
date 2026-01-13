@@ -1947,7 +1947,7 @@ dependencies = [
 
 [[package]]
 name = "hosting-farm"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "async-trait",
  "axum",
@@ -2844,7 +2844,7 @@ checksum = "c797b9d6bb23aab2fc369c65f871be49214f5c759af65bde26ffaaa2b646b492"
 
 [[package]]
 name = "migration"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "async-std",
  "loco-rs",

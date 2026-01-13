@@ -1,23 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Hosting Farm{% endblock %}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/main.css">
     <link rel="icon" type="image/svg" href="/static/favicon.svg">
     <script src="/static/htmx.min.js"></script>
     <script src="/static/hyperscript.min.js"></script>
-    <style>
-        body {
-            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-        }
-        .selected {
-            background-color: #e5e7eb; /* Equivalent to Tailwind's bg-gray-200 */
-        }
-    </style>
     {% block head %}{% endblock %}
 </head>
+
 <body class="bg-gray-50 min-h-screen">
     <header class="bg-white shadow-sm relative z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -32,14 +26,17 @@
                     </div>
                     <nav class="ml-6 flex space-x-8">
                         {% if user %}
-                        <a href="/teams" class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'teams' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %}">
+                        <a href="/teams"
+                            class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'teams' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %}">
                             Teams
                         </a>
-                        <a href="/users/profile" class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'profile' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %}">
+                        <a href="/users/profile"
+                            class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'profile' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %}">
                             Profile
                         </a>
                         {% if is_app_admin %}
-                        <a href="/admin/users" class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'admin_users' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %}">
+                        <a href="/admin/users"
+                            class="inline-flex items-center px-1 pt-1 border-b-2 {% if active_page == 'admin_users' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %}">
                             Admin
                         </a>
                         {% endif %}
@@ -50,36 +47,46 @@
                     {% if user %}
                     <a href="/users/invitations" class="relative p-1 text-gray-500 hover:text-gray-700">
                         <span class="sr-only">Invitations</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                         </svg>
-                        <div id="invitation-count-badge" 
-                             hx-get="/users/invitations/count" 
-                             hx-trigger="updateInvitationCount from:body, every 30s" 
-                             hx-swap="innerHTML">
-                             {% include "users/_invitation_count_badge.html" %}
+                        <div id="invitation-count-badge" hx-get="/users/invitations/count"
+                            hx-trigger="updateInvitationCount from:body, every 30s" hx-swap="innerHTML">
+                            {% include "users/_invitation_count_badge.html" %}
                         </div>
                     </a>
 
                     <div class="ml-3 relative">
                         <!-- user menu button -->
                         <div>
-                            <button type="button" class="max-w-xs bg-white flex items-center text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" id="user-menu-button">
+                            <button type="button"
+                                class="max-w-xs bg-white flex items-center text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                id="user-menu-button">
                                 <span class="sr-only">Open user menu</span>
-                                <span class="inline-flex items-center justify-center h-8 w-8 rounded-full bg-indigo-100">
-                                    <span class="text-sm font-medium leading-none text-indigo-700">{{ user.name | slice(start=0, length=2) }}</span>
+                                <span
+                                    class="inline-flex items-center justify-center h-8 w-8 rounded-full bg-indigo-100">
+                                    <span class="text-sm font-medium leading-none text-indigo-700">{{ user.name |
+                                        slice(start=0, length=2) }}</span>
                                 </span>
                             </button>
                         </div>
                         <!-- user menu dropdown items -->
-                        <div class="hidden origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-50" role="menu" id="user-menu">
-                            <a href="/users/profile" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">Profile</a>
-                            <a href="/auth/logout" hx-post="/auth/logout" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">Logout</a>
+                        <div class="hidden origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-50"
+                            role="menu" id="user-menu">
+                            <a href="/users/profile" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                role="menuitem">Profile</a>
+                            <a href="/auth/logout" hx-post="/auth/logout"
+                                class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                role="menuitem">Logout</a>
                         </div>
                     </div>
                     {% else %}
                     <a href="/auth/login" class="text-gray-500 hover:text-gray-700">Log in</a>
-                    <a href="/auth/register" class="ml-4 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">Sign up</a>
+                    <a href="/auth/register"
+                        class="ml-4 px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">Sign
+                        up</a>
                     {% endif %}
                 </div>
             </div>
@@ -92,7 +99,7 @@
             {{ flash_message }}
         </div>
         {% endif %}
-        
+
         {% block content %}{% endblock %}
     </main>
 
@@ -109,15 +116,15 @@
         // Initialize menu toggle
         const menuButton = document.getElementById('user-menu-button');
         const menu = document.getElementById('user-menu');
-        
+
         if (menuButton && menu) {
-            menuButton.addEventListener('click', function(e) {
+            menuButton.addEventListener('click', function (e) {
                 e.stopPropagation();
                 menu.classList.toggle('hidden');
             });
 
             // Close the menu when clicking outside
-            document.addEventListener('click', function(e) {
+            document.addEventListener('click', function (e) {
                 if (!menu.contains(e.target) && !menuButton.contains(e.target)) {
                     menu.classList.add('hidden');
                 }
@@ -125,11 +132,12 @@
         }
 
         // Initialize HTMX
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             htmx.logAll(); // Enable HTMX logging for debugging
         });
     </script>
-    
+
     {% block script %}{% endblock %}
 </body>
-</html> 
+
+</html>

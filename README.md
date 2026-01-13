@@ -38,20 +38,30 @@ These instructions should also work for debian based Linux distribution like Ubu
    cargo install cargo-insta
    ```
 
-4. **Building the application**
+4. **Compiling CSS (Tailwind)**
+   The project uses Tailwind CSS with a build process. To compile the CSS, run:
+   ```bash
+   npm run assets:build
+   ```
+   For development, you can use the watch mode to automatically recompile when templates or Rust files change:
+   ```bash
+   npm run assets:watch
+   ```
+
+5. **Building the application**
    To build the application, run the following command :
    ```  
    cargo build
    ```
 
-5. **Running automated tests**  
+6. **Running automated tests**  
    To run unit tests, documentation tests and integration tests run the following command :  
    ```
    cargo test
    ```
    It will also build the application if it has not been already built or if the source code has changed since the last build.
 
-6. **Starting a development instance of the application**
+7. **Starting a development instance of the application**
    To run a development instance of the application, run the following command :
    ```
    cargo loco start
@@ -123,48 +133,4 @@ npx playwright codegen http://localhost:5151
 
 For more information on writing tests, check Playwright documentation : https://playwright.dev/docs/intro
 
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
+
